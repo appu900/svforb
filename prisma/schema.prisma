@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Region {
+  IN
+  US
+  AU
+}
+
+enum PlatformRole {
+  PLATFORM_ADMIN
+  ORG_USER
+  ORG_ADMIN
+}
+
+enum OrgRole {
+  SUPER_ADMIN
+  ORG_MEMBER
+  ORG_ADMIN
+}
+
+enum SiteRole {
+  SITE_ADMIN
+  STAFF
+}
+
+enum OrgType {
+  BUSINESS_SINGLE
+  BUSINESS_MULTI
+  CHARITY
+}
+
+enum VenueType {
+  CAFE_RESTAURANT
+  BAKERY
+  GROCERY_STORE
+  FOOD_TRUCK
+  CATERING_SERVICE
+  HOTEL
+  WEDDING_VENUE
+  CLOUD_KITCHEN
+  OTHER
+}
+
+enum BillingCycle {
+  MONTHLY
+  ANNUAL
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum StorageType {
+  NON_REFRIGERATED
+  REFRIGERATED
+  FROZEN
+}
+
+model User {
+  id           Int     @id @default(autoincrement())
+  firstName    String
+  lastName     String
+  email        String  @unique
+  passwordHash String
+  phoneNumber  String
+  region       Region?
+
+  platformRole PlatformRole @default(ORG_USER)
+
+  emailVerified     Boolean   @default(false)
+  emailverifyToken  String?
+  emailVerifyExpiry DateTime?
+
+  passwordResetToken  String?
+  passwordResetExpiry DateTime?
+
+  deviceToken String?
+  isActive    Boolean @default(true)
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  orgMemeberShips OrgMemeberShip[]
+  siteAccesses    siteAccess[]
+
+  @@index([email])
+  @@index([phoneNumber])
+  @@index([region])
+  @@map("users")
+}
+
+model TeamMember {
+  id     Int @id @default(autoincrement())
+  userId Int
+}
+
+model SubscriptionPlan {
+  id             Int            @id @default(autoincrement())
+  name           String         @unique
+  displayName    String
+  maxSites       Int
+  maxUserPerSite Int
+  priceMonthly   Float
+  priceAnnual    Float
+  features       String[]
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organisations  Organisation[]
+
+  @@map("subscription_plans")
+}
+
+model Organisation {
+  id                   Int                @id @default(autoincrement())
+  name                 String
+  organizationType     OrgType
+  region               Region?
+  registrationNumber   String?
+  address              String
+  brandName            String?
+  venueType            VenueType?
+  logoUrl              String?
+  subscriptionId       Int
+  subscription         SubscriptionPlan   @relation(fields: [subscriptionId], references: [id])
+  subscriptionStatus   SubscriptionStatus @default(TRIALING)
+  billingCycle         BillingCycle       @default(MONTHLY)
+  trialEndsAt          DateTime?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime?
+
+  latitude  Float?
+  longitude Float?
+
+  ratingAvg   Float @default(0)
+  ratingCount Int   @default(0)
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  orgMemeberShips OrgMemeberShip[]
+  siteAccesses    siteAccess[]
+
+  @@index([region])
+  @@index([organizationType])
+  @@index([subscriptionId])
+  @@map("organisations")
+}
+
+model Site {
+  id               Int     @id @default(autoincrement())
+  organisationId   Int
+  organisationName String
+  address          String
+  postcode         String?
+  contactName      String
+  contactEmail     String
+  contactMobile    String
+  latitude         Float?
+  longitude        Float?
+  isActive         Boolean @default(true)
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  siteAccesses siteAccess[]
+
+  @@index([organisationId])
+  @@map("sites")
+}
+
+model OrgMemeberShip {
+  id             Int          @id @default(autoincrement())
+  userId         Int
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  orgRole        OrgRole      @default(ORG_MEMBER)
+  joinedAt       DateTime     @default(now())
+
+  @@unique([userId, organisationId])
+  @@index([userId])
+  @@map("org_membership")
+}
+
+model siteAccess {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  siteId         Int
+  organisationId Int
+  siteRole       SiteRole @default(STAFF)
+  grantedAt      DateTime @default(now())
+  grantedBy      Int
+
+  user         User         @relation(fields: [userId], references: [id])
+  site         Site         @relation(fields: [siteId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([userId, siteId])
+  @@index([siteId, userId])
+  @@index([userId])
+  @@map("site_accesses")
+}

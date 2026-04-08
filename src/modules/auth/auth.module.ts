@@ -1,0 +1,28 @@
+import { Module } from '@nestjs/common';
+import { AuthService } from './service/auth.service';
+import { AuthCacheManager } from './cache/auth.cache.manager';
+import { PassportModule } from '@nestjs/passport';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { S3Module } from 'src/uploads/s3/s3.module';
+import { AuthController } from './auth.controller';
+import { JwtStrategy } from 'src/common/strategies/jwt.strategy';
+
+@Module({
+  imports: [
+    PassportModule.register({ defaultStrategy: 'jwt' }),
+    ConfigModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.get<string>('JWT_SECRET'),
+      }),
+    }),
+    S3Module,
+  ],
+  controllers: [AuthController],
+  providers: [AuthService, AuthCacheManager, JwtStrategy],
+  exports: [AuthService, JwtModule],
+})
+export class AuthModule {}

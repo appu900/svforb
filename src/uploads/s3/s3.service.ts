@@ -1,0 +1,55 @@
+import 'multer'
+import { Logger, Injectable, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
+import { randomUUID } from 'crypto';
+
+@Injectable()
+export class S3Service {
+  private readonly logger = new Logger();
+  private readonly bucket: string;
+  constructor(
+    @Inject('S3_CLIENT') private readonly s3Client: S3Client,
+    private readonly configService: ConfigService,
+  ) {
+    this.bucket =
+      this.configService.get<string>('AWS_S3_BUCKET') ?? 'default-bucket-name';
+  }
+
+  async uploadFile(file: Express.Multer.File, folder: string): Promise<string> {
+    const fileExt = file.originalname.split('.').pop();
+    const key = `${folder}/${randomUUID()}.${fileExt}`;
+
+    await this.s3Client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      }),
+    );
+
+    return `https://${this.bucket}.s3.${this.configService.get('AWS_REGION')}.amazonaws.com/${key}`;
+  }
+
+  async deleteFile(fileUrl: string): Promise<void> {
+    try {
+      const urlParts = fileUrl.split('/');
+      const key = urlParts.slice(3).join('/');
+
+      await this.s3Client.send(
+        new DeleteObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+        }),
+      );
+    } catch (error: any) {
+      this.logger.error(`Failed to delete file from S3: ${error.message}`);
+      throw error;
+    }
+  }
+}

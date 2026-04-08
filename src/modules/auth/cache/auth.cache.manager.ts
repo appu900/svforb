@@ -1,0 +1,54 @@
+import { Logger, Injectable } from '@nestjs/common';
+import { RedisService } from 'src/infra/redis/redis.service';
+
+const K = {
+  EMAIL_OTP: (email: string) => `auth:otp:email:${email}`,
+  RESET_TOKEN: (otp: string) => `auth:otp:reset:${otp}`,
+  REFRESH_TOKEN: (token: string) => `auth:refresh:${token}`,
+  TOKEN_BLACKLIST: (jti: string) => `auth:blacklist:${jti}`,
+  LOGIN_ATTEMPTS: (email: string) => `auth:login_attempts:${email}`,
+  USER_PROFILE: (userId: string) => `cache:user:${userId}`,
+  ORG_PLAN: (orgId: string) => `cache:org:plan:${orgId}`,
+} as const;
+
+const TTL = {
+  EMAIL_OTP: 10 * 60, // 10 min — matches OTP expiry
+  RESET_OTP: 60 * 60, // 1 hour
+  REFRESH_TOKEN: 7 * 24 * 60 * 60, // 7 days
+  BLACKLIST: 60 * 60, // 1 hour (matches JWT expiry)
+  LOGIN_ATTEMPTS: 15 * 60, // 15 min sliding window
+  USER_PROFILE: 5 * 60, // 5 min
+  ORG_PLAN: 10 * 60, // 10 min
+} as const;
+
+@Injectable()
+export class AuthCacheManager {
+  private readonly logger = new Logger(AuthCacheManager.name);
+  constructor(private readonly redisService: RedisService) {}
+
+  async storeEmailVerificationOtp(email: string, otp: string): Promise<void> {
+    return await this.redisService.set(K.EMAIL_OTP(email), otp, TTL.EMAIL_OTP);
+  }
+
+  async getEmailVerifyOtp(email: string): Promise<string | null> {
+    return await this.redisService.get(K.EMAIL_OTP(email));
+  }
+
+  async revokeEmailVerifyOtp(email: string): Promise<void> {
+    await this.redisService.del(K.EMAIL_OTP(email));
+  }
+
+
+  async incrementLoginattempts(email:string){
+    const key = K.LOGIN_ATTEMPTS(email)
+    const current = await this.redisService.get(key);
+    const next = current ? parseInt(current,10) + 1 : 1;
+    await this.redisService.set(key,next.toString(),TTL.LOGIN_ATTEMPTS)
+    return next;
+  }
+
+  async clearLoginAttempts(email:string){
+    const key = K.LOGIN_ATTEMPTS(email)
+    await this.redisService.del(key);
+  }
+}
