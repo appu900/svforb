@@ -7,6 +7,7 @@ import {
   EmailJobName,
   SendOtpPayload,
   SendPasswordResetPayload,
+  SendStaffInvitePayload,
   SendWelcomePayload,
 } from '../types/email.types';
 
@@ -37,6 +38,13 @@ export class EmailWorker extends WorkerHost {
       case EmailJobName.SEND_PASSWORD_RESET: {
         const { to, resetToken, name } = job.data as SendPasswordResetPayload;
         await this.mailerService.sendPasswordReset(to, resetToken, name);
+        break;
+      }
+
+      case EmailJobName.SEND_STAFF_INVITE: {
+        const { to, name, email, password, siteName, role } =
+          job.data as SendStaffInvitePayload;
+        await this.mailerService.sendStaffInvite(to, name, email, password, siteName, role);
         break;
       }
 

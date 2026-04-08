@@ -1,10 +1,10 @@
 import {
   IsEmail,
-  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  MinLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -28,13 +28,17 @@ export class CreateSiteDto {
 }
 
 export class AssignSiteManagerDto {
-  @IsInt()
-  @Type(() => Number)
-  userId!: number;
+  @IsString() @IsNotEmpty() firstName!: string;
+  @IsString() @IsNotEmpty() lastName!: string;
+  @IsEmail() email!: string;
+  @IsString() @MinLength(8) password!: string;
+  @IsString() @IsOptional() phoneNumber?: string;
 }
 
 export class AddStaffDto {
-  @IsInt()
-  @Type(() => Number)
-  userId!: number;
+  @IsString() @IsNotEmpty() firstName!: string;
+  @IsString() @IsNotEmpty() lastName!: string;
+  @IsEmail() email!: string;
+  @IsString() @MinLength(8) password!: string;
+  @IsString() @IsOptional() phoneNumber?: string;
 }

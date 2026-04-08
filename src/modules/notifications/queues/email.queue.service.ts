@@ -6,6 +6,7 @@ import {
   EmailJobName,
   SendOtpPayload,
   SendPasswordResetPayload,
+  SendStaffInvitePayload,
   SendWelcomePayload,
 } from '../types/email.types';
 
@@ -34,5 +35,9 @@ export class EmailQueueService {
       payload,
       JOB_OPTIONS,
     );
+  }
+
+  async sendStaffInvite(payload: SendStaffInvitePayload): Promise<void> {
+    await this.queue.add(EmailJobName.SEND_STAFF_INVITE, payload, JOB_OPTIONS);
   }
 }

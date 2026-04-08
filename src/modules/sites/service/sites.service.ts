@@ -1,19 +1,25 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { OrgRole, OrgType, SiteRole, SubscriptionStatus } from '@prisma/client';
+import { OrgRole, OrgType, PlatformRole, SiteRole, SubscriptionStatus } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { Jwtpayload } from 'src/modules/auth/interface/jwt.interface';
+import { EmailQueueService } from 'src/modules/notifications/queues/email.queue.service';
 import { AddStaffDto, AssignSiteManagerDto, CreateSiteDto } from '../dto/sites.dto';
 
 @Injectable()
 export class SitesService {
   private readonly logger = new Logger(SitesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailQueueService,
+  ) {}
 
   // ─── Create Site ──────────────────────────────────────────────────────────────
 
@@ -59,21 +65,172 @@ export class SitesService {
 
     return {
       message: 'Site created successfully',
-      site: {
-        id: site.id,
-        siteName: site.organisationName,
-        address: site.address,
-        postcode: site.postcode,
-        contactName: site.contactName,
-        contactEmail: site.contactEmail,
-        phoneNumber: site.contactMobile,
-        latitude: site.latitude,
-        longitude: site.longitude,
-        isActive: site.isActive,
-        createdAt: site.createdAt,
-      },
+      site: this.formatSite(site),
       sitesUsed: existingSiteCount + 1,
       sitesAllowed: maxSites,
+    };
+  }
+
+  // ─── Organisation Overview ────────────────────────────────────────────────────
+
+  async getOrganisationOverview(caller: Jwtpayload) {
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: caller.orgId },
+      include: { subscription: true },
+    });
+    if (!org) throw new NotFoundException('Organisation not found');
+
+    // SITE_ADMIN — return only their site + its staff
+    if (caller.orgRole !== OrgRole.SUPER_ADMIN) {
+      if (!caller.siteId) throw new ForbiddenException('No site assigned to your account');
+
+      const site = await this.prisma.site.findFirst({
+        where: { id: caller.siteId, organisationId: org.id },
+      });
+      if (!site) throw new NotFoundException('Site not found');
+
+      const staff = await this.prisma.siteAccess.findMany({
+        where: { siteId: caller.siteId, organisationId: org.id },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phoneNumber: true,
+              isActive: true,
+            },
+          },
+        },
+        orderBy: { grantedAt: 'asc' },
+      });
+
+      return {
+        role: caller.siteRole,
+        site: this.formatSite(site),
+        staff: staff.map((a) => ({
+          userId: a.userId,
+          siteRole: a.siteRole,
+          grantedAt: a.grantedAt,
+          user: a.user,
+        })),
+      };
+    }
+
+    // SUPER_ADMIN — return full org + all sites with their members
+    const sites = await this.prisma.site.findMany({
+      where: { organisationId: org.id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const siteIds = sites.map((s) => s.id);
+
+    const allAccesses = await this.prisma.siteAccess.findMany({
+      where: { siteId: { in: siteIds }, organisationId: org.id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phoneNumber: true,
+            isActive: true,
+          },
+        },
+      },
+      orderBy: { grantedAt: 'asc' },
+    });
+
+    // Group accesses by siteId
+    const accessBySite = new Map<number, typeof allAccesses>();
+    for (const access of allAccesses) {
+      const list = accessBySite.get(access.siteId) ?? [];
+      list.push(access);
+      accessBySite.set(access.siteId, list);
+    }
+
+    return {
+      organisation: {
+        id: org.id,
+        name: org.name,
+        type: org.organizationType,
+        address: org.address,
+        brandName: org.brandName,
+        logoUrl: org.logoUrl,
+        region: org.region,
+        registrationNumber: org.registrationNumber,
+        venueType: org.venueType,
+        createdAt: org.createdAt,
+      },
+      subscription: {
+        plan: org.subscription.displayName,
+        status: org.subscriptionStatus,
+        billingCycle: org.billingCycle,
+        maxSites: org.subscription.maxSites,
+        maxUsersPerSite: org.subscription.maxUserPerSite,
+        trialEndsAt: org.trialEndsAt,
+        currentPeriodEnd: org.currentPeriodEnd,
+      },
+      totalSites: sites.length,
+      sites: sites.map((s) => {
+        const members = accessBySite.get(s.id) ?? [];
+        return {
+          ...this.formatSite(s),
+          totalMembers: members.length,
+          managers: members
+            .filter((a) => a.siteRole === SiteRole.SITE_ADMIN)
+            .map((a) => ({ userId: a.userId, siteRole: a.siteRole, grantedAt: a.grantedAt, user: a.user })),
+          staff: members
+            .filter((a) => a.siteRole === SiteRole.STAFF)
+            .map((a) => ({ userId: a.userId, siteRole: a.siteRole, grantedAt: a.grantedAt, user: a.user })),
+        };
+      }),
+    };
+  }
+
+  // ─── Site Details ─────────────────────────────────────────────────────────────
+
+  async getSiteDetails(caller: Jwtpayload, siteId: number) {
+    const site = await this.assertSiteInOrg(siteId, caller.orgId!);
+    this.assertSiteAccess(caller, siteId);
+
+    const accesses = await this.prisma.siteAccess.findMany({
+      where: { siteId, organisationId: caller.orgId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phoneNumber: true,
+            isActive: true,
+          },
+        },
+      },
+      orderBy: { grantedAt: 'asc' },
+    });
+
+    const managers = accesses.filter((a) => a.siteRole === SiteRole.SITE_ADMIN);
+    const staff = accesses.filter((a) => a.siteRole === SiteRole.STAFF);
+
+    return {
+      site: this.formatSite(site),
+      totalMembers: accesses.length,
+      managers: managers.map((a) => ({
+        userId: a.userId,
+        siteRole: a.siteRole,
+        grantedAt: a.grantedAt,
+        user: a.user,
+      })),
+      staff: staff.map((a) => ({
+        userId: a.userId,
+        siteRole: a.siteRole,
+        grantedAt: a.grantedAt,
+        user: a.user,
+      })),
     };
   }
 
@@ -113,8 +270,8 @@ export class SitesService {
 
   async assignSiteManager(caller: Jwtpayload, siteId: number, dto: AssignSiteManagerDto) {
     this.assertSuperAdmin(caller);
-    await this.assertSiteInOrg(siteId, caller.orgId!);
-    await this.assertOrgMember(dto.userId, caller.orgId!);
+
+    const site = await this.assertSiteInOrg(siteId, caller.orgId!);
 
     const org = await this.prisma.organisation.findUnique({
       where: { id: caller.orgId },
@@ -125,16 +282,12 @@ export class SitesService {
     this.assertActiveSubscription(org.subscriptionStatus);
     await this.assertUserLimitNotExceeded(siteId, org.subscription.maxUserPerSite);
 
-    // Reactivate user in case they were previously deactivated
-    await this.prisma.user.update({
-      where: { id: dto.userId },
-      data: { isActive: true },
-    });
+    const { user, isNewUser } = await this.findOrCreateOrgUser(dto, caller.orgId!);
 
     const access = await this.prisma.siteAccess.upsert({
-      where: { userId_siteId: { userId: dto.userId, siteId } },
+      where: { userId_siteId: { userId: user.id, siteId } },
       create: {
-        userId: dto.userId,
+        userId: user.id,
         siteId,
         organisationId: caller.orgId!,
         siteRole: SiteRole.SITE_ADMIN,
@@ -146,17 +299,36 @@ export class SitesService {
       },
     });
 
+    if (isNewUser) {
+      await this.emailService.sendStaffInvite({
+        to: dto.email,
+        name: dto.firstName,
+        email: dto.email,
+        password: dto.password,
+        siteName: site.organisationName,
+        role: 'Site Manager',
+      });
+    }
+
     this.logger.log(
-      `Site manager assigned: userId=${dto.userId} siteId=${siteId} by super_admin=${caller.sub}`,
+      `Site manager assigned: userId=${user.id} siteId=${siteId} by super_admin=${caller.sub}`,
     );
 
     return {
-      message: 'Site manager assigned successfully',
+      message: isNewUser
+        ? 'Site manager created and assigned. Login credentials sent via email.'
+        : 'Existing user assigned as site manager.',
       siteAccess: {
         userId: access.userId,
         siteId: access.siteId,
         siteRole: access.siteRole,
         grantedAt: access.grantedAt,
+      },
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
       },
     };
   }
@@ -165,8 +337,8 @@ export class SitesService {
 
   async addStaff(caller: Jwtpayload, siteId: number, dto: AddStaffDto) {
     this.assertSiteAccess(caller, siteId);
-    await this.assertSiteInOrg(siteId, caller.orgId!);
-    await this.assertOrgMember(dto.userId, caller.orgId!);
+
+    const site = await this.assertSiteInOrg(siteId, caller.orgId!);
 
     const org = await this.prisma.organisation.findUnique({
       where: { id: caller.orgId },
@@ -177,16 +349,12 @@ export class SitesService {
     this.assertActiveSubscription(org.subscriptionStatus);
     await this.assertUserLimitNotExceeded(siteId, org.subscription.maxUserPerSite);
 
-    // Reactivate user in case they were previously deactivated
-    await this.prisma.user.update({
-      where: { id: dto.userId },
-      data: { isActive: true },
-    });
+    const { user, isNewUser } = await this.findOrCreateOrgUser(dto, caller.orgId!);
 
     const access = await this.prisma.siteAccess.upsert({
-      where: { userId_siteId: { userId: dto.userId, siteId } },
+      where: { userId_siteId: { userId: user.id, siteId } },
       create: {
-        userId: dto.userId,
+        userId: user.id,
         siteId,
         organisationId: caller.orgId!,
         siteRole: SiteRole.STAFF,
@@ -198,15 +366,34 @@ export class SitesService {
       },
     });
 
-    this.logger.log(`Staff added: userId=${dto.userId} siteId=${siteId} by=${caller.sub}`);
+    if (isNewUser) {
+      await this.emailService.sendStaffInvite({
+        to: dto.email,
+        name: dto.firstName,
+        email: dto.email,
+        password: dto.password,
+        siteName: site.organisationName,
+        role: 'Staff',
+      });
+    }
+
+    this.logger.log(`Staff added: userId=${user.id} siteId=${siteId} by=${caller.sub}`);
 
     return {
-      message: 'Staff member added successfully',
+      message: isNewUser
+        ? 'Staff member created and added. Login credentials sent via email.'
+        : 'Existing user added as staff.',
       siteAccess: {
         userId: access.userId,
         siteId: access.siteId,
         siteRole: access.siteRole,
         grantedAt: access.grantedAt,
+      },
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
       },
     };
   }
@@ -253,7 +440,6 @@ export class SitesService {
     });
     if (!access) throw new NotFoundException('This user does not have access to this site');
 
-    // Site admins/managers cannot remove another site admin — only super admin can
     if (
       access.siteRole === SiteRole.SITE_ADMIN &&
       caller.orgRole !== OrgRole.SUPER_ADMIN
@@ -261,17 +447,14 @@ export class SitesService {
       throw new ForbiddenException('Only super admins can remove a site manager');
     }
 
-    // Remove the site access
     await this.prisma.siteAccess.delete({
       where: { userId_siteId: { userId: targetUserId, siteId } },
     });
 
-    // Check if the user has any remaining site accesses in this organisation
     const remainingAccesses = await this.prisma.siteAccess.count({
       where: { userId: targetUserId, organisationId: caller.orgId },
     });
 
-    // If no remaining accesses, deactivate the account — they cannot log in
     if (remainingAccesses === 0) {
       await this.prisma.user.update({
         where: { id: targetUserId },
@@ -293,6 +476,65 @@ export class SitesService {
           : 'Access removed from site.',
       userDeactivated: remainingAccesses === 0,
     };
+  }
+
+  // ─── Private: find existing user or create new one ────────────────────────────
+
+  private async findOrCreateOrgUser(
+    dto: { firstName: string; lastName: string; email: string; password: string; phoneNumber?: string },
+    orgId: number,
+  ): Promise<{ user: { id: number; firstName: string; lastName: string; email: string }; isNewUser: boolean }> {
+    const existing = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
+    });
+
+    if (existing) {
+      // Ensure they belong to this org
+      const membership = await this.prisma.orgMemeberShip.findFirst({
+        where: { userId: existing.id, organisationId: orgId },
+      });
+      if (!membership) {
+        throw new ConflictException(
+          'A user with this email already exists but is not a member of your organisation',
+        );
+      }
+      // Reactivate in case they were previously deactivated
+      await this.prisma.user.update({
+        where: { id: existing.id },
+        data: { isActive: true },
+      });
+      return { user: existing, isNewUser: false };
+    }
+
+    // Create user + org membership in a transaction
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          email: dto.email.toLowerCase(),
+          passwordHash,
+          phoneNumber: dto.phoneNumber ?? '',
+          platformRole: PlatformRole.ORG_USER,
+          emailVerified: true, // admin-created accounts skip email verification
+          isActive: true,
+        },
+      });
+
+      await tx.orgMemeberShip.create({
+        data: {
+          userId: user.id,
+          organisationId: orgId,
+          orgRole: OrgRole.ORG_MEMBER,
+        },
+      });
+
+      return user;
+    });
+
+    return { user: result, isNewUser: true };
   }
 
   // ─── Private Helpers ──────────────────────────────────────────────────────────
@@ -347,10 +589,6 @@ export class SitesService {
     }
   }
 
-  /**
-   * SUPER_ADMIN can access any site in their org.
-   * SITE_ADMIN can only access the site stored in their JWT.
-   */
   private assertSiteAccess(caller: Jwtpayload, siteId: number) {
     if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
     if (caller.siteRole === SiteRole.SITE_ADMIN && caller.siteId === siteId) return;
@@ -363,16 +601,6 @@ export class SitesService {
     });
     if (!site) throw new NotFoundException('Site not found in your organisation');
     return site;
-  }
-
-  private async assertOrgMember(userId: number, orgId: number) {
-    const membership = await this.prisma.orgMemeberShip.findFirst({
-      where: { userId, organisationId: orgId },
-    });
-    if (!membership) {
-      throw new ForbiddenException('Target user is not a member of your organisation');
-    }
-    return membership;
   }
 
   private async assertUserLimitNotExceeded(siteId: number, maxUsersPerSite: number) {

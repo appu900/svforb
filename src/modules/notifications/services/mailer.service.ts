@@ -62,6 +62,34 @@ export class MailerService {
     });
   }
 
+  async sendStaffInvite(
+    to: string,
+    name: string,
+    email: string,
+    password: string,
+    siteName: string,
+    role: string,
+  ): Promise<void> {
+    await this.sendMail({
+      to,
+      subject: `You've been added to ${siteName}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+          <h2 style="color:#333;">You've been added to ${siteName}</h2>
+          <p>Hello <strong>${name}</strong>,</p>
+          <p>You have been added to <strong>${siteName}</strong> as a <strong>${role}</strong>.</p>
+          <p>Use the credentials below to log in:</p>
+          <div style="background:#f4f4f4;padding:24px;border-radius:8px;margin:24px 0;">
+            <p style="margin:0 0 8px;"><strong>Email:</strong> ${email}</p>
+            <p style="margin:0;"><strong>Password:</strong> ${password}</p>
+          </div>
+          <p style="color:#e53e3e;font-size:13px;">For your security, please change your password after logging in for the first time.</p>
+          <p style="color:#888;font-size:13px;">If you did not expect this invitation, please contact your organisation admin.</p>
+        </div>
+      `,
+    });
+  }
+
   async sendPasswordReset(
     to: string,
     resetToken: string,
