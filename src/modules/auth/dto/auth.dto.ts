@@ -72,7 +72,8 @@ export class ForgotPasswordDto {
 }
 
 export class ResetPasswordDto {
-  @IsString() @IsNotEmpty() token!: string;
+  @IsEmail() email!: string;
+  @IsString() @IsNotEmpty() otp!: string;
   @IsString() @MinLength(8) newPassword!: string;
 }
 

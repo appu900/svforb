@@ -92,26 +92,21 @@ export class MailerService {
 
   async sendPasswordReset(
     to: string,
-    resetToken: string,
+    otp: string,
     name?: string,
   ): Promise<void> {
-    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
-    const resetUrl = `${appUrl}/reset-password?token=${resetToken}`;
-
     await this.sendMail({
       to,
-      subject: 'Password Reset Request',
+      subject: 'Password Reset Code',
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
           <h2 style="color:#333;">Password Reset</h2>
           <p>${name ? `Hello <strong>${name}</strong>,` : 'Hello,'}</p>
-          <p>Click the button below to reset your password. This link expires in <strong>1 hour</strong>.</p>
-          <div style="text-align:center;margin:32px 0;">
-            <a href="${resetUrl}"
-               style="background:#007bff;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-size:16px;">
-              Reset Password
-            </a>
+          <p>Use the code below to reset your password:</p>
+          <div style="background:#f4f4f4;padding:24px;text-align:center;border-radius:8px;margin:24px 0;">
+            <h1 style="letter-spacing:12px;color:#1a1a1a;margin:0;">${otp}</h1>
           </div>
+          <p>This code expires in <strong>1 hour</strong>.</p>
           <p style="color:#888;font-size:13px;">If you did not request a password reset, you can safely ignore this email.</p>
         </div>
       `,

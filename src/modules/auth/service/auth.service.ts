@@ -9,10 +9,12 @@ import {
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { AuthCacheManager } from '../cache/auth.cache.manager';
 import {
+  ForgotPasswordDto,
   LoginDto,
   RegisterBusinessDto,
   RegisterCharityDto,
   RegisterPlatformAdminDto,
+  ResetPasswordDto,
   VerifyEmailOtpDto,
 } from '../dto/auth.dto';
 import {
@@ -542,6 +544,54 @@ export class AuthService {
         grantedAt: sa.grantedAt,
       })),
     };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
+    });
+
+    // Always return success to avoid leaking whether the email exists
+    if (!user || !user.isActive) {
+      return { message: 'If that email is registered, a reset code has been sent.' };
+    }
+
+    const otp = GenerateOtp();
+    await this.authCacheManaher.storePasswordResetOtp(dto.email.toLowerCase(), otp);
+
+    await this.emailService.sendPasswordReset({
+      to: dto.email,
+      resetToken: otp,
+      name: user.firstName,
+    });
+
+    this.logger.log(`Password reset OTP sent: ${dto.email}`);
+    return { message: 'If that email is registered, a reset code has been sent.' };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const cachedOtp = await this.authCacheManaher.getPasswordResetOtp(
+      dto.email.toLowerCase(),
+    );
+
+    if (!cachedOtp) {
+      throw new BadRequestException('Reset code has expired. Please request a new one.');
+    }
+    if (cachedOtp !== dto.otp) {
+      throw new BadRequestException('Invalid reset code.');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+
+    await this.prisma.user.update({
+      where: { email: dto.email.toLowerCase() },
+      data: { passwordHash },
+    });
+
+    await this.authCacheManaher.revokePasswordResetOtp(dto.email.toLowerCase());
+
+    this.logger.log(`Password reset successful: ${dto.email}`);
+    return { message: 'Password has been reset successfully. You can now log in.' };
   }
 
   private async assertEmailUnique(email: string) {

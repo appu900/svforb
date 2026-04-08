@@ -11,10 +11,12 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthService } from './service/auth.service';
 import {
+  ForgotPasswordDto,
   LoginDto,
   RegisterBusinessDto,
   RegisterCharityDto,
   RegisterPlatformAdminDto,
+  ResetPasswordDto,
   VerifyEmailOtpDto,
 } from './dto/auth.dto';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
@@ -62,5 +64,15 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   getProfile(@Req() req: Request & { user: Jwtpayload }) {
     return this.authService.getProfile(req.user.sub);
+  }
+
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 }

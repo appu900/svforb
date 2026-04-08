@@ -51,4 +51,16 @@ export class AuthCacheManager {
     const key = K.LOGIN_ATTEMPTS(email)
     await this.redisService.del(key);
   }
+
+  async storePasswordResetOtp(email: string, otp: string): Promise<void> {
+    await this.redisService.set(K.RESET_TOKEN(email), otp, TTL.RESET_OTP);
+  }
+
+  async getPasswordResetOtp(email: string): Promise<string | null> {
+    return this.redisService.get(K.RESET_TOKEN(email));
+  }
+
+  async revokePasswordResetOtp(email: string): Promise<void> {
+    await this.redisService.del(K.RESET_TOKEN(email));
+  }
 }
