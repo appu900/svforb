@@ -66,6 +66,21 @@ enum StorageType {
   FROZEN
 }
 
+enum ListingStatus {
+  ACTIVE
+  PARTIAL
+  CLAIMED
+  EXPIRED
+  CANCELLED
+}
+
+enum ClaimStatus {
+  PENDING
+  CONFIRMED
+  COLLECTED
+  CANCELLED
+}
+
 model User {
   id           Int     @id @default(autoincrement())
   firstName    String
@@ -145,10 +160,17 @@ model Organisation {
   ratingAvg   Float @default(0)
   ratingCount Int   @default(0)
 
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  orgMemeberShips OrgMemeberShip[]
-  siteAccesses    siteAccess[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  orgMemeberShips           OrgMemeberShip[]
+  siteAccesses              siteAccess[]
+  charityPickupPrefs        CharityPickupPrefs?
+  foodListings              FoodListing[]
+  foodClaims                FoodClaim[]                @relation("CharityClaims")
+  listingActivities         ListingActivity[]
+  sportedByCharitiesup RestaurantCharitySupport[] @relation("RestaurantSupport")
+  restaurantsSupported RestaurantCharitySupport[] @relation("CharitySupport")
+  
 
   @@index([region])
   @@index([organizationType])
@@ -169,9 +191,10 @@ model Site {
   longitude        Float?
   isActive         Boolean @default(true)
 
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   siteAccesses siteAccess[]
+  foodListings FoodListing[]
 
   @@index([organisationId])
   @@map("sites")
@@ -208,4 +231,123 @@ model siteAccess {
   @@index([siteId, userId])
   @@index([userId])
   @@map("site_accesses")
+}
+
+model CharityPickupPrefs {
+  id             Int          @id @default(autoincrement())
+  organisationId Int          @unique
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  radiusKm       Int          @default(5)
+  postCode       String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@map("charity_pickup_prefs")
+}
+
+model FoodListing {
+  id             Int          @id @default(autoincrement())
+  siteId         Int
+  site           Site         @relation(fields: [siteId], references: [id])
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  foodItems      Json
+  totalQtyKg     Float
+  remainingQtyKg Float
+
+  pickupAddress  String
+  pickupPostcode String?
+  pickupLat      Float
+  pickupLng      Float
+
+  bestBefore     DateTime
+  pickupFromTime DateTime?
+  pickupByTime   DateTime?
+
+  needsRefrigeration Boolean @default(false)
+  needsReheating     Boolean @default(false)
+  containsAllergens  Boolean @default(false)
+  isGlutenFree       Boolean @default(false)
+  isSafeForDonation  Boolean @default(true)
+
+  photoUrls String[]      @default([])
+  status    ListingStatus @default(ACTIVE)
+
+  relistOfId   Int?
+  relistOf     FoodListing?  @relation("RelistChain", fields: [relistOfId], references: [id])
+  foodListings FoodListing[] @relation("RelistChain")
+
+  uniqueCharityCount Int @default(0)
+
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  foodClaims        FoodClaim[]
+  listingActivities ListingActivity[]
+
+  @@index([siteId])
+  @@index([organisationId])
+  @@index([status])
+  @@index([bestBefore])
+  @@index([pickupPostcode])
+  @@map("food_listings")
+}
+
+model FoodClaim {
+  id           Int          @id @default(autoincrement())
+  listingId    Int
+  listing      FoodListing  @relation(fields: [listingId], references: [id])
+  charityOrgId Int
+  chairtyOrg   Organisation @relation("CharityClaims", fields: [charityOrgId], references: [id])
+  claimedItems Json
+  claimedQtyKg Float
+  isFullClaim  Boolean      @default(false)
+  status       ClaimStatus  @default(PENDING)
+
+  rating     Int?
+  ratingNote String?
+
+  collectedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([listingId])
+  @@index([charityOrgId])
+  @@index([status])
+  @@map("food_claims")
+}
+
+model ListingActivity {
+  id         Int          @id @default(autoincrement())
+  listingId  Int
+  listing    FoodListing  @relation(fields: [listingId], references: [id])
+  actorOrgId Int
+  actorOrg   Organisation @relation(fields: [actorOrgId], references: [id])
+  eventType  String
+  message    String
+  qtyKg      Float?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([listingId])
+  @@index([actorOrgId])
+  @@index([createdAt])
+  @@map("listing_activity")
+}
+
+model RestaurantCharitySupport {
+  id              Int          @id @default(autoincrement())
+  restaurantOrgId Int
+  restaurantOrg   Organisation @relation("RestaurantSupport", fields: [restaurantOrgId], references: [id])
+  charityOrgId    Int
+  charityOrg      Organisation @relation("CharitySupport", fields: [charityOrgId], references: [id])
+
+  firstClaimedAt DateTime @default(now())
+  lastClaimedAt  DateTime @default(now())
+
+  totalClaimsCount Int @default(1)
+
+  @@unique([restaurantOrgId, charityOrgId])
+  @@index([restaurantOrgId])
+  @@index([charityOrgId])
+  @@map("restaurant_charity_support")
 }

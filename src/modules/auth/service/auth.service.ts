@@ -213,6 +213,15 @@ export class AuthService {
           orgRole: OrgRole.SUPER_ADMIN,
         },
       });
+
+      await tx.charityPickupPrefs.create({
+        data: {
+          organisationId: org.id,
+          postCode: dto.pickupPostCode,
+          radiusKm: dto.pickupRadiusKm ?? 5,
+        },
+      });
+
       return { user, org };
     });
 

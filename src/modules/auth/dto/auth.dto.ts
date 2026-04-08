@@ -43,10 +43,18 @@ export class RegisterCharityDto {
   @IsString() @IsNotEmpty() charityName!: string;
   @IsString() @IsNotEmpty() charityAddress!: string;
   @IsString() @IsOptional() registrationNumber?: string;
-  @IsString() @IsOptional() brandName?:string;
+  @IsString() @IsOptional() brandName?: string;
   @IsEnum(Region) region?: Region;
-  @IsOptional() latitude?: number;
-  @IsOptional() longitude?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() latitude!: number;
+  @IsOptional() @Type(() => Number) @IsNumber() longitude!: number;
+
+  // Pickup preferences
+  @IsString() @IsNotEmpty() pickupPostCode!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  pickupRadiusKm?: number;
 }
 
 export class LoginDto {
