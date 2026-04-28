@@ -27,12 +27,15 @@ enum OrgRole {
 enum SiteRole {
   SITE_ADMIN
   STAFF
+  DRIVER
 }
 
 enum OrgType {
   BUSINESS_SINGLE
   BUSINESS_MULTI
   CHARITY
+  CHARITY_SINGLE
+  CHARITY_MULTI
 }
 
 enum VenueType {
@@ -160,17 +163,16 @@ model Organisation {
   ratingAvg   Float @default(0)
   ratingCount Int   @default(0)
 
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  orgMemeberShips           OrgMemeberShip[]
-  siteAccesses              siteAccess[]
-  charityPickupPrefs        CharityPickupPrefs?
-  foodListings              FoodListing[]
-  foodClaims                FoodClaim[]                @relation("CharityClaims")
-  listingActivities         ListingActivity[]
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  orgMemeberShips      OrgMemeberShip[]
+  siteAccesses         siteAccess[]
+  charityPickupPrefs   CharityPickupPrefs?
+  foodListings         FoodListing[]
+  foodClaims           FoodClaim[]                @relation("CharityClaims")
+  listingActivities    ListingActivity[]
   sportedByCharitiesup RestaurantCharitySupport[] @relation("RestaurantSupport")
   restaurantsSupported RestaurantCharitySupport[] @relation("CharitySupport")
-  
 
   @@index([region])
   @@index([organizationType])
@@ -190,6 +192,7 @@ model Site {
   latitude         Float?
   longitude        Float?
   isActive         Boolean @default(true)
+  pickupRadiusKm   Int?
 
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -215,13 +218,14 @@ model OrgMemeberShip {
 }
 
 model siteAccess {
-  id             Int      @id @default(autoincrement())
-  userId         Int
-  siteId         Int
-  organisationId Int
-  siteRole       SiteRole @default(STAFF)
-  grantedAt      DateTime @default(now())
-  grantedBy      Int
+  id                      Int      @id @default(autoincrement())
+  userId                  Int
+  siteId                  Int
+  organisationId          Int
+  siteRole                SiteRole @default(STAFF)
+  grantedAt               DateTime @default(now())
+  grantedBy               Int
+  canClaimPickupsDirectly Boolean  @default(false)
 
   user         User         @relation(fields: [userId], references: [id])
   site         Site         @relation(fields: [siteId], references: [id])

@@ -165,6 +165,17 @@ export class AuthService {
   }
 
   async registerCharity(dto: RegisterCharityDto, logo?: Express.Multer.File) {
+    if (
+      dto.charityType !== OrgType.CHARITY_SINGLE &&
+      dto.charityType !== OrgType.CHARITY_MULTI
+    ) {
+      throw new BadRequestException('charityType must be CHARITY_SINGLE or CHARITY_MULTI');
+    }
+
+    if (dto.charityType === OrgType.CHARITY_SINGLE && !dto.pickupPostCode) {
+      throw new BadRequestException('pickupPostCode is required for single-location charities');
+    }
+
     await this.assertEmailUnique(dto.email);
     const trialPlan = await this.prisma.subscriptionPlan.findFirst({
       where: { name: 'FREE_TRIAL', isActive: true },
@@ -174,27 +185,25 @@ export class AuthService {
 
     let uploadedLogoUrl = '';
     if (logo) {
-      uploadedLogoUrl = await this.s3.uploadFile(
-        logo,
-        this.IMAGE_UPLOAD_FILE_NAME,
-      );
+      uploadedLogoUrl = await this.s3.uploadFile(logo, this.IMAGE_UPLOAD_FILE_NAME);
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const user = await this.prisma.user.create({
+      const user = await tx.user.create({
         data: {
           firstName: dto.firstName,
           lastName: dto.lastName,
-          email: dto.email,
+          email: dto.email.toLowerCase(),
           passwordHash,
           phoneNumber: dto.mobile ?? '',
           platformRole: PlatformRole.ORG_USER,
         },
       });
+
       const org = await tx.organisation.create({
         data: {
           name: dto.charityName,
-          organizationType: OrgType.CHARITY,
+          organizationType: dto.charityType,
           address: dto.charityAddress,
           registrationNumber: dto.registrationNumber,
           brandName: dto.brandName,
@@ -206,6 +215,7 @@ export class AuthService {
           logoUrl: uploadedLogoUrl,
         },
       });
+
       await tx.orgMemeberShip.create({
         data: {
           userId: user.id,
@@ -214,23 +224,54 @@ export class AuthService {
         },
       });
 
-      await tx.charityPickupPrefs.create({
-        data: {
-          organisationId: org.id,
-          postCode: dto.pickupPostCode,
-          radiusKm: dto.pickupRadiusKm ?? 5,
-        },
-      });
+      if (dto.charityType === OrgType.CHARITY_SINGLE) {
+        const site = await tx.site.create({
+          data: {
+            organisationId: org.id,
+            organisationName: dto.charityName,
+            address: dto.charityAddress,
+            postcode: dto.pickupPostCode ?? '',
+            contactName: `${dto.firstName} ${dto.lastName}`,
+            contactEmail: dto.email.toLowerCase(),
+            contactMobile: dto.mobile ?? '',
+            latitude: dto.latitude,
+            longitude: dto.longitude,
+            pickupRadiusKm: dto.pickupRadiusKm ?? 5,
+          },
+        });
+
+        await tx.siteAccess.create({
+          data: {
+            userId: user.id,
+            siteId: site.id,
+            organisationId: org.id,
+            siteRole: SiteRole.SITE_ADMIN,
+            grantedBy: user.id,
+          },
+        });
+
+        await tx.charityPickupPrefs.create({
+          data: {
+            organisationId: org.id,
+            postCode: dto.pickupPostCode!,
+            radiusKm: dto.pickupRadiusKm ?? 5,
+          },
+        });
+      }
 
       return { user, org };
     });
 
     await this.emailService.sendOtp({
-      to:dto.email,
-      otp:otp.toString(),
-      name:dto.firstName
-    })
+      to: dto.email,
+      otp: otp.toString(),
+      name: dto.firstName,
+    });
     await this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp);
+
+    this.logger.log(
+      `Charity registered: ${dto.email} type=${dto.charityType} org=${result.org.name}`,
+    );
 
     return {
       message: 'Account created, check your inbox to verify your email',

@@ -8,6 +8,7 @@ import { NotificationModule } from './modules/notifications/notification.module'
 import { AuthModule } from './modules/auth/auth.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { SitesModule } from './modules/sites/sites.module';
+import { CharityModule } from './modules/charity/charity.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { SitesModule } from './modules/sites/sites.module';
     AuthModule,
     SubscriptionsModule,
     SitesModule,
+    CharityModule,
   ],
   controllers: [AppController],
   providers: [AppService],

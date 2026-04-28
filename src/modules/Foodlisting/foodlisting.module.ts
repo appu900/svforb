@@ -1,12 +1,8 @@
-import { Module,Global } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import { Module, Injectable } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { EMAIL_QUEUE } from './types/email.types';
-import { MailerService } from './services/mailer.service';
-import { EmailQueueService } from './queues/email.queue.service';
-import { EmailWorker } from './workers/email.worker';
+import { FOOD_LISTING_QUEUE } from './types/queue.types';
 
-@Global()
 @Module({
   imports: [
     BullModule.forRootAsync({
@@ -14,7 +10,6 @@ import { EmailWorker } from './workers/email.worker';
       useFactory: (config: ConfigService) => {
         const url = config.get<string>('REDIS_URL');
         const tls = config.get<string>('REDIS_TLS') === 'true';
-
         return {
           connection: url
             ? { url, ...(tls ? { tls: {} } : {}) }
@@ -27,11 +22,12 @@ import { EmailWorker } from './workers/email.worker';
               },
         };
       },
-      inject: [ConfigService],
+      inject:[ConfigService],
     }),
-    BullModule.registerQueue({ name: EMAIL_QUEUE }),
+    BullModule.registerQueue({name:FOOD_LISTING_QUEUE})
   ],
-  providers: [MailerService, EmailQueueService, EmailWorker],
-  exports: [EmailQueueService],
+  controllers: [],
+  providers: [],
+  exports: [],
 })
-export class NotificationModule {}
+export class FoodListingModule {}

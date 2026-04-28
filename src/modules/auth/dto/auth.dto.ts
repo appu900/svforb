@@ -44,12 +44,15 @@ export class RegisterCharityDto {
   @IsString() @IsNotEmpty() charityAddress!: string;
   @IsString() @IsOptional() registrationNumber?: string;
   @IsString() @IsOptional() brandName?: string;
-  @IsEnum(Region) region?: Region;
-  @IsOptional() @Type(() => Number) @IsNumber() latitude!: number;
-  @IsOptional() @Type(() => Number) @IsNumber() longitude!: number;
+  @IsEnum(Region) @IsOptional() region?: Region;
+  @IsOptional() @Type(() => Number) @IsNumber() latitude?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() longitude?: number;
 
-  // Pickup preferences
-  @IsString() @IsNotEmpty() pickupPostCode!: string;
+  // CHARITY_SINGLE or CHARITY_MULTI
+  @IsEnum(OrgType) charityType!: OrgType;
+
+  // Pickup preferences (required for CHARITY_SINGLE, ignored for CHARITY_MULTI)
+  @IsString() @IsOptional() pickupPostCode?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -99,3 +102,5 @@ export class RegisterPlatformAdminDto {
 export class JoinTeamDto {
   @IsString() @IsNotEmpty() inviteCode!: string;
 }
+
+
