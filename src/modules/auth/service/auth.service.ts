@@ -60,6 +60,7 @@ export class AuthService {
     const trialPlan = await this.prisma.subscriptionPlan.findFirst({
       where: { name: 'FREE_TRIAL', isActive: true },
     });
+    console.log('this is the trial plan', trialPlan);
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const verifyToken = randomBytes(32).toString('hex');
     const verifyExpiery = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -107,8 +108,8 @@ export class AuthService {
           subscriptionStatus: SubscriptionStatus.TRIALING,
           brandName: dto.brandName ?? '',
           trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          latitude:dto.latitude,
-          longitude:dto.longitude,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
           logoUrl: uploadLogoUrl,
         },
       });
@@ -169,11 +170,15 @@ export class AuthService {
       dto.charityType !== OrgType.CHARITY_SINGLE &&
       dto.charityType !== OrgType.CHARITY_MULTI
     ) {
-      throw new BadRequestException('charityType must be CHARITY_SINGLE or CHARITY_MULTI');
+      throw new BadRequestException(
+        'charityType must be CHARITY_SINGLE or CHARITY_MULTI',
+      );
     }
 
     if (dto.charityType === OrgType.CHARITY_SINGLE && !dto.pickupPostCode) {
-      throw new BadRequestException('pickupPostCode is required for single-location charities');
+      throw new BadRequestException(
+        'pickupPostCode is required for single-location charities',
+      );
     }
 
     await this.assertEmailUnique(dto.email);
@@ -185,7 +190,10 @@ export class AuthService {
 
     let uploadedLogoUrl = '';
     if (logo) {
-      uploadedLogoUrl = await this.s3.uploadFile(logo, this.IMAGE_UPLOAD_FILE_NAME);
+      uploadedLogoUrl = await this.s3.uploadFile(
+        logo,
+        this.IMAGE_UPLOAD_FILE_NAME,
+      );
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -350,7 +358,11 @@ export class AuthService {
       };
     }
 
-    const accessToken = await this.generateTokens(user, memberShip, primarySiteAccess);
+    const accessToken = await this.generateTokens(
+      user,
+      memberShip,
+      primarySiteAccess,
+    );
 
     return {
       accessToken,
@@ -392,7 +404,9 @@ export class AuthService {
   async verifyEmail(dto: VerifyEmailOtpDto) {
     const cachedOtp = await this.authCacheManaher.getEmailVerifyOtp(dto.email);
     if (!cachedOtp) {
-      throw new BadRequestException('OTP has expired, please request a new one');
+      throw new BadRequestException(
+        'OTP has expired, please request a new one',
+      );
     }
     if (cachedOtp !== dto.otp) {
       throw new BadRequestException('Invalid OTP');
@@ -400,7 +414,11 @@ export class AuthService {
 
     const user = await this.prisma.user.update({
       where: { email: dto.email.toLowerCase() },
-      data: { emailVerified: true, emailverifyToken: null, emailVerifyExpiry: null },
+      data: {
+        emailVerified: true,
+        emailverifyToken: null,
+        emailVerifyExpiry: null,
+      },
     });
 
     await this.authCacheManaher.revokeEmailVerifyOtp(dto.email);
@@ -447,7 +465,6 @@ export class AuthService {
   async registerPlatformAdmin(dto: RegisterPlatformAdminDto) {
     await this.assertEmailUnique(dto.email);
     const passwordHash = await bcrypt.hash(dto.password, 10);
-    
 
     const user = await this.prisma.user.create({
       data: {
@@ -496,7 +513,11 @@ export class AuthService {
           memberSince: user.createdAt.getFullYear(),
         },
         organisation: null,
-        role: { platformRole: user.platformRole, orgRole: null, siteRole: null },
+        role: {
+          platformRole: user.platformRole,
+          orgRole: null,
+          siteRole: null,
+        },
         subscription: null,
         sites: [],
       };
@@ -510,7 +531,8 @@ export class AuthService {
         },
       },
     });
-    if (!membership) throw new UnauthorizedException('No organisation found for this user');
+    if (!membership)
+      throw new UnauthorizedException('No organisation found for this user');
 
     const { organisation } = membership;
 
@@ -603,11 +625,16 @@ export class AuthService {
 
     // Always return success to avoid leaking whether the email exists
     if (!user || !user.isActive) {
-      return { message: 'If that email is registered, a reset code has been sent.' };
+      return {
+        message: 'If that email is registered, a reset code has been sent.',
+      };
     }
 
     const otp = GenerateOtp();
-    await this.authCacheManaher.storePasswordResetOtp(dto.email.toLowerCase(), otp);
+    await this.authCacheManaher.storePasswordResetOtp(
+      dto.email.toLowerCase(),
+      otp,
+    );
 
     await this.emailService.sendPasswordReset({
       to: dto.email,
@@ -616,7 +643,9 @@ export class AuthService {
     });
 
     this.logger.log(`Password reset OTP sent: ${dto.email}`);
-    return { message: 'If that email is registered, a reset code has been sent.' };
+    return {
+      message: 'If that email is registered, a reset code has been sent.',
+    };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
@@ -625,7 +654,9 @@ export class AuthService {
     );
 
     if (!cachedOtp) {
-      throw new BadRequestException('Reset code has expired. Please request a new one.');
+      throw new BadRequestException(
+        'Reset code has expired. Please request a new one.',
+      );
     }
     if (cachedOtp !== dto.otp) {
       throw new BadRequestException('Invalid reset code.');
@@ -641,7 +672,9 @@ export class AuthService {
     await this.authCacheManaher.revokePasswordResetOtp(dto.email.toLowerCase());
 
     this.logger.log(`Password reset successful: ${dto.email}`);
-    return { message: 'Password has been reset successfully. You can now log in.' };
+    return {
+      message: 'Password has been reset successfully. You can now log in.',
+    };
   }
 
   private async assertEmailUnique(email: string) {

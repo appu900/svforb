@@ -10,7 +10,8 @@ export class MailerService {
   private readonly from: string;
 
   constructor(private readonly config: ConfigService) {
-    this.from = this.config.get<string>('SMTP_FROM', 'noreply@example.com');
+    this.from = this.config.get<string>('FROM_EMAIL', 'noreply@example.com');
+    console.log(this.from)
 
     this.transporter = nodemailer.createTransport({
       host: this.config.get<string>('SMTP_HOST'),

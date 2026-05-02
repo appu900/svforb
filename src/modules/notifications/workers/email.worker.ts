@@ -25,6 +25,7 @@ export class EmailWorker extends WorkerHost {
     switch (job.name) {
       case EmailJobName.SEND_OTP: {
         const { to, otp, name } = job.data as SendOtpPayload;
+        console.log(to, otp, name);
         await this.mailerService.sendOtp(to, otp, name);
         break;
       }
@@ -44,7 +45,14 @@ export class EmailWorker extends WorkerHost {
       case EmailJobName.SEND_STAFF_INVITE: {
         const { to, name, email, password, siteName, role } =
           job.data as SendStaffInvitePayload;
-        await this.mailerService.sendStaffInvite(to, name, email, password, siteName, role);
+        await this.mailerService.sendStaffInvite(
+          to,
+          name,
+          email,
+          password,
+          siteName,
+          role,
+        );
         break;
       }
 
