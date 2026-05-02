@@ -30,22 +30,40 @@ export class MailerService {
   }
 
   async sendOtp(to: string, otp: string, name?: string): Promise<void> {
-    await this.sendMail({
-      to,
-      subject: 'Your OTP Verification Code',
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          <h2 style="color:#333;">Email Verification</h2>
-          <p>${name ? `Hello <strong>${name}</strong>,` : 'Hello,'}</p>
-          <p>Use the code below to verify your email address:</p>
-          <div style="background:#f4f4f4;padding:24px;text-align:center;border-radius:8px;margin:24px 0;">
-            <h1 style="letter-spacing:12px;color:#1a1a1a;margin:0;">${otp}</h1>
-          </div>
-          <p>This code expires in <strong>10 minutes</strong>.</p>
-          <p style="color:#888;font-size:13px;">If you did not request this, you can safely ignore this email.</p>
-        </div>
-      `,
-    });
+  await this.sendMail({
+  to,
+  subject: 'Your verification code',
+  text: `Your OTP is ${otp}. It expires in 10 minutes.`,
+  html: `
+    <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:20px;color:#333;">
+      
+      <h2 style="margin-bottom:10px;">Verify your email</h2>
+
+      <p>${name ? `Hi ${name},` : 'Hi,'}</p>
+
+      <p>Use the verification code below to complete your sign-in:</p>
+
+      <div style="font-size:28px;font-weight:bold;letter-spacing:6px;
+                  background:#f6f6f6;padding:16px;text-align:center;
+                  border-radius:6px;margin:20px 0;">
+        ${otp}
+      </div>
+
+      <p style="margin:0;">This code will expire in 10 minutes.</p>
+
+      <p style="margin-top:20px;font-size:12px;color:#777;">
+        If you didn’t request this, you can ignore this email.
+      </p>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid #eee;" />
+
+      <p style="font-size:12px;color:#999;">
+        SaveFul • Secure Authentication Service
+      </p>
+
+    </div>
+  `,
+});
   }
 
   async sendWelcome(to: string, name: string): Promise<void> {
