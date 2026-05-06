@@ -27,7 +27,7 @@ import { CharityService } from './service/charity.service';
 export class CharityController {
   constructor(private readonly charityService: CharityService) {}
 
-  // ─── Location endpoints (CHARITY_MULTI / SUPER_ADMIN) ─────────────────────
+  
 
   @Post('locations')
   addLocation(
@@ -36,6 +36,8 @@ export class CharityController {
   ) {
     return this.charityService.addLocation(req.user, dto);
   }
+  
+   
 
   @Get('locations')
   listLocations(@Req() req: Request & { user: Jwtpayload }) {
@@ -67,7 +69,7 @@ export class CharityController {
     return this.charityService.deactivateLocation(req.user, id);
   }
 
-  // ─── User management endpoints ─────────────────────────────────────────────
+  
 
   @Post('users')
   addMember(

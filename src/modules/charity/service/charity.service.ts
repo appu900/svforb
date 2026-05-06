@@ -334,7 +334,11 @@ export class CharityService {
     }
 
     if (locationRoles.includes(dto.role) && !dto.locationId) {
-      throw new BadRequestException('locationId is required for location-based roles');
+      if (caller.orgType === OrgType.CHARITY_SINGLE && caller.siteId) {
+        dto.locationId = caller.siteId;
+      } else {
+        throw new BadRequestException('locationId is required for location-based roles');
+      }
     }
 
     if (caller.orgRole !== OrgRole.SUPER_ADMIN && dto.locationId && caller.siteId !== dto.locationId) {
@@ -355,10 +359,10 @@ export class CharityService {
 
     if (existingUser) {
       const membership = await this.prisma.orgMemeberShip.findFirst({
-        where: { userId: existingUser.id },
+        where: { userId: existingUser.id, organisationId: caller.orgId },
       });
-      if (membership && membership.organisationId !== caller.orgId) {
-        throw new ConflictException('This email is registered with another organisation');
+      if (!membership) {
+        throw new ConflictException('This email is already registered and does not belong to your organisation');
       }
     }
 

@@ -1,11 +1,13 @@
 import { Logger, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { CreateListingDto } from './dto/food.listing.dto';
+
 interface FoodItem {
   category: string;
   totalQtyKg: number;
   remainingQtkKg: number;
 }
+
 @Injectable()
 export class FoodListingService {
   private readonly logger = new Logger(FoodListingService.name);

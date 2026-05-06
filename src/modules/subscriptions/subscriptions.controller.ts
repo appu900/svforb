@@ -21,10 +21,6 @@ import {
 
 export class SubscriptionsController {
   constructor(private readonly subscriptionsService: SubscriptionsService) {}
-
-
-
-
   @Post()
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
   create(@Body() dto: CreateSubscriptionPlanDto) {
