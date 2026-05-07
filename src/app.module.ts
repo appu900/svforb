@@ -9,6 +9,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { SitesModule } from './modules/sites/sites.module';
 import { CharityModule } from './modules/charity/charity.module';
+import { FoodListingModule } from './modules/Foodlisting/foodlisting.module';
+import { ProximityModule } from './modules/psearch/psearch.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { CharityModule } from './modules/charity/charity.module';
     SubscriptionsModule,
     SitesModule,
     CharityModule,
+    FoodListingModule,
+    ProximityModule
   ],
   controllers: [AppController],
   providers: [AppService],

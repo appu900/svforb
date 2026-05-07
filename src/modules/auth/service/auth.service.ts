@@ -35,6 +35,7 @@ import { AuthToken, Jwtpayload } from '../interface/jwt.interface';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { EmailQueueService } from 'src/modules/notifications/queues/email.queue.service';
+import { ProximityService } from 'src/modules/psearch/psearch.service';
 
 function GenerateOtp() {
   const buf = randomBytes(3);
@@ -53,6 +54,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailQueueService,
+    private readonly proximityService: ProximityService,
   ) {}
 
   async registerBusiness(dto: RegisterBusinessDto, logo?: Express.Multer.File) {
@@ -221,6 +223,7 @@ export class AuthService {
           latitude: dto.latitude,
           longitude: dto.longitude,
           logoUrl: uploadedLogoUrl,
+          region: dto.region,
         },
       });
 
@@ -269,6 +272,7 @@ export class AuthService {
 
       return { user, org };
     });
+    await this.proximityService.syncOrganisationLocation();
 
     await this.emailService.sendOtp({
       to: dto.email,

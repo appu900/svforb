@@ -19,6 +19,7 @@ import {
   UpdateCharityMemberDto,
 } from '../dto/charity.dto';
 import { CharityCacheManager } from '../cache/charity.cache.manager';
+import { ProximityService } from 'src/modules/psearch/psearch.service';
 
 const CHARITY_ORG_TYPES: OrgType[] = [OrgType.CHARITY, OrgType.CHARITY_SINGLE, OrgType.CHARITY_MULTI];
 
@@ -30,6 +31,7 @@ export class CharityService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailQueueService,
     private readonly cache: CharityCacheManager,
+    private proximityService:ProximityService
   ) {}
 
   // ─── Add Location ──────────────────────────────────────────────────────────
@@ -132,6 +134,8 @@ export class CharityService {
 
       return { site, adminUser, isNewAdmin };
     });
+
+    await this.proximityService.syncListingLocation(result.site.id,dto.latitude!,dto.longitude!)
 
     await this.emailService.sendStaffInvite({
       to: dto.adminEmail,

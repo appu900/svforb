@@ -7,6 +7,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { S3Module } from 'src/uploads/s3/s3.module';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from 'src/common/strategies/jwt.strategy';
+import { ProximityModule } from '../psearch/psearch.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { JwtStrategy } from 'src/common/strategies/jwt.strategy';
       }),
     }),
     S3Module,
+    ProximityModule
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthCacheManager, JwtStrategy],

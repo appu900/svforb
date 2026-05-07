@@ -159,6 +159,7 @@ model Organisation {
 
   latitude  Float?
   longitude Float?
+  location  Unsupported("geography(Point, 4326)")?
 
   ratingAvg   Float @default(0)
   ratingCount Int   @default(0)
@@ -174,6 +175,7 @@ model Organisation {
   sportedByCharitiesup RestaurantCharitySupport[] @relation("RestaurantSupport")
   restaurantsSupported RestaurantCharitySupport[] @relation("CharitySupport")
 
+
   @@index([region])
   @@index([organizationType])
   @@index([subscriptionId])
@@ -181,7 +183,7 @@ model Organisation {
 }
 
 model Site {
-  id               Int     @id @default(autoincrement())
+  id               Int                                    @id @default(autoincrement())
   organisationId   Int
   organisationName String
   address          String
@@ -191,7 +193,8 @@ model Site {
   contactMobile    String
   latitude         Float?
   longitude        Float?
-  isActive         Boolean @default(true)
+  location         Unsupported("geography(Point, 4326)")?
+  isActive         Boolean                                @default(true)
   pickupRadiusKm   Int?
 
   createdAt    DateTime      @default(now())
