@@ -14,9 +14,9 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
-  const mailservice = app.get(MailerService);
-  const res = await mailservice.sendOtp('pabitradakua85@gmail.com', '123456');
-  console.log(res)
+  // const mailservice = app.get(MailerService);
+  // const res = await mailservice.sendOtp('pabitradakua85@gmail.com', '123456');
+  // console.log(res)
   app.enableCors();
   await app.listen(process.env.PORT ?? 3000);
 }

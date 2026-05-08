@@ -3,6 +3,7 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -73,6 +74,33 @@ export class RelistDto {
   @Type(() => FoodItemDto)
   foodItems?: FoodItemDto[];
 
+  @IsDateString()
+  bestBefore!: string;
+
+  @IsOptional()
+  @IsDateString()
+  pickupFromTime?: string;
+
+  @IsOptional()
+  @IsDateString()
+  pickupByTime?: string;
+
+  @IsOptional()
+  @IsNumber()
+  pickupLat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  pickupLng?: number;
+}
+
+export class UpdateListingDto {
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FoodItemDto)
+  foodItems?: FoodItemDto[];
+
   @IsOptional()
   @IsDateString()
   bestBefore?: string;
@@ -85,11 +113,41 @@ export class RelistDto {
   @IsDateString()
   pickupByTime?: string;
 
-  @IsNumber()
-  @IsNotEmpty()
-  pickupLat!: number;
+  @IsOptional()
+  @IsBoolean()
+  needsRefrigeration?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  needsReheating?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  containsAllergens?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isGlutenFree?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isSafeForDonation?: boolean;
+}
+
+export class GetListingsQueryDto {
+  @IsOptional()
+  @IsIn(['ACTIVE', 'PARTIAL', 'CLAIMED', 'EXPIRED', 'CANCELLED'])
+  status?: string;
+
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  pickupLng!: number;
+  @Min(1)
+  @Type(() => Number)
+  page?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  limit?: number;
 }

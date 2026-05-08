@@ -11,10 +11,12 @@ import { SitesModule } from './modules/sites/sites.module';
 import { CharityModule } from './modules/charity/charity.module';
 import { FoodListingModule } from './modules/Foodlisting/foodlisting.module';
 import { ProximityModule } from './modules/psearch/psearch.module';
+import { KafkaModule } from './infra/kafka/kafka.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    KafkaModule,
     PrismaModule,
     RedisModule,
     NotificationModule,
@@ -23,7 +25,7 @@ import { ProximityModule } from './modules/psearch/psearch.module';
     SitesModule,
     CharityModule,
     FoodListingModule,
-    ProximityModule
+    ProximityModule,
   ],
   controllers: [AppController],
   providers: [AppService],
