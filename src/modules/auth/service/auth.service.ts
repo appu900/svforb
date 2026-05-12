@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   BadRequestException,
   UnauthorizedException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { AuthCacheManager } from '../cache/auth.cache.manager';
@@ -309,7 +310,7 @@ export class AuthService {
     if (!passwordMatch) throw new UnauthorizedException('Invalid Credentials');
     if (!user.emailVerified)
       throw new ForbiddenException(
-        'Please verufy your email before loggging in',
+        'Please verify your email before logging in',
       );
 
     await this.authCacheManaher.clearLoginAttempts(dto.email);
@@ -694,5 +695,26 @@ export class AuthService {
       await this.prisma.user.findUnique({ where: { email } }),
       await this.prisma.user.findFirst({ where: { phoneNumber } }),
     ]);
+  }
+
+
+  async resendVerificationEmail(email:string){
+    const user = await this.prisma.user.findUnique({
+      where:{
+        email:email
+      }
+    })
+    if(!user) throw new NotFoundException("user with this email not found");
+    if(user.emailVerified === true) return new BadRequestException("email already verified")
+    const otp = GenerateOtp()
+    await this.emailService.sendOtp({
+      to:email,
+      otp:otp.toString(),
+      name:user.firstName
+    })
+    await this.authCacheManaher.storeEmailVerificationOtp(email,otp)
+    return {
+      message:"done"
+    }
   }
 }

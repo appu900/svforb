@@ -22,6 +22,7 @@ import {
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { Jwtpayload } from './interface/jwt.interface';
 import { Request } from 'express';
+import { ResendVerficationOtpDto } from './dto/resend-verification';
 
 @Controller('auth')
 export class AuthController {
@@ -74,5 +75,10 @@ export class AuthController {
   @Post('reset-password')
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
+  }
+
+  @Post('/resend-verification')
+  sendVerificationOtp(@Body() dto: ResendVerficationOtpDto) {
+    return this.authService.resendVerificationEmail(dto.email);
   }
 }
