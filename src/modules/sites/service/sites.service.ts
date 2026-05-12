@@ -10,7 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { Jwtpayload } from 'src/modules/auth/interface/jwt.interface';
 import { EmailQueueService } from 'src/modules/notifications/queues/email.queue.service';
-import { AddStaffDto, AssignSiteManagerDto, CreateSiteDto } from '../dto/sites.dto';
+import { AddStaffDto, AssignSiteManagerDto, CreateSiteDto, UpdateSiteDto } from '../dto/sites.dto';
 
 @Injectable()
 export class SitesService {
@@ -476,6 +476,67 @@ export class SitesService {
           : 'Access removed from site.',
       userDeactivated: remainingAccesses === 0,
     };
+  }
+
+  // ─── Delete Site ──────────────────────────────────────────────────────────────
+
+  async deleteSite(caller: Jwtpayload, siteId: number) {
+    this.assertSuperAdmin(caller);
+    this.assertMultiBusiness(caller);
+
+    const site = await this.assertSiteInOrg(siteId, caller.orgId!);
+    if (!site.isActive) throw new NotFoundException('Site not found');
+
+    const accesses = await this.prisma.siteAccess.findMany({
+      where: { siteId, organisationId: caller.orgId },
+      select: { userId: true },
+    });
+    const affectedUserIds = accesses.map((a) => a.userId);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.site.update({ where: { id: siteId }, data: { isActive: false } });
+      await tx.siteAccess.deleteMany({ where: { siteId } });
+
+      for (const userId of affectedUserIds) {
+        const remaining = await tx.siteAccess.count({
+          where: { userId, organisationId: caller.orgId },
+        });
+        if (remaining === 0) {
+          await tx.user.update({ where: { id: userId }, data: { isActive: false } });
+        }
+      }
+    });
+
+    this.logger.log(`Site deactivated: siteId=${siteId} org=${caller.orgId} by=${caller.sub}`);
+
+    return { message: 'Site deleted successfully', siteId };
+  }
+
+  // ─── Update Site ──────────────────────────────────────────────────────────────
+
+  async updateSite(caller: Jwtpayload, siteId: number, dto: UpdateSiteDto) {
+    this.assertSuperAdmin(caller);
+    this.assertMultiBusiness(caller);
+
+    await this.assertSiteInOrg(siteId, caller.orgId!);
+
+    const updated = await this.prisma.site.update({
+      where: { id: siteId },
+      data: {
+        ...(dto.siteName !== undefined && { organisationName: dto.siteName }),
+        ...(dto.address !== undefined && { address: dto.address }),
+        ...(dto.postcode !== undefined && { postcode: dto.postcode }),
+        ...(dto.contactName !== undefined && { contactName: dto.contactName }),
+        ...(dto.contactEmail !== undefined && { contactEmail: dto.contactEmail }),
+        ...(dto.phoneNumber !== undefined && { contactMobile: dto.phoneNumber }),
+        ...(dto.latitude !== undefined && { latitude: dto.latitude }),
+        ...(dto.longitude !== undefined && { longitude: dto.longitude }),
+      },
+    });
+
+    this.logger.log(`Site updated: siteId=${siteId} org=${caller.orgId} by=${caller.sub}`);
+
+    return { message: 'Site updated successfully', site: this.formatSite(updated) };
   }
 
   // ─── Private: find existing user or create new one ────────────────────────────

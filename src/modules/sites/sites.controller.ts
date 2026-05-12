@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -17,6 +18,7 @@ import {
   AddStaffDto,
   AssignSiteManagerDto,
   CreateSiteDto,
+  UpdateSiteDto,
 } from './dto/sites.dto';
 import { SitesService } from './service/sites.service';
 
@@ -120,6 +122,35 @@ export class SitesController {
    * If the user has no remaining site accesses in the org, their account is deactivated
    * and they will be unable to log in.
    */
+  /**
+   * DELETE /sites/:siteId
+   * Soft-delete a site. Removes all site accesses and deactivates users with no remaining access.
+   * Requires: SUPER_ADMIN + BUSINESS_MULTI.
+   */
+  @Delete(':siteId')
+  @UseGuards(SuperAdminGuard)
+  deleteSite(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('siteId', ParseIntPipe) siteId: number,
+  ) {
+    return this.sitesService.deleteSite(req.user, siteId);
+  }
+
+  /**
+   * PATCH /sites/:siteId
+   * Edit site details. All fields are optional.
+   * Requires: SUPER_ADMIN + BUSINESS_MULTI.
+   */
+  @Patch(':siteId')
+  @UseGuards(SuperAdminGuard)
+  updateSite(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('siteId', ParseIntPipe) siteId: number,
+    @Body() dto: UpdateSiteDto,
+  ) {
+    return this.sitesService.updateSite(req.user, siteId, dto);
+  }
+
   @Delete(':siteId/access/:userId')
   @UseGuards(SiteAdminOrAboveGuard)
   removeAccess(

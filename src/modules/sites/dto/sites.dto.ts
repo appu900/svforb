@@ -42,3 +42,22 @@ export class AddStaffDto {
   @IsString() @MinLength(8) password!: string;
   @IsString() @IsOptional() phoneNumber?: string;
 }
+
+export class UpdateSiteDto {
+  @IsString() @IsNotEmpty() @IsOptional() siteName?: string;
+  @IsString() @IsNotEmpty() @IsOptional() address?: string;
+  @IsString() @IsOptional() postcode?: string;
+  @IsString() @IsNotEmpty() @IsOptional() contactName?: string;
+  @IsEmail() @IsOptional() contactEmail?: string;
+  @IsString() @IsOptional() phoneNumber?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  longitude?: number;
+}
