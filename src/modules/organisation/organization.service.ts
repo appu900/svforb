@@ -16,7 +16,7 @@ export class OrganisationService {
         latitude: true,
       },
     });
-    if (organization) {
+    if (!organization) {
       return new NotFoundException('Organization not found');
     }
     const updatedOrganization = await this.prisma.organisation.update({
