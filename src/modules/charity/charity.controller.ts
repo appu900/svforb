@@ -27,8 +27,6 @@ import { CharityService } from './service/charity.service';
 export class CharityController {
   constructor(private readonly charityService: CharityService) {}
 
-  
-
   @Post('locations')
   addLocation(
     @Req() req: Request & { user: Jwtpayload },
@@ -36,8 +34,6 @@ export class CharityController {
   ) {
     return this.charityService.addLocation(req.user, dto);
   }
-  
-   
 
   @Get('locations')
   listLocations(@Req() req: Request & { user: Jwtpayload }) {
@@ -68,8 +64,6 @@ export class CharityController {
   ) {
     return this.charityService.deactivateLocation(req.user, id);
   }
-
-  
 
   @Post('users')
   addMember(
