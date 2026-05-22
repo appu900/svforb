@@ -12,6 +12,7 @@ import { CharityModule } from './modules/charity/charity.module';
 import { FoodListingModule } from './modules/Foodlisting/foodlisting.module';
 import { ProximityModule } from './modules/psearch/psearch.module';
 import { KafkaModule } from './infra/kafka/kafka.module';
+import { OrganizationModule } from './modules/organisation/organization.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { KafkaModule } from './infra/kafka/kafka.module';
     CharityModule,
     FoodListingModule,
     ProximityModule,
+    OrganizationModule
   ],
   controllers: [AppController],
   providers: [AppService],
