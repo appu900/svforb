@@ -1,5 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+﻿import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as nodemailer from 'nodemailer';
 import Mail from 'nodemailer/lib/mailer';
 
@@ -8,10 +10,19 @@ export class MailerService {
   private readonly logger = new Logger(MailerService.name);
   private readonly transporter: nodemailer.Transporter;
   private readonly from: string;
+  private readonly logoDataUri: string;
 
   constructor(private readonly config: ConfigService) {
     this.from = this.config.get<string>('FROM_EMAIL', 'noreply@example.com');
     console.log(this.from)
+
+    const logoPath = path.join(process.cwd(), 'public', 'logo.png');
+    try {
+      const logoBuffer = fs.readFileSync(logoPath);
+      this.logoDataUri = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+    } catch {
+      this.logoDataUri = '';
+    }
 
     this.transporter = nodemailer.createTransport({
       host: this.config.get<string>('SMTP_HOST'),
@@ -36,12 +47,11 @@ export class MailerService {
   text: `Your OTP is ${otp}. It expires in 10 minutes.`,
   html: `
     <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:20px;color:#333;">
-      
-      <h2 style="margin-bottom:10px;">Verify your email</h2>
+      ${this.logoDataUri ? `<div style="text-align:center;margin-bottom:24px;"><img src="${this.logoDataUri}" alt="Saveful for Business" style="max-width:180px;height:auto;" /></div>` : ''}
 
       <p>${name ? `Hi ${name},` : 'Hi,'}</p>
 
-      <p>Use the verification code below to complete your sign-in:</p>
+      <p>Thanks for signing up to Saveful for Business. Please use the verification code below to complete your sign-in on the app:</p>
 
       <div style="font-size:28px;font-weight:bold;letter-spacing:6px;
                   background:#f6f6f6;padding:16px;text-align:center;
@@ -58,7 +68,7 @@ export class MailerService {
       <hr style="margin:20px 0;border:none;border-top:1px solid #eee;" />
 
       <p style="font-size:12px;color:#999;">
-        SaveFul • Secure Authentication Service
+        Saveful • Secure Authentication Service
       </p>
 
     </div>
