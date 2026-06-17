@@ -17,7 +17,13 @@ import { PrismaService } from 'src/infra/prisma/prisma.service';
 
 @Controller('proximity')
 export class ProximityController {
-  constructor(private readonly proximityService: ProximityService,private readonly prisma:PrismaService) {}
+  constructor(private readonly proximityService: ProximityService, private readonly prisma: PrismaService) { }
+
+  
+  @Get('search/charities')
+  async GetNearByCharities() {
+    
+  }
 
   @Get('charities')
   async getNearbyCharities(

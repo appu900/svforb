@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Logger,
   Param,
   ParseIntPipe,
   Patch,
@@ -52,3 +53,5 @@ export class SubscriptionsController {
     return this.subscriptionsService.remove(id);
   }
 }
+
+

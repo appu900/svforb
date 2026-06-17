@@ -20,6 +20,7 @@ import {
 } from '../dto/charity.dto';
 import { CharityCacheManager } from '../cache/charity.cache.manager';
 import { ProximityService } from 'src/modules/psearch/psearch.service';
+import { RedisGeoSearchService } from 'src/modules/redis-geo-search/redis.geosearch.service';
 
 const CHARITY_ORG_TYPES: OrgType[] = [OrgType.CHARITY, OrgType.CHARITY_SINGLE, OrgType.CHARITY_MULTI];
 
@@ -31,10 +32,11 @@ export class CharityService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailQueueService,
     private readonly cache: CharityCacheManager,
-    private proximityService:ProximityService
+    private readonly proximityService: ProximityService,
+    private readonly geoSearch: RedisGeoSearchService,
   ) {}
 
-  // ─── Add Location ──────────────────────────────────────────────────────────
+  
 
   async addLocation(caller: Jwtpayload, dto: AddCharityLocationDto) {
     this.assertSuperAdmin(caller);
@@ -137,6 +139,15 @@ export class CharityService {
 
     await this.proximityService.syncListingLocation(result.site.id,dto.latitude!,dto.longitude!)
 
+    if (org.region && dto.latitude && dto.longitude) {
+      await this.geoSearch.indexCharitySite(
+        result.site.id,
+        dto.latitude,
+        dto.longitude,
+        org.region,
+      );
+    }
+
     await this.emailService.sendStaffInvite({
       to: dto.adminEmail,
       name: adminFirstName,
@@ -164,7 +175,9 @@ export class CharityService {
     };
   }
 
-  // ─── List Locations ────────────────────────────────────────────────────────
+
+
+  // ** list all locations for a organizations
 
   async listLocations(caller: Jwtpayload) {
     this.assertCharityOrg(caller);
@@ -191,8 +204,6 @@ export class CharityService {
     await this.cache.setLocations(caller.orgId!, result);
     return result;
   }
-
-  // ─── Get Location ──────────────────────────────────────────────────────────
 
   async getLocation(caller: Jwtpayload, locationId: number) {
     this.assertCharityOrg(caller);
@@ -257,7 +268,6 @@ export class CharityService {
     return result;
   }
 
-  // ─── Update Location ───────────────────────────────────────────────────────
 
   async updateLocation(caller: Jwtpayload, locationId: number, dto: UpdateCharityLocationDto) {
     this.assertSuperAdmin(caller);
@@ -287,7 +297,7 @@ export class CharityService {
     return { message: 'Location updated successfully', location: this.formatLocation(updated) };
   }
 
-  // ─── Deactivate Location ───────────────────────────────────────────────────
+
 
   async deactivateLocation(caller: Jwtpayload, locationId: number) {
     this.assertSuperAdmin(caller);
@@ -309,7 +319,7 @@ export class CharityService {
     return { message: 'Location deactivated successfully' };
   }
 
-  // ─── Add Member ────────────────────────────────────────────────────────────
+
 
   async addMember(caller: Jwtpayload, dto: AddCharityMemberDto) {
     this.assertCharityOrg(caller);
@@ -463,7 +473,7 @@ export class CharityService {
     };
   }
 
-  // ─── List Users ────────────────────────────────────────────────────────────
+
 
   async listUsers(caller: Jwtpayload) {
     this.assertCharityOrg(caller);

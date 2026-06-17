@@ -22,7 +22,7 @@ export class FoodListingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly proximity: ProximityService,
-    private readonly pushQueue: PushQueueService,
+    private readonly pushQueue:PushQueueService
   ) {}
 
   async createListing(organisationId: number, dto: CreateListingDto) {

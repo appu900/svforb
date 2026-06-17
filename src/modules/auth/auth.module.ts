@@ -8,6 +8,7 @@ import { S3Module } from 'src/uploads/s3/s3.module';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from 'src/common/strategies/jwt.strategy';
 import { ProximityModule } from '../psearch/psearch.module';
+import { RedisGeoSearchModule } from '../redis-geo-search/redis-geo-search.module';
 
 @Module({
   imports: [
@@ -21,7 +22,8 @@ import { ProximityModule } from '../psearch/psearch.module';
       }),
     }),
     S3Module,
-    ProximityModule
+    ProximityModule,
+    RedisGeoSearchModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthCacheManager, JwtStrategy],

@@ -29,17 +29,17 @@ export class SitesService {
 
     const org = await this.prisma.organisation.findUnique({
       where: { id: caller.orgId },
-      include: { subscription: true },
+      include: { subscription: { include: { plan: true } } },
     });
     if (!org) throw new NotFoundException('Organisation not found');
 
-    this.assertActiveSubscription(org.subscriptionStatus);
+    this.assertActiveSubscription(org.subscription?.status);
 
     const existingSiteCount = await this.prisma.site.count({
       where: { organisationId: org.id },
     });
 
-    const maxSites = org.subscription.maxSites;
+    const maxSites = org.subscription?.plan.maxSites ?? 0;
     if (existingSiteCount >= maxSites) {
       throw new ForbiddenException(
         `Your subscription plan allows a maximum of ${maxSites} site(s). ` +
@@ -76,7 +76,7 @@ export class SitesService {
   async getOrganisationOverview(caller: Jwtpayload) {
     const org = await this.prisma.organisation.findUnique({
       where: { id: caller.orgId },
-      include: { subscription: true },
+      include: { subscription: { include: { plan: true } } },
     });
     if (!org) throw new NotFoundException('Organisation not found');
 
@@ -165,13 +165,13 @@ export class SitesService {
         createdAt: org.createdAt,
       },
       subscription: {
-        plan: org.subscription.displayName,
-        status: org.subscriptionStatus,
-        billingCycle: org.billingCycle,
-        maxSites: org.subscription.maxSites,
-        maxUsersPerSite: org.subscription.maxUserPerSite,
-        trialEndsAt: org.trialEndsAt,
-        currentPeriodEnd: org.currentPeriodEnd,
+        plan: org.subscription?.plan.displayName ?? null,
+        status: org.subscription?.status ?? null,
+        billingCycle: org.subscription?.billingCycle ?? null,
+        maxSites: org.subscription?.plan.maxSites ?? null,
+        maxUsersPerSite: org.subscription?.plan.maxUserPerSite ?? null,
+        trialEndsAt: org.subscription?.trialEndsAt ?? null,
+        currentPeriodEnd: org.subscription?.currentPeriodEnd ?? null,
       },
       totalSites: sites.length,
       sites: sites.map((s) => {
@@ -275,12 +275,12 @@ export class SitesService {
 
     const org = await this.prisma.organisation.findUnique({
       where: { id: caller.orgId },
-      include: { subscription: true },
+      include: { subscription: { include: { plan: true } } },
     });
     if (!org) throw new NotFoundException('Organisation not found');
 
-    this.assertActiveSubscription(org.subscriptionStatus);
-    await this.assertUserLimitNotExceeded(siteId, org.subscription.maxUserPerSite);
+    this.assertActiveSubscription(org.subscription?.status);
+    await this.assertUserLimitNotExceeded(siteId, org.subscription?.plan.maxUserPerSite ?? 0);
 
     const { user, isNewUser } = await this.findOrCreateOrgUser(dto, caller.orgId!);
 
@@ -342,12 +342,12 @@ export class SitesService {
 
     const org = await this.prisma.organisation.findUnique({
       where: { id: caller.orgId },
-      include: { subscription: true },
+      include: { subscription: { include: { plan: true } } },
     });
     if (!org) throw new NotFoundException('Organisation not found');
 
-    this.assertActiveSubscription(org.subscriptionStatus);
-    await this.assertUserLimitNotExceeded(siteId, org.subscription.maxUserPerSite);
+    this.assertActiveSubscription(org.subscription?.status);
+    await this.assertUserLimitNotExceeded(siteId, org.subscription?.plan.maxUserPerSite ?? 0);
 
     const { user, isNewUser } = await this.findOrCreateOrgUser(dto, caller.orgId!);
 
@@ -642,8 +642,12 @@ export class SitesService {
     }
   }
 
-  private assertActiveSubscription(status: SubscriptionStatus) {
-    if (status === SubscriptionStatus.CANCELLED || status === SubscriptionStatus.EXPIRED) {
+  private assertActiveSubscription(status: SubscriptionStatus | null | undefined) {
+    if (
+      !status ||
+      status === SubscriptionStatus.CANCELLED ||
+      status === SubscriptionStatus.EXPIRED
+    ) {
       throw new ForbiddenException(
         'Your subscription is no longer active. Please renew to manage sites.',
       );

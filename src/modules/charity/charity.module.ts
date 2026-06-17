@@ -3,11 +3,11 @@ import { AuthModule } from '../auth/auth.module';
 import { CharityController } from './charity.controller';
 import { CharityCacheManager } from './cache/charity.cache.manager';
 import { CharityService } from './service/charity.service';
-import { ProximityController } from '../psearch/p.controller';
 import { ProximityModule } from '../psearch/psearch.module';
+import { RedisGeoSearchModule } from '../redis-geo-search/redis-geo-search.module';
 
 @Module({
-  imports: [AuthModule,ProximityModule],
+  imports: [AuthModule, ProximityModule, RedisGeoSearchModule],
   controllers: [CharityController],
   providers: [CharityService, CharityCacheManager],
 })

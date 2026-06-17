@@ -36,17 +36,21 @@ enum OrgType {
   CHARITY
   CHARITY_SINGLE
   CHARITY_MULTI
+  FARMER_PRODUCER
+  FARMER_CONSUMER
 }
 
 enum VenueType {
   CAFE_RESTAURANT
   BAKERY
+  CATERER
   GROCERY_STORE
   FOOD_TRUCK
   CATERING_SERVICE
   HOTEL
   WEDDING_VENUE
   CLOUD_KITCHEN
+  FARM
   OTHER
 }
 
@@ -122,40 +126,32 @@ model TeamMember {
 }
 
 model SubscriptionPlan {
-  id             Int            @id @default(autoincrement())
-  name           String         @unique
+  id             Int               @id @default(autoincrement())
+  name           String            @unique
   displayName    String
   maxSites       Int
   maxUserPerSite Int
   priceMonthly   Float
   priceAnnual    Float
   features       String[]
-  isActive       Boolean        @default(true)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  organisations  Organisation[]
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  orgSubscriptions OrgSubscription[]
 
   @@map("subscription_plans")
 }
 
 model Organisation {
-  id                   Int                @id @default(autoincrement())
-  name                 String
-  organizationType     OrgType
-  region               Region?
-  registrationNumber   String?
-  address              String
-  brandName            String?
-  venueType            VenueType?
-  logoUrl              String?
-  subscriptionId       Int
-  subscription         SubscriptionPlan   @relation(fields: [subscriptionId], references: [id])
-  subscriptionStatus   SubscriptionStatus @default(TRIALING)
-  billingCycle         BillingCycle       @default(MONTHLY)
-  trialEndsAt          DateTime?
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
-  currentPeriodEnd     DateTime?
+  id                 Int        @id @default(autoincrement())
+  name               String
+  organizationType   OrgType
+  region             Region?
+  registrationNumber String?
+  address            String
+  brandName          String?
+  venueType          VenueType?
+  logoUrl            String?
 
   latitude  Float?
   longitude Float?
@@ -166,6 +162,7 @@ model Organisation {
 
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
+  subscription         OrgSubscription?
   orgMemeberShips      OrgMemeberShip[]
   siteAccesses         siteAccess[]
   charityPickupPrefs   CharityPickupPrefs?
@@ -175,11 +172,31 @@ model Organisation {
   sportedByCharitiesup RestaurantCharitySupport[] @relation("RestaurantSupport")
   restaurantsSupported RestaurantCharitySupport[] @relation("CharitySupport")
 
-
   @@index([region])
   @@index([organizationType])
-  @@index([subscriptionId])
   @@map("organisations")
+}
+
+model OrgSubscription {
+  id             Int              @id @default(autoincrement())
+  organisationId Int              @unique
+  organisation   Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  planId         Int
+  plan           SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  status               SubscriptionStatus @default(TRIALING)
+  billingCycle         BillingCycle       @default(MONTHLY)
+  trialEndsAt          DateTime?
+  currentPeriodEnd     DateTime?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organisationId])
+  @@index([status])
+  @@map("org_subscriptions")
 }
 
 model Site {
@@ -357,4 +374,9 @@ model RestaurantCharitySupport {
   @@index([restaurantOrgId])
   @@index([charityOrgId])
   @@map("restaurant_charity_support")
+}
+
+model SiteAnalytics {
+  id     Int @id @default(autoincrement())
+  siteId Int
 }

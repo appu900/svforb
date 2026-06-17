@@ -9,11 +9,11 @@ import { OrgType } from '@prisma/client';
 export class ProximityService {
   private readonly logger = new Logger(ProximityService.name);
 
-  // Hard coded — non negotiable
-  // Beyond 20km no charity will realistically pick up food
+  // Hard coded
+  // Beyond 20km need to do something 
   private readonly MAX_RADIUS_KM = 20;
 
-  // Cache TTLs
+  
   private readonly CHARITY_CACHE_TTL = 300; // 5 minutes
   private readonly LISTING_CACHE_TTL = 60; // 60 seconds
 
@@ -22,11 +22,11 @@ export class ProximityService {
     private readonly redis: RedisService,
   ) {}
 
-  // ───────────────────────────────────────────────────────
+
   // NEARBY CHARITIES
   // Takes restaurant lat/lng
   // Returns charities within 20km
-  // ───────────────────────────────────────────────────────
+  
   async getNearbyCharities(lat: number, lng: number, region: string) {
     this.validateCoords(lat, lng);
 

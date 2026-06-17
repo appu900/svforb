@@ -19,10 +19,12 @@ import {
   ResetPasswordDto,
   VerifyEmailOtpDto,
 } from './dto/auth.dto';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from './interface/jwt.interface';
 import { Request } from 'express';
 import { ResendVerficationOtpDto } from './dto/resend-verification';
+import { RegisterFarmerProducerDto } from './dto/register.farmer.producer.dto';
+import { RegisterFarmerConsumerDto } from './dto/register.farmer.consumer.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -44,6 +46,24 @@ export class AuthController {
     @UploadedFile() logo?: Express.Multer.File,
   ) {
     return this.authService.registerCharity(dto, logo);
+  }
+
+  @Post('register/farmer-producer')
+  @UseInterceptors(FileInterceptor('logo'))
+  registerFarmerProducer(
+    @Body() dto: RegisterFarmerProducerDto,
+    @UploadedFile() logo?: Express.Multer.File,
+  ) {
+    return this.authService.registerFarmerProducer(dto, logo);
+  }
+
+  @Post('register/farmer-consumer')
+  @UseInterceptors(FileInterceptor('logo'))
+  registerFarmerConsumer(
+    @Body() dto: RegisterFarmerConsumerDto,
+    @UploadedFile() logo?: Express.Multer.File,
+  ) {
+    return this.authService.registerFarmerConsumer(dto, logo);
   }
 
   @Post('register/platform-admin')

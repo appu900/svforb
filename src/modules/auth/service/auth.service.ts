@@ -6,8 +6,9 @@ import {
   BadRequestException,
   UnauthorizedException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
-import { PrismaService } from 'src/infra/prisma/prisma.service';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { AuthCacheManager } from '../cache/auth.cache.manager';
 import {
   ForgotPasswordDto,
@@ -31,12 +32,15 @@ import {
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
-import { S3Service } from 'src/uploads/s3/s3.service';
+import { S3Service } from '../../../uploads/s3/s3.service';
 import { AuthToken, Jwtpayload } from '../interface/jwt.interface';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { EmailQueueService } from 'src/modules/notifications/queues/email.queue.service';
-import { ProximityService } from 'src/modules/psearch/psearch.service';
+import { EmailQueueService } from '../../../modules/notifications/queues/email.queue.service';
+import { ProximityService } from '../../../modules/psearch/psearch.service';
+import { RegisterFarmerConsumerDto } from '../dto/register.farmer.consumer.dto';
+import { RegisterFarmerProducerDto } from '../dto/register.farmer.producer.dto';
+import { RedisGeoSearchService } from '../../../modules/redis-geo-search/redis.geosearch.service';
 
 function GenerateOtp() {
   const buf = randomBytes(3);
@@ -56,6 +60,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly emailService: EmailQueueService,
     private readonly proximityService: ProximityService,
+    private readonly geoSearch: RedisGeoSearchService,
   ) {}
 
   async registerBusiness(dto: RegisterBusinessDto, logo?: Express.Multer.File) {
@@ -107,13 +112,19 @@ export class AuthService {
           organizationType: dto.orgType,
           registrationNumber: dto.registrationNumber,
           venueType: dto.venueType,
-          subscriptionId: trialPlan!.id,
-          subscriptionStatus: SubscriptionStatus.TRIALING,
           brandName: dto.brandName ?? '',
-          trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           latitude: dto.latitude,
           longitude: dto.longitude,
           logoUrl: uploadLogoUrl,
+        },
+      });
+
+      await tx.orgSubscription.create({
+        data: {
+          organisationId: org.id,
+          planId: trialPlan!.id,
+          status: SubscriptionStatus.TRIALING,
+          trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
       });
 
@@ -152,22 +163,22 @@ export class AuthService {
       return { user, org };
     });
 
-    // cache functions
-    await this.emailService.sendOtp({
-      to: dto.email,
-      otp: otp.toString(),
-      name: dto.firstName,
-    });
-    await this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp);
-    this.logger.log(
-      `Business registered : ${dto.email} org=${result.org.name}`,
+    await this.geoSearch.indexBusiness(
+      result.org.id,
+      dto.latitude,
+      dto.longitude,
+      dto.region,
     );
-
+    await this.emailService.sendOtp({
+      to:dto.email,
+      otp:otp.toString(),
+      name:dto.firstName
+    })
+    await this.authCacheManaher.storeEmailVerificationOtp(dto.email,otp)
     return {
-      message: 'Account created , Check your inbox to verify your email',
+      message: 'Account created, check your inbox to verify your email',
     };
   }
-
   async registerCharity(dto: RegisterCharityDto, logo?: Express.Multer.File) {
     if (
       dto.charityType !== OrgType.CHARITY_SINGLE &&
@@ -218,13 +229,19 @@ export class AuthService {
           address: dto.charityAddress,
           registrationNumber: dto.registrationNumber,
           brandName: dto.brandName,
-          subscriptionId: trialPlan!.id,
-          subscriptionStatus: SubscriptionStatus.ACTIVE,
-          trialEndsAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
           latitude: dto.latitude,
           longitude: dto.longitude,
           logoUrl: uploadedLogoUrl,
           region: dto.region,
+        },
+      });
+
+      await tx.orgSubscription.create({
+        data: {
+          organisationId: org.id,
+          planId: trialPlan!.id,
+          status: SubscriptionStatus.ACTIVE,
+          trialEndsAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
         },
       });
 
@@ -236,8 +253,9 @@ export class AuthService {
         },
       });
 
+      let site: { id: number } | null = null;
       if (dto.charityType === OrgType.CHARITY_SINGLE) {
-        const site = await tx.site.create({
+        site = await tx.site.create({
           data: {
             organisationId: org.id,
             organisationName: dto.charityName,
@@ -255,7 +273,7 @@ export class AuthService {
         await tx.siteAccess.create({
           data: {
             userId: user.id,
-            siteId: site.id,
+            siteId: site!.id,
             organisationId: org.id,
             siteRole: SiteRole.SITE_ADMIN,
             grantedBy: user.id,
@@ -271,21 +289,231 @@ export class AuthService {
         });
       }
 
-      return { user, org };
+      return {
+        user,
+        org,
+        site: dto.charityType === OrgType.CHARITY_SINGLE ? site : null,
+      };
     });
-    await this.proximityService.syncOrganisationLocation();
 
-    await this.emailService.sendOtp({
-      to: dto.email,
-      otp: otp.toString(),
-      name: dto.firstName,
-    });
-    await this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp);
+    if (dto.region) {
+      await this.geoSearch.indexCharity(
+        result.org.id,
+        dto.latitude!,
+        dto.longitude!,
+        dto.region,
+      );
+      if (result.site) {
+        await this.geoSearch.indexCharitySite(
+          result.site.id,
+          dto.latitude!,
+          dto.longitude!,
+          dto.region,
+        );
+      }
+    }
 
+    await Promise.all([
+      this.emailService.sendOtp({
+        to: dto.email,
+        otp: otp.toString(),
+        name: dto.firstName,
+      }),
+      this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp),
+    ]);
     this.logger.log(
       `Charity registered: ${dto.email} type=${dto.charityType} org=${result.org.name}`,
     );
 
+    return {
+      message: 'Account created, check your inbox to verify your email',
+    };
+  }
+
+  private async prepareFarmerConsumerRegistration(
+    dto: RegisterFarmerConsumerDto,
+    logo?: Express.Multer.File,
+  ): Promise<{
+    passwordHash: string;
+    trialPlanId: number;
+    otp: string;
+    logoUrl: string;
+  }> {
+    await this.assertEmailUnique(dto.email);
+    const [passwordHash, subscription] = await Promise.all([
+      bcrypt.hash(dto.password, 10),
+      this.prisma.subscriptionPlan.findFirst({
+        where: { name: 'FREE_TRIAL', isActive: true },
+      }),
+    ]);
+    if (!subscription) {
+      throw new ServiceUnavailableException('no active trial plan found');
+    }
+    const logoUrl = logo
+      ? await this.s3.uploadFile(logo, this.IMAGE_UPLOAD_FILE_NAME)
+      : '';
+    const otp = GenerateOtp();
+    return {
+      passwordHash,
+      trialPlanId: subscription.id,
+      otp,
+      logoUrl,
+    };
+  }
+  async registerFarmerConsumer(
+    dto: RegisterFarmerConsumerDto,
+    logo?: Express.Multer.File,
+  ) {
+    const { passwordHash, trialPlanId, otp, logoUrl } =
+      await this.prepareFarmerConsumerRegistration(dto, logo);
+    const verifyToken = randomBytes(32).toString('hex');
+    const verifyExpiery = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const result = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          email: dto.email,
+          passwordHash,
+          phoneNumber: dto.mobile ?? '',
+          platformRole: PlatformRole.ORG_USER,
+          emailverifyToken: verifyToken,
+          emailVerifyExpiry: verifyExpiery,
+        },
+      });
+      const org = await tx.organisation.create({
+        data: {
+          name: dto.businessName,
+          address: dto.address,
+          organizationType: OrgType.FARMER_CONSUMER,
+          venueType: dto.venueType,
+          brandName: dto.brandName ?? '',
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          logoUrl: logoUrl,
+        },
+      });
+      const subscriptionPlan = await tx.orgSubscription.create({
+        data: {
+          organisationId: org.id,
+          planId: trialPlanId,
+          trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      });
+      await tx.orgMemeberShip.create({
+        data: {
+          userId: user.id,
+          organisationId: org.id,
+          orgRole: OrgRole.SUPER_ADMIN,
+        },
+      });
+      return { org };
+    });
+
+    await this.geoSearch.indexCharity(
+      result.org.id,
+      dto.latitude,
+      dto.longitude,
+      dto.region,
+    );
+
+    await Promise.all([
+      this.emailService.sendOtp({
+        to: dto.email,
+        otp: otp.toString(),
+        name: dto.firstName,
+      }),
+      this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp),
+    ]);
+    return {
+      message: 'Account created, check your inbox to verify your email',
+    };
+  }
+
+  async registerFarmerProducer(
+    dto: RegisterFarmerProducerDto,
+    logo?: Express.Multer.File,
+  ) {
+    await this.assertEmailUnique(dto.email);
+    const subscription = await this.prisma.subscriptionPlan.findFirst({
+      where: { name: 'FREE_TRIAL', isActive: true },
+    });
+    if (!subscription) {
+      this.logger.debug('free trial plan not found here...');
+      throw new ServiceUnavailableException();
+    }
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const verifyToken = randomBytes(32).toString('hex');
+    const verifyExpiery = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const otp = GenerateOtp();
+
+    let uploadLogoUrl = '';
+    if (logo) {
+      uploadLogoUrl = await this.s3.uploadFile(
+        logo,
+        this.IMAGE_UPLOAD_FILE_NAME,
+      );
+      this.logger.log('file uploaded to s3', uploadLogoUrl);
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          email: dto.email,
+          passwordHash,
+          phoneNumber: dto.mobileNumber ?? '',
+          platformRole: PlatformRole.ORG_USER,
+          emailverifyToken: verifyToken,
+          emailVerifyExpiry: verifyExpiery,
+        },
+      });
+      const org = await tx.organisation.create({
+        data: {
+          name: dto.businessName,
+          address: dto.businessAddress,
+          organizationType: OrgType.FARMER_PRODUCER,
+          venueType: dto.venueType,
+          brandName: dto.brandName ?? 'not provided',
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          logoUrl: uploadLogoUrl,
+        },
+      });
+      const subscriptionPlan = await tx.orgSubscription.create({
+        data: {
+          organisationId: org.id,
+          planId: subscription.id,
+          status: SubscriptionStatus.TRIALING,
+          trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      });
+      await tx.orgMemeberShip.create({
+        data: {
+          userId: user.id,
+          organisationId: org.id,
+          orgRole: OrgRole.SUPER_ADMIN,
+        },
+      });
+      return { org };
+    });
+
+    await this.geoSearch.indexBusiness(
+      result.org.id,
+      dto.latitude,
+      dto.longitude,
+      dto.region,
+    );
+
+    await Promise.all([
+      this.emailService.sendOtp({
+        to: dto.email,
+        otp: otp.toString(),
+        name: dto.firstName,
+      }),
+      this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp),
+    ]);
     return {
       message: 'Account created, check your inbox to verify your email',
     };
@@ -333,7 +561,11 @@ export class AuthService {
 
     const memberShip = await this.prisma.orgMemeberShip.findFirst({
       where: { userId: user.id },
-      include: { organisation: { include: { subscription: true } } },
+      include: {
+        organisation: {
+          include: { subscription: { include: { plan: true } } },
+        },
+      },
     });
     if (!memberShip)
       throw new UnauthorizedException('No organisation found for this user');
@@ -430,7 +662,11 @@ export class AuthService {
 
     const membership = await this.prisma.orgMemeberShip.findFirst({
       where: { userId: user.id },
-      include: { organisation: { include: { subscription: true } } },
+      include: {
+        organisation: {
+          include: { subscription: { include: { plan: true } } },
+        },
+      },
     });
     if (!membership) {
       throw new UnauthorizedException('No organisation found for this user');
@@ -532,7 +768,7 @@ export class AuthService {
       where: { userId: user.id },
       include: {
         organisation: {
-          include: { subscription: true },
+          include: { subscription: { include: { plan: true } } },
         },
       },
     });
@@ -595,18 +831,18 @@ export class AuthService {
       subscription: subscription
         ? {
             plan: {
-              name: subscription.name,
-              displayName: subscription.displayName,
-              priceMonthly: subscription.priceMonthly,
-              priceAnnual: subscription.priceAnnual,
-              features: subscription.features,
-              maxSites: subscription.maxSites,
-              maxUsersPerSite: subscription.maxUserPerSite,
+              name: subscription.plan.name,
+              displayName: subscription.plan.displayName,
+              priceMonthly: subscription.plan.priceMonthly,
+              priceAnnual: subscription.plan.priceAnnual,
+              features: subscription.plan.features,
+              maxSites: subscription.plan.maxSites,
+              maxUsersPerSite: subscription.plan.maxUserPerSite,
             },
-            status: organisation.subscriptionStatus,
-            billingCycle: organisation.billingCycle,
-            trialEndsAt: organisation.trialEndsAt,
-            currentPeriodEnd: organisation.currentPeriodEnd,
+            status: subscription.status,
+            billingCycle: subscription.billingCycle,
+            trialEndsAt: subscription.trialEndsAt,
+            currentPeriodEnd: subscription.currentPeriodEnd,
           }
         : null,
       sites: siteAccesses.map((sa) => ({
@@ -697,24 +933,24 @@ export class AuthService {
     ]);
   }
 
-
-  async resendVerificationEmail(email:string){
+  async resendVerificationEmail(email: string) {
     const user = await this.prisma.user.findUnique({
-      where:{
-        email:email
-      }
-    })
-    if(!user) throw new NotFoundException("user with this email not found");
-    if(user.emailVerified === true) return new BadRequestException("email already verified")
-    const otp = GenerateOtp()
+      where: {
+        email: email,
+      },
+    });
+    if (!user) throw new NotFoundException('user with this email not found');
+    if (user.emailVerified === true)
+      return new BadRequestException('email already verified');
+    const otp = GenerateOtp();
     await this.emailService.sendOtp({
-      to:email,
-      otp:otp.toString(),
-      name:user.firstName
-    })
-    await this.authCacheManaher.storeEmailVerificationOtp(email,otp)
+      to: email,
+      otp: otp.toString(),
+      name: user.firstName,
+    });
+    await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
     return {
-      message:"done"
-    }
+      message: 'done',
+    };
   }
 }

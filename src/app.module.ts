@@ -13,6 +13,8 @@ import { FoodListingModule } from './modules/Foodlisting/foodlisting.module';
 import { ProximityModule } from './modules/psearch/psearch.module';
 import { KafkaModule } from './infra/kafka/kafka.module';
 import { OrganizationModule } from './modules/organisation/organization.module';
+import { RedisProxyModule } from './modules/redisProxy/redis.proxy.module';
+import { RedisGeoSearchModule } from './modules/redis-geo-search/redis-geo-search.module';
 
 @Module({
   imports: [
@@ -27,7 +29,9 @@ import { OrganizationModule } from './modules/organisation/organization.module';
     CharityModule,
     FoodListingModule,
     ProximityModule,
-    OrganizationModule
+    OrganizationModule,
+    RedisProxyModule,
+    RedisGeoSearchModule,
   ],
   controllers: [AppController],
   providers: [AppService],
