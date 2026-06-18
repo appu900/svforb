@@ -88,6 +88,12 @@ enum ClaimStatus {
   CANCELLED
 }
 
+enum FoodListingType {
+  HUMAN
+  ANIMAL
+  BOTH
+}
+
 model User {
   id           Int     @id @default(autoincrement())
   firstName    String
@@ -126,17 +132,17 @@ model TeamMember {
 }
 
 model SubscriptionPlan {
-  id             Int               @id @default(autoincrement())
-  name           String            @unique
-  displayName    String
-  maxSites       Int
-  maxUserPerSite Int
-  priceMonthly   Float
-  priceAnnual    Float
-  features       String[]
-  isActive       Boolean           @default(true)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  id               Int               @id @default(autoincrement())
+  name             String            @unique
+  displayName      String
+  maxSites         Int
+  maxUserPerSite   Int
+  priceMonthly     Float
+  priceAnnual      Float
+  features         String[]
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   orgSubscriptions OrgSubscription[]
 
   @@map("subscription_plans")
@@ -275,7 +281,8 @@ model FoodListing {
   site           Site         @relation(fields: [siteId], references: [id])
   organisationId Int
   organisation   Organisation @relation(fields: [organisationId], references: [id])
-  foodItems      Json
+
+  listingType    FoodListingType @default(HUMAN)
   totalQtyKg     Float
   remainingQtyKg Float
 
@@ -288,11 +295,12 @@ model FoodListing {
   pickupFromTime DateTime?
   pickupByTime   DateTime?
 
-  needsRefrigeration Boolean @default(false)
-  needsReheating     Boolean @default(false)
-  containsAllergens  Boolean @default(false)
-  isGlutenFree       Boolean @default(false)
-  isSafeForDonation  Boolean @default(true)
+  needsRefrigeration Boolean  @default(false)
+  needsAmbient       Boolean  @default(false)
+  needsFreezer       Boolean  @default(false)
+  needsReheating     Boolean  @default(false)
+  isSafeForDonation  Boolean  @default(true)
+  allergens          String[] @default([])
 
   photoUrls String[]      @default([])
   status    ListingStatus @default(ACTIVE)
@@ -305,6 +313,7 @@ model FoodListing {
 
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
+  foodItems         FoodItem[]
   foodClaims        FoodClaim[]
   listingActivities ListingActivity[]
 
@@ -316,14 +325,28 @@ model FoodListing {
   @@map("food_listings")
 }
 
+model FoodItem {
+  id             Int         @id @default(autoincrement())
+  listingId      Int
+  listing        FoodListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  name           String
+  totalQtyKg     Float
+  remainingQtyKg Float
+  unit           String?
+  category       String?
+
+  claimItems ClaimItem[]
+
+  @@index([listingId])
+  @@map("food_items")
+}
+
 model FoodClaim {
   id           Int          @id @default(autoincrement())
   listingId    Int
   listing      FoodListing  @relation(fields: [listingId], references: [id])
   charityOrgId Int
   chairtyOrg   Organisation @relation("CharityClaims", fields: [charityOrgId], references: [id])
-  claimedItems Json
-  claimedQtyKg Float
   isFullClaim  Boolean      @default(false)
   status       ClaimStatus  @default(PENDING)
 
@@ -331,13 +354,27 @@ model FoodClaim {
   ratingNote String?
 
   collectedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  claimItems  ClaimItem[]
 
   @@index([listingId])
   @@index([charityOrgId])
   @@index([status])
   @@map("food_claims")
+}
+
+model ClaimItem {
+  id         Int       @id @default(autoincrement())
+  claimId    Int
+  claim      FoodClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  foodItemId Int
+  foodItem   FoodItem  @relation(fields: [foodItemId], references: [id])
+  qtyKg      Float
+
+  @@index([claimId])
+  @@index([foodItemId])
+  @@map("claim_items")
 }
 
 model ListingActivity {

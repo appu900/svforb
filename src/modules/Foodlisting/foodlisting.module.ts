@@ -1,17 +1,11 @@
 import { Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
-import { FOOD_LISTING_QUEUE } from './types/queue.types';
-import { FoodListingController } from './foodlisting.controller';
-import { FoodListingService } from './foodlisting.service';
-import { ProximityModule } from '../psearch/psearch.module';
-
+import { FoodListingController } from './controller/food.listing.controller';
+import { FoodListingService } from './services/food.listing.service';
+import { FoodListingCacheManager } from './cache/food.listing.cache';
 
 @Module({
-  imports: [
-    BullModule.registerQueue({ name: FOOD_LISTING_QUEUE }),
-    ProximityModule
-  ],
   controllers: [FoodListingController],
-  providers: [FoodListingService],
+  providers: [FoodListingService, FoodListingCacheManager],
+  exports: [FoodListingService],
 })
 export class FoodListingModule {}

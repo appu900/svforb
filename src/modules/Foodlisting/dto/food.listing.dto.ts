@@ -1,153 +1,59 @@
-import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
   IsDateString,
-  IsIn,
+  IsEnum,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
-  Min,
   ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+import { FoodListingType } from '@prisma/client';
 
-export class FoodItemDto {
-  @IsString()
-  @IsNotEmpty()
-  category!: string;
+export class CreateFoodItemDto {
+  @IsString() @IsNotEmpty() name!: string;
 
   @IsNumber()
   @IsPositive()
+  @Type(() => Number)
   totalQtyKg!: number;
 
-  @IsNumber()
-  @Min(0)
-  remainingQtyKg!: number;
+  @IsString() @IsOptional() unit?: string;
+  @IsString() @IsOptional() category?: string;
 }
 
-export class CreateListingDto {
-  @IsNumber()
+export class CreateFoodListingDto {
+  @IsInt()
+  @Type(() => Number)
   siteId!: number;
 
+  @IsEnum(FoodListingType) listingType!: FoodListingType;
+
+  @IsString() @IsNotEmpty() pickupAddress!: string;
+  @IsString() @IsOptional() pickupPostcode?: string;
+
+  @IsNumber() @Type(() => Number) pickupLat!: number;
+  @IsNumber() @Type(() => Number) pickupLng!: number;
+
+  @IsDateString() bestBefore!: string;
+  @IsDateString() @IsOptional() pickupFromTime?: string;
+  @IsDateString() @IsOptional() pickupByTime?: string;
+
+  @IsBoolean() @IsOptional() needsRefrigeration?: boolean;
+  @IsBoolean() @IsOptional() needsAmbient?: boolean;
+  @IsBoolean() @IsOptional() needsFreezer?: boolean;
+  @IsBoolean() @IsOptional() needsReheating?: boolean;
+  @IsBoolean() @IsOptional() isSafeForDonation?: boolean;
+
+  @IsArray() @IsString({ each: true }) @IsOptional() allergens?: string[];
+  @IsArray() @IsString({ each: true }) @IsOptional() photoUrls?: string[];
+
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => FoodItemDto)
-  foodItems!: FoodItemDto[];
-
-  @IsString()
-  pickupAddress!: string;
-
-  @IsOptional()
-  @IsString()
-  pickupPostcode?: string;
-
-  @IsDateString()
-  bestBefore!: string;
-
-  @IsOptional()
-  @IsDateString()
-  pickupFromTime?: string;
-
-  @IsOptional()
-  @IsDateString()
-  pickupByTime?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  needsRefrigeration?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  needsReheating?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  containsAllergens?: boolean;
-}
-
-export class RelistDto {
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => FoodItemDto)
-  foodItems?: FoodItemDto[];
-
-  @IsDateString()
-  bestBefore!: string;
-
-  @IsOptional()
-  @IsDateString()
-  pickupFromTime?: string;
-
-  @IsOptional()
-  @IsDateString()
-  pickupByTime?: string;
-
-  @IsOptional()
-  @IsNumber()
-  pickupLat?: number;
-
-  @IsOptional()
-  @IsNumber()
-  pickupLng?: number;
-}
-
-export class UpdateListingDto {
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => FoodItemDto)
-  foodItems?: FoodItemDto[];
-
-  @IsOptional()
-  @IsDateString()
-  bestBefore?: string;
-
-  @IsOptional()
-  @IsDateString()
-  pickupFromTime?: string;
-
-  @IsOptional()
-  @IsDateString()
-  pickupByTime?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  needsRefrigeration?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  needsReheating?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  containsAllergens?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isGlutenFree?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isSafeForDonation?: boolean;
-}
-
-export class GetListingsQueryDto {
-  @IsOptional()
-  @IsIn(['ACTIVE', 'PARTIAL', 'CLAIMED', 'EXPIRED', 'CANCELLED'])
-  status?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Type(() => Number)
-  page?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Type(() => Number)
-  limit?: number;
+  @Type(() => CreateFoodItemDto)
+  foodItems!: CreateFoodItemDto[];
 }
