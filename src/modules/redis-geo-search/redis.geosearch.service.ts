@@ -30,6 +30,10 @@ export class RedisGeoSearchService {
     return `geo:businesses:${region}`;
   }
 
+  private farmerConsumerKey(region: Region) {
+    return `geo:farmer-consumers:${region}`;
+  }
+
   async indexCharity(orgId: number, lat: number, lng: number, region: Region) {
     await this.redis.getClient().geoadd(this.charityKey(region), lng, lat, String(orgId));
     this.logger.log(`Indexed charity org=${orgId} region=${region}`);
@@ -45,12 +49,21 @@ export class RedisGeoSearchService {
     this.logger.log(`Indexed business org=${orgId} region=${region}`);
   }
 
+  async indexFarmerConsumer(orgId: number, lat: number, lng: number, region: Region) {
+    await this.redis.getClient().geoadd(this.farmerConsumerKey(region), lng, lat, String(orgId));
+    this.logger.log(`Indexed farmer-consumer org=${orgId} region=${region}`);
+  }
+
   async removeCharity(orgId: number, region: Region) {
     await this.redis.getClient().zrem(this.charityKey(region), String(orgId));
   }
 
   async removeCharitySite(siteId: number, region: Region) {
     await this.redis.getClient().zrem(this.charitySiteKey(region), String(siteId));
+  }
+
+  async removeFarmerConsumer(orgId: number, region: Region) {
+    await this.redis.getClient().zrem(this.farmerConsumerKey(region), String(orgId));
   }
 
   async searchNearbyCharities(
@@ -178,6 +191,75 @@ export class RedisGeoSearchService {
       region,
       total: charities.length,
       charities,
+    };
+  }
+
+  async searchNearbyFarmerConsumers(
+    lat: number,
+    lng: number,
+    radiusKm: number,
+    region: Region,
+  ) {
+    const client = this.redis.getClient();
+
+    const raw = (await client.call(
+      'GEOSEARCH',
+      this.farmerConsumerKey(region),
+      'FROMLONLAT', String(lng), String(lat),
+      'BYRADIUS', String(radiusKm), 'km',
+      'ASC', 'WITHCOORD', 'WITHDIST', 'COUNT', '50',
+    )) as any[][];
+
+    const geoResults: GeoResult[] = (raw || []).map((r) => ({
+      member: String(r[0]),
+      distanceKm: parseFloat(r[1]),
+      coords: { lat: parseFloat(r[2][1]), lng: parseFloat(r[2][0]) },
+    }));
+
+    if (!geoResults.length) {
+      return { searchCoordinates: { lat, lng }, radiusKm, region, total: 0, farmerConsumers: [] };
+    }
+
+    const orgIds = geoResults.map((r) => Number(r.member));
+    const orgs = await this.prisma.organisation.findMany({
+      where: { id: { in: orgIds } },
+      select: {
+        id: true,
+        name: true,
+        organizationType: true,
+        logoUrl: true,
+        address: true,
+        region: true,
+        ratingAvg: true,
+        ratingCount: true,
+      },
+    });
+
+    const orgMap = new Map(orgs.map((o) => [o.id, o]));
+
+    const farmerConsumers = geoResults
+      .filter((r) => orgMap.has(Number(r.member)))
+      .map((r) => {
+        const org = orgMap.get(Number(r.member))!;
+        return {
+          orgId: org.id,
+          orgName: org.name,
+          orgType: org.organizationType,
+          logoUrl: org.logoUrl,
+          address: org.address,
+          region: org.region,
+          distanceKm: r.distanceKm,
+          coordinates: r.coords,
+          rating: { avg: org.ratingAvg, count: org.ratingCount },
+        };
+      });
+
+    return {
+      searchCoordinates: { lat, lng },
+      radiusKm,
+      region,
+      total: farmerConsumers.length,
+      farmerConsumers,
     };
   }
 }

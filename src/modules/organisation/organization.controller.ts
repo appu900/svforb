@@ -3,8 +3,6 @@ import { OrganisationService } from "./organization.service";
 import { UpdateLocationDto } from "./dto/update.location.dto";
 
 
-
-
 //bhAi ki api
 @Controller('organization')
 export class OrganizationController {

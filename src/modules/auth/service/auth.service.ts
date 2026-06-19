@@ -170,11 +170,11 @@ export class AuthService {
       dto.region,
     );
     await this.emailService.sendOtp({
-      to:dto.email,
-      otp:otp.toString(),
-      name:dto.firstName
-    })
-    await this.authCacheManaher.storeEmailVerificationOtp(dto.email,otp)
+      to: dto.email,
+      otp: otp.toString(),
+      name: dto.firstName,
+    });
+    await this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp);
     return {
       message: 'Account created, check your inbox to verify your email',
     };
@@ -360,6 +360,7 @@ export class AuthService {
       logoUrl,
     };
   }
+
   async registerFarmerConsumer(
     dto: RegisterFarmerConsumerDto,
     logo?: Express.Multer.File,
@@ -390,6 +391,7 @@ export class AuthService {
           brandName: dto.brandName ?? '',
           latitude: dto.latitude,
           longitude: dto.longitude,
+          region: dto.region,
           logoUrl: logoUrl,
         },
       });
@@ -407,10 +409,32 @@ export class AuthService {
           orgRole: OrgRole.SUPER_ADMIN,
         },
       });
+
+      const site = await tx.site.create({
+        data: {
+          organisationId: org.id,
+          address: dto.address,
+          contactName: `${dto.firstName} ${dto.lastName}`,
+          contactEmail: dto.email ?? '',
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          contactMobile: dto.mobile ?? '',
+          organisationName: dto.businessName,
+        },
+      });
+      await tx.siteAccess.create({
+        data: {
+          userId: user.id,
+          siteId: site.id,
+          organisationId: org.id,
+          siteRole: SiteRole.SITE_ADMIN,
+          grantedBy:user.id
+        }
+      })
       return { org };
     });
 
-    await this.geoSearch.indexCharity(
+    await this.geoSearch.indexFarmerConsumer(
       result.org.id,
       dto.latitude,
       dto.longitude,
@@ -496,6 +520,27 @@ export class AuthService {
           orgRole: OrgRole.SUPER_ADMIN,
         },
       });
+      const site = await tx.site.create({
+        data: {
+          organisationId: org.id,
+          address: dto.businessAddress,
+          contactName: `${dto.firstName} ${dto.lastName}`,
+          contactEmail: dto.email ?? '',
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          contactMobile: dto.mobileNumber ?? '',
+          organisationName: dto.businessName,
+        },
+      });
+      await tx.siteAccess.create({
+        data: {
+          userId: user.id,
+          siteId: site.id,
+          organisationId: org.id,
+          siteRole: SiteRole.SITE_ADMIN,
+          grantedBy:user.id
+        }
+      })
       return { org };
     });
 
