@@ -5,7 +5,7 @@ import { UpdateLocationDto } from "./dto/update.location.dto";
 
 
 
-
+//bhAi ki api
 @Controller('organization')
 export class OrganizationController {
     private readonly logger = new Logger(OrganizationController.name)
