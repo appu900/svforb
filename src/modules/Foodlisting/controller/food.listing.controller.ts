@@ -8,8 +8,11 @@ import {
   Post,
   Query,
   Req,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
@@ -23,11 +26,13 @@ export class FoodListingController {
   constructor(private readonly service: FoodListingService) {}
 
   @Post()
+  @UseInterceptors(FilesInterceptor('photos', 5))
   create(
     @Req() req: Request & { user: Jwtpayload },
     @Body() dto: CreateFoodListingDto,
+    @UploadedFiles() photos?: Express.Multer.File[],
   ) {
-    return this.service.createListing(req.user, dto);
+    return this.service.createListing(req.user, dto, photos);
   }
 
   @Get('org/:orgId')

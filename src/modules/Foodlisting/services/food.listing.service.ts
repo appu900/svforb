@@ -8,8 +8,11 @@ import {
 import { ListingStatus } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
+import { S3Service } from '../../../uploads/s3/s3.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
+
+const PHOTO_FOLDER = 'food-listing-photos';
 
 const DEFAULT_LIMIT = 20;
 
@@ -20,9 +23,14 @@ export class FoodListingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: FoodListingCacheManager,
+    private readonly s3: S3Service,
   ) {}
 
-  async createListing(caller: Jwtpayload, dto: CreateFoodListingDto) {
+  async createListing(
+    caller: Jwtpayload,
+    dto: CreateFoodListingDto,
+    photos?: Express.Multer.File[],
+  ) {
     if (!dto.foodItems?.length) {
       throw new BadRequestException('At least one food item is required');
     }
@@ -32,6 +40,11 @@ export class FoodListingService {
     });
     if (!site)
       throw new NotFoundException('Site not found in your organisation');
+
+    const uploadedUrls =
+      photos?.length
+        ? await Promise.all(photos.map((f) => this.s3.uploadFile(f, PHOTO_FOLDER)))
+        : (dto.photoUrls ?? []);
 
     const totalQtyKg = dto.foodItems.reduce((sum, i) => sum + i.totalQtyKg, 0);
 
@@ -58,7 +71,7 @@ export class FoodListingService {
           needsReheating: dto.needsReheating ?? false,
           isSafeForDonation: dto.isSafeForDonation ?? true,
           allergens: dto.allergens ?? [],
-          photoUrls: dto.photoUrls ?? [],
+          photoUrls: uploadedUrls,
         },
       });
 
