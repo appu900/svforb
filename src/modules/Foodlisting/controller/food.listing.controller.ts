@@ -19,6 +19,7 @@ import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 import { FoodListingService } from '../services/food.listing.service';
 import { ListingStatus } from '@prisma/client';
+import { get } from 'https';
 
 @Controller('food-listings')
 @UseGuards(JwtAuthGuard)
@@ -45,12 +46,26 @@ export class FoodListingController {
     return this.service.getOrgListings(orgId, page, limit, status);
   }
 
+
+
+  @Get('/site')
+  async getListingBySiteId(@Req() req: Request & { user: Jwtpayload }) {
+   const userId = req.user.sub
+   const siteId = req.user.siteId
+   const response = await this.service.getAllListingOfSiteID(siteId!,userId)
+   return {
+     message:"all listing fetched sucessfully",
+     response
+   }
+  }
+
   @Get('recent')
   getRecent(
+    @Req() req: Request & { user: Jwtpayload },
     @Query('page', new ParseIntPipe({ optional: true })) page = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
   ) {
-    return this.service.getRecentListings(page, limit);
+    return this.service.getRecentListings(req.user.siteId!, page, limit);
   }
 
   @Get(':id')

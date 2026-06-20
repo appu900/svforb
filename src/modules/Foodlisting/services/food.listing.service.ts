@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ListingStatus } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
@@ -13,7 +14,6 @@ import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 
 const PHOTO_FOLDER = 'food-listing-photos';
-
 const DEFAULT_LIMIT = 20;
 
 @Injectable()
@@ -104,6 +104,21 @@ export class FoodListingService {
     return listing;
   }
 
+  async getAllListingOfSiteID(siteId:number,callerUserId:number){
+    const callerUserDetails = await this.prisma.user.findUnique({where:{id:callerUserId}})
+    if(!callerUserDetails) throw new UnauthorizedException("user has not access for the data")
+    const hasSiteAccess = await this.prisma.siteAccess.findFirst({ where: { siteId: siteId, userId: callerUserDetails.id } })
+    if (!hasSiteAccess) throw new UnauthorizedException("access denied")
+    const allFoodListings = await this.prisma.foodListing.findMany({
+      where: {
+        siteId:siteId
+      },
+      include:{
+        foodItems:true
+      }
+    })
+    return allFoodListings;
+  }
   async getOrgListings(
     orgId: number,
     page = 1,
@@ -180,17 +195,13 @@ export class FoodListingService {
     return listing;
   }
 
-  async getRecentListings(page = 1, limit = DEFAULT_LIMIT) {
-    const cached = await this.cache.getRecentPage(page);
-    if (cached) return cached;
-
+  async getRecentListings(siteId: number, page = 1, limit = DEFAULT_LIMIT) {
+    console.log("this is siteID",siteId)
     const skip = (page - 1) * limit;
 
     const [listings, total] = await Promise.all([
       this.prisma.foodListing.findMany({
-        where: {
-          status: { in: [ListingStatus.ACTIVE, ListingStatus.PARTIAL] },
-        },
+        where: { siteId },
         include: {
           foodItems: {
             select: { id: true, name: true, remainingQtyKg: true, unit: true },
@@ -198,28 +209,16 @@ export class FoodListingService {
           organisation: {
             select: { id: true, name: true, logoUrl: true, ratingAvg: true },
           },
-          site: { select: { address: true, postcode: true } },
+          site: { select: { id: true, address: true, postcode: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
       }),
-      this.prisma.foodListing.count({
-        where: {
-          status: { in: [ListingStatus.ACTIVE, ListingStatus.PARTIAL] },
-        },
-      }),
+      this.prisma.foodListing.count({ where: { siteId } }),
     ]);
 
-    const result = {
-      listings,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
-    await this.cache.setRecentPage(page, result);
-    return result;
+    return { listings, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async cancelListing(caller: Jwtpayload, id: number) {
