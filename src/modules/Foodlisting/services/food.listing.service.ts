@@ -167,7 +167,7 @@ export class FoodListingService {
           select: {
             id: true,
             status: true,
-            isFullClaim: true,
+            claimMode: true,
             createdAt: true,
           },
         },

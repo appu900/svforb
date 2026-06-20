@@ -88,6 +88,11 @@ enum ClaimStatus {
   CANCELLED
 }
 
+enum ClaimMode {
+  FULL
+  PARTIAL
+}
+
 enum FoodListingType {
   HUMAN
   ANIMAL
@@ -309,7 +314,7 @@ model FoodListing {
   relistOf     FoodListing?  @relation("RelistChain", fields: [relistOfId], references: [id])
   foodListings FoodListing[] @relation("RelistChain")
 
-  uniqueCharityCount Int @default(0)
+  uniqueClaimantCount Int @default(0)
 
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
@@ -345,21 +350,22 @@ model FoodClaim {
   id           Int          @id @default(autoincrement())
   listingId    Int
   listing      FoodListing  @relation(fields: [listingId], references: [id])
-  charityOrgId Int
-  chairtyOrg   Organisation @relation("CharityClaims", fields: [charityOrgId], references: [id])
-  isFullClaim  Boolean      @default(false)
-  status       ClaimStatus  @default(PENDING)
+  claimantOrgId Int
+  claimantOrg   Organisation @relation("CharityClaims", fields: [claimantOrgId], references: [id])
+  claimMode     ClaimMode   @default(PARTIAL)
+  status        ClaimStatus @default(PENDING)
 
   rating     Int?
   ratingNote String?
 
+  confirmedAt DateTime?
   collectedAt DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   claimItems  ClaimItem[]
 
   @@index([listingId])
-  @@index([charityOrgId])
+  @@index([claimantOrgId])
   @@index([status])
   @@map("food_claims")
 }
