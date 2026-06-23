@@ -35,6 +35,7 @@ export const NOTIFICATION_PUSH_JOBS = {
 // ── Listings job names ────────────────────────────────────────────────────────
 
 export const LISTINGS_JOBS = {
+  NEW_LISTING:          'listing.new',                 // proximity notify on listing create
   EXPIRE_LISTING:       'listing.expire',
   PROXIMITY_REQUERY:    'listing.proximity_requery',   // after partial claim
   IMPACT_AGGREGATE:     'listing.impact_aggregate',

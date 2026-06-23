@@ -93,6 +93,14 @@ enum ClaimMode {
   PARTIAL
 }
 
+enum DriverPickupStatus {
+  ACCEPTED
+  EN_ROUTE
+  ARRIVED
+  COLLECTED
+  CANCELLED
+}
+
 enum FoodListingType {
   HUMAN
   ANIMAL
@@ -124,6 +132,7 @@ model User {
   updatedAt       DateTime         @updatedAt
   orgMemeberShips OrgMemeberShip[]
   siteAccesses    siteAccess[]
+  driverPickups   DriverPickup[]   @relation("DriverPickups")
 
   @@index([email])
   @@index([phoneNumber])
@@ -321,6 +330,7 @@ model FoodListing {
   foodItems         FoodItem[]
   foodClaims        FoodClaim[]
   listingActivities ListingActivity[]
+  driverPickups     DriverPickup[]
 
   @@index([siteId])
   @@index([organisationId])
@@ -360,9 +370,10 @@ model FoodClaim {
 
   confirmedAt DateTime?
   collectedAt DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
   claimItems  ClaimItem[]
+  driverPickups DriverPickup[]
 
   @@index([listingId])
   @@index([claimantOrgId])
@@ -422,4 +433,33 @@ model RestaurantCharitySupport {
 model SiteAnalytics {
   id     Int @id @default(autoincrement())
   siteId Int
+}
+
+model DriverPickup {
+  id        Int                @id @default(autoincrement())
+  driverId  Int
+  driver    User               @relation("DriverPickups", fields: [driverId], references: [id])
+  claimId   Int
+  claim     FoodClaim          @relation(fields: [claimId], references: [id])
+  listingId Int
+  listing   FoodListing        @relation(fields: [listingId], references: [id])
+  status    DriverPickupStatus @default(ACCEPTED)
+
+  photoUrl         String?
+  completionNotes  String?
+  restaurantRating Int?
+
+  acceptedAt  DateTime  @default(now())
+  arrivedAt   DateTime?
+  collectedAt DateTime?
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([driverId])
+  @@index([claimId])
+  @@index([listingId])
+  @@index([status])
+  @@map("driver_pickups")
 }

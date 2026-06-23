@@ -15,15 +15,16 @@ import { OrganizationModule } from './modules/organisation/organization.module';
 import { RedisProxyModule } from './modules/redisProxy/redis.proxy.module';
 import { RedisGeoSearchModule } from './modules/redis-geo-search/redis-geo-search.module';
 import { FoodListingModule } from './modules/foodlisting/foodlisting.module';
-
-
-
-
-// foodlisting page
+import { GatewayModule } from './gateway/gateway.module';
+import { DriversModule } from './modules/drivers/drivers.module';
+import { ClaimsModule } from './modules/claims/claims.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    GatewayModule,
+    DriversModule,
+    ClaimsModule,
     KafkaModule,
     PrismaModule,
     RedisModule,

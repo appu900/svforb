@@ -54,6 +54,35 @@ export class RedisGeoSearchService {
     this.logger.log(`Indexed farmer-consumer org=${orgId} region=${region}`);
   }
 
+  async indexFarmerConsumerSite(siteId: number, lat: number, lng: number, region: Region) {
+    await this.redis.getClient().geoadd(
+      `geo:farmer-consumer-sites:${region}`, lng, lat, String(siteId),
+    );
+    this.logger.log(`Indexed farmer-consumer site=${siteId} region=${region}`);
+  }
+
+  async removeFarmerConsumerSite(siteId: number, region: Region) {
+    await this.redis.getClient().zrem(`geo:farmer-consumer-sites:${region}`, String(siteId));
+    this.logger.log(`Removed farmer-consumer site=${siteId} from geo region=${region}`);
+  }
+
+  async searchNearbyFarmerConsumerSites(
+    lat: number,
+    lng: number,
+    radiusKm: number,
+    region: Region,
+  ): Promise<number[]> {
+    const raw = (await this.redis.getClient().call(
+      'GEOSEARCH',
+      `geo:farmer-consumer-sites:${region}`,
+      'FROMLONLAT', String(lng), String(lat),
+      'BYRADIUS', String(radiusKm), 'km',
+      'ASC', 'COUNT', '50',
+    )) as string[];
+
+    return (raw || []).map((member) => Number(member));
+  }
+
   async removeCharity(orgId: number, region: Region) {
     await this.redis.getClient().zrem(this.charityKey(region), String(orgId));
   }

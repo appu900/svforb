@@ -10,11 +10,13 @@ import { ListingStatus } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { S3Service } from '../../../uploads/s3/s3.service';
+import { ListingQueueService } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 
 const PHOTO_FOLDER = 'food-listing-photos';
 const DEFAULT_LIMIT = 20;
+
 
 @Injectable()
 export class FoodListingService {
@@ -24,6 +26,7 @@ export class FoodListingService {
     private readonly prisma: PrismaService,
     private readonly cache: FoodListingCacheManager,
     private readonly s3: S3Service,
+    private readonly listingQueue: ListingQueueService,
   ) {}
 
   async createListing(
@@ -91,10 +94,31 @@ export class FoodListingService {
         include: { foodItems: true },
       });
     });
+    const listingActivity = await this.prisma.listingActivity.create({
+      data:{
+        actorOrgId:site.organisationId,
+        listingId:listing!.id,
+        eventType:'listing created',
+        message:'Food listing created looking for charities',
+      }
+    })
 
     await Promise.all([
       this.cache.invalidateOrgPage1(caller.orgId!),
       this.cache.invalidateRecentPage1(),
+    ]);
+
+    await Promise.all([
+      this.listingQueue.enqueueNewListing({
+        listingId: listing!.id,
+        siteId: dto.siteId,
+        listingType: dto.listingType,
+        pickupAddress: dto.pickupAddress,
+        businessName: site.organisationName,
+        totalQtyKg,
+        bestBefore: dto.bestBefore,
+      }),
+      this.listingQueue.enqueueListingExpiry(listing!.id),
     ]);
 
     this.logger.log(
@@ -155,8 +179,6 @@ export class FoodListingService {
 
     return result;
   }
-
-
 
   async getListingById(id: number) {
     const cached = await this.cache.getListing(id);

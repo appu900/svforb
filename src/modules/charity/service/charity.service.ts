@@ -313,6 +313,14 @@ export class CharityService {
       data: { isActive: false },
     });
 
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: caller.orgId! },
+      select: { region: true },
+    });
+    if (org?.region) {
+      await this.geoSearch.removeCharitySite(locationId, org.region);
+    }
+
     await this.cache.invalidateLocation(locationId);
     await this.cache.invalidateLocations(caller.orgId!);
 

@@ -46,17 +46,15 @@ export class FoodListingController {
     return this.service.getOrgListings(orgId, page, limit, status);
   }
 
-
-
   @Get('/site')
   async getListingBySiteId(@Req() req: Request & { user: Jwtpayload }) {
-   const userId = req.user.sub
-   const siteId = req.user.siteId
-   const response = await this.service.getAllListingOfSiteID(siteId!,userId)
-   return {
-     message:"all listing fetched sucessfully",
-     response
-   }
+    const userId = req.user.sub;
+    const siteId = req.user.siteId;
+    const response = await this.service.getAllListingOfSiteID(siteId!, userId);
+    return {
+      message: 'all listing fetched sucessfully',
+      response,
+    };
   }
 
   @Get('recent')

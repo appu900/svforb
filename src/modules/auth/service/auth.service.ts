@@ -431,11 +431,17 @@ export class AuthService {
           grantedBy:user.id
         }
       })
-      return { org };
+      return { org, site };
     });
 
     await this.geoSearch.indexFarmerConsumer(
       result.org.id,
+      dto.latitude,
+      dto.longitude,
+      dto.region,
+    );
+    await this.geoSearch.indexFarmerConsumerSite(
+      result.site.id,
       dto.latitude,
       dto.longitude,
       dto.region,
