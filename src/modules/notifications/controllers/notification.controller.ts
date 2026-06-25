@@ -10,9 +10,9 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
-import { PlatformAdminGuard } from 'src/common/guards/platform-admin.guard';
-import { Jwtpayload } from 'src/modules/auth/interface/jwt.interface';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { PlatformAdminGuard } from '../../../common/guards/platform-admin.guard';
+import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
 import { NotificationService } from '../services/notification.service';
 import { NotificationProducer } from '../producers/notification.producer';
 import { RegisterTokenDto, UnregisterTokenDto } from '../dto/register-token.dto';

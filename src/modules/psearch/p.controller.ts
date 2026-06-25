@@ -11,9 +11,9 @@ import {
 
 import { Jwtpayload } from '../auth/interface/jwt.interface';
 import { ProximityService } from './psearch.service';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Region } from '@prisma/client';
-import { PrismaService } from 'src/infra/prisma/prisma.service';
+import { PrismaService } from '../../infra/prisma/prisma.service';
 
 @Controller('proximity')
 export class ProximityController {

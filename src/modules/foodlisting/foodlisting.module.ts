@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { S3Module } from 'src/uploads/s3/s3.module';
+import { S3Module } from '../../uploads/s3/s3.module';
 import { RedisGeoSearchModule } from '../redis-geo-search/redis-geo-search.module';
 import { FoodListingController } from './controller/food.listing.controller';
 import { FoodListingService } from './services/food.listing.service';

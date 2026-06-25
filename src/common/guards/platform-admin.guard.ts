@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PlatformRole } from '@prisma/client';
-import { Jwtpayload } from 'src/modules/auth/interface/jwt.interface';
+import { Jwtpayload } from '../../modules/auth/interface/jwt.interface';
 
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {

@@ -1,8 +1,8 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 
 import { NearbyCharity, NearbyListing } from './ptypes';
-import { PrismaService } from 'src/infra/prisma/prisma.service';
-import { RedisService } from 'src/infra/redis/redis.service';
+import { PrismaService } from '../../infra/prisma/prisma.service';
+import { RedisService } from '../../infra/redis/redis.service';
 import { OrgType } from '@prisma/client';
 
 @Injectable()

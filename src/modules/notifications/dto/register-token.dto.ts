@@ -10,13 +10,16 @@ export class RegisterTokenDto {
   @IsNotEmpty()
   token: string;
 
+  @IsString()
   @IsEnum(['ios', 'android'])
   platform: 'ios' | 'android';
 
+  @IsString()
   @IsEnum(['apns', 'fcm', 'expo'])
   tokenType: 'apns' | 'fcm' | 'expo';
 
   @IsOptional()
+  @IsString()
   @IsEnum(['prod', 'dev'])
   tokenMode?: 'prod' | 'dev';
 

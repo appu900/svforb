@@ -10,8 +10,8 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
-import { PlatformAdminGuard } from 'src/common/guards/platform-admin.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { SubscriptionsService } from './subscriptions.service';
 import {
   CreateSubscriptionPlanDto,

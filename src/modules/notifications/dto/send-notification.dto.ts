@@ -40,6 +40,7 @@ export class SendNotificationDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @IsNotEmpty({ each: true })
   targetUserIds?: string[];
 
   @IsOptional()

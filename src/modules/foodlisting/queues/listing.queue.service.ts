@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { FoodListingType } from '@prisma/client';
-import { DEFAULT_JOB_OPTIONS, LISTINGS_JOBS } from 'src/infra/queues/queus.constants';
+import { DEFAULT_JOB_OPTIONS, LISTINGS_JOBS } from '../../../infra/queues/queus.constants';
 
 export const LISTINGS_QUEUE = 'listings';
 

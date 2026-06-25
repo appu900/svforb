@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { OrgRole, SiteRole } from '@prisma/client';
-import { Jwtpayload } from 'src/modules/auth/interface/jwt.interface';
+import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
 
 /**
  * Allows SUPER_ADMIN (org level) OR SITE_ADMIN (site level).

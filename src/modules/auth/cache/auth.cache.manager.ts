@@ -1,5 +1,5 @@
 import { Logger, Injectable } from '@nestjs/common';
-import { RedisService } from 'src/infra/redis/redis.service';
+import { RedisService } from '../../../infra/redis/redis.service';
 
 const K = {
   EMAIL_OTP: (email: string) => `auth:otp:email:${email}`,

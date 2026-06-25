@@ -7,10 +7,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ClaimStatus, DriverPickupStatus, SiteRole } from '@prisma/client';
-import { PrismaService } from 'src/infra/prisma/prisma.service';
-import { RedisService } from 'src/infra/redis/redis.service';
-import { S3Service } from 'src/uploads/s3/s3.service';
-import { NotificationService } from 'src/modules/notifications/services/notification.service';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { RedisService } from '../../../infra/redis/redis.service';
+import { S3Service } from '../../../uploads/s3/s3.service';
+import { NotificationService } from '../../../modules/notifications/services/notification.service';
 
 const DRIVER_TTL_SECONDS = 8 * 60 * 60;
 const PHOTO_FOLDER = 'driver-pickups';

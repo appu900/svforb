@@ -4,9 +4,9 @@ import { AuthCacheManager } from './cache/auth.cache.manager';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { S3Module } from 'src/uploads/s3/s3.module';
+import { S3Module } from '../../uploads/s3/s3.module';
 import { AuthController } from './auth.controller';
-import { JwtStrategy } from 'src/common/strategies/jwt.strategy';
+import { JwtStrategy } from '../../common/strategies/jwt.strategy';
 import { ProximityModule } from '../psearch/psearch.module';
 import { RedisGeoSearchModule } from '../redis-geo-search/redis-geo-search.module';
 

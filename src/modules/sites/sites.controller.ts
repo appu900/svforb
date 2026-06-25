@@ -10,8 +10,8 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
-import { Jwtpayload } from 'src/modules/auth/interface/jwt.interface';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { Jwtpayload } from '../../modules/auth/interface/jwt.interface';
 import { SiteAdminOrAboveGuard } from './guards/site-admin-or-above.guard';
 import { SuperAdminGuard } from './guards/super-admin.guard';
 import {

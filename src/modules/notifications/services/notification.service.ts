@@ -6,8 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { TokenPlatform, TokenType } from '@prisma/client';
-import { PrismaService } from 'src/infra/prisma/prisma.service';
-import { RedisService } from 'src/infra/redis/redis.service';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { RedisService } from '../../../infra/redis/redis.service';
 import { NotificationProducer } from '../producers/notification.producer';
 import { RegisterTokenDto } from '../dto/register-token.dto';
 import {

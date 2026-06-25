@@ -8,9 +8,9 @@ import {
 } from '@nestjs/common';
 import { OrgRole, OrgType, PlatformRole, SiteRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { PrismaService } from 'src/infra/prisma/prisma.service';
-import { Jwtpayload } from 'src/modules/auth/interface/jwt.interface';
-import { EmailQueueService } from 'src/modules/notifications/queues/email.queue.service';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
+import { EmailQueueService } from '../../../modules/notifications/queues/email.queue.service';
 import {
   AddCharityLocationDto,
   AddCharityMemberDto,
@@ -19,8 +19,8 @@ import {
   UpdateCharityMemberDto,
 } from '../dto/charity.dto';
 import { CharityCacheManager } from '../cache/charity.cache.manager';
-import { ProximityService } from 'src/modules/psearch/psearch.service';
-import { RedisGeoSearchService } from 'src/modules/redis-geo-search/redis.geosearch.service';
+import { ProximityService } from '../../../modules/psearch/psearch.service';
+import { RedisGeoSearchService } from '../../../modules/redis-geo-search/redis.geosearch.service';
 
 const CHARITY_ORG_TYPES: OrgType[] = [OrgType.CHARITY, OrgType.CHARITY_SINGLE, OrgType.CHARITY_MULTI];
 

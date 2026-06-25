@@ -2,7 +2,7 @@ import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { TokenPlatform, TokenType } from '@prisma/client';
 import { Job } from 'bullmq';
-import { PrismaService } from 'src/infra/prisma/prisma.service';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
 import {
   BatchSendResult,
   FanOutJobData,

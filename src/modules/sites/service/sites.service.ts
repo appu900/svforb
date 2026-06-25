@@ -7,9 +7,9 @@ import {
 } from '@nestjs/common';
 import { OrgRole, OrgType, PlatformRole, SiteRole, SubscriptionStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { PrismaService } from 'src/infra/prisma/prisma.service';
-import { Jwtpayload } from 'src/modules/auth/interface/jwt.interface';
-import { EmailQueueService } from 'src/modules/notifications/queues/email.queue.service';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
+import { EmailQueueService } from '../../../modules/notifications/queues/email.queue.service';
 import { AddStaffDto, AssignSiteManagerDto, CreateSiteDto, UpdateSiteDto } from '../dto/sites.dto';
 
 @Injectable()

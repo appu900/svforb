@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { S3Module } from 'src/uploads/s3/s3.module';
+import { S3Module } from '../../uploads/s3/s3.module';
 import { DriverLocationService } from './service/driver.location.service';
 import { DriverController } from './controller/driver.controller';
 
