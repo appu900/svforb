@@ -81,6 +81,7 @@ export class ListingWorker extends WorkerHost {
         : null,
     ]);
 
+    // Collect site IDs — everything goes through siteId → siteAccess → user
     const nearbySiteIds = new Set<number>();
 
     if (charityResults) {
@@ -100,8 +101,8 @@ export class ListingWorker extends WorkerHost {
 
     this.logger.log(`[listing ${listingId}] Nearby site IDs: ${[...nearbySiteIds].join(', ')}`);
 
-    // Collect user IDs (not device tokens) — the fan-out worker resolves tokens
-    const nearbyUsers = await this.prisma.user.findMany({
+    // Users with siteAccess to any of the nearby sites
+    const siteAccessUsers = await this.prisma.user.findMany({
       where: {
         isActive: true,
         siteAccesses: { some: { siteId: { in: [...nearbySiteIds] } } },
@@ -109,12 +110,12 @@ export class ListingWorker extends WorkerHost {
       select: { id: true },
     });
 
-    if (!nearbyUsers.length) {
+    if (!siteAccessUsers.length) {
       this.logger.log(`No users found for listing ${listingId} proximity`);
       return;
     }
 
-    const userIds = nearbyUsers.map((u) => u.id);
+    const userIds = siteAccessUsers.map((u) => u.id);
 
     this.logger.log(
       `[listing ${listingId}] Queuing notification to ${userIds.length} users (radius=${radiusKm}km)`,

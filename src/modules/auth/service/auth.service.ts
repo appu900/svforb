@@ -179,6 +179,7 @@ export class AuthService {
       message: 'Account created, check your inbox to verify your email',
     };
   }
+  
   async registerCharity(dto: RegisterCharityDto, logo?: Express.Multer.File) {
     if (
       dto.charityType !== OrgType.CHARITY_SINGLE &&
