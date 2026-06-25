@@ -6,10 +6,11 @@ import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { RedisGeoSearchService } from '../../redis-geo-search/redis.geosearch.service';
 import { NotificationService } from '../../notifications/services/notification.service';
 import { LISTINGS_JOBS } from '../../../infra/queues/queus.constants';
-import { LISTINGS_QUEUE, NewListingJobPayload } from '../queues/listing.queue.service';
+import { LISTINGS_QUEUE, ListingQueueService, NewListingJobPayload } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 
 const DEFAULT_RADIUS_KM = 20;
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 @Processor(LISTINGS_QUEUE)
 export class ListingWorker extends WorkerHost {
@@ -20,6 +21,7 @@ export class ListingWorker extends WorkerHost {
     private readonly geoSearch: RedisGeoSearchService,
     private readonly notificationService: NotificationService,
     private readonly cache: FoodListingCacheManager,
+    private readonly listingQueue: ListingQueueService,
   ) {
     super();
   }
@@ -34,6 +36,9 @@ export class ListingWorker extends WorkerHost {
       case LISTINGS_JOBS.EXPIRE_LISTING:
         await this.handleListingExpiry(job.data as { listingId: number });
         break;
+      case LISTINGS_JOBS.EXPIRE_SITE_NOTIFICATIONS:
+        await this.handleExpireSiteNotifications(job.data as { siteId: number });
+        break;
       default:
         this.logger.warn(`Unhandled listing job: ${job.name}`);
     }
@@ -45,12 +50,7 @@ export class ListingWorker extends WorkerHost {
 
     const site = await this.prisma.site.findUnique({
       where: { id: siteId },
-      select: {
-        latitude: true,
-        longitude: true,
-        pickupRadiusKm: true,
-        organisationId: true,
-      },
+      select: { latitude: true, longitude: true, pickupRadiusKm: true, organisationId: true },
     });
 
     if (!site?.latitude || !site?.longitude) {
@@ -81,7 +81,6 @@ export class ListingWorker extends WorkerHost {
         : null,
     ]);
 
-    // Collect site IDs — everything goes through siteId → siteAccess → user
     const nearbySiteIds = new Set<number>();
 
     if (charityResults) {
@@ -101,7 +100,6 @@ export class ListingWorker extends WorkerHost {
 
     this.logger.log(`[listing ${listingId}] Nearby site IDs: ${[...nearbySiteIds].join(', ')}`);
 
-    // Users with siteAccess to any of the nearby sites
     const siteAccessUsers = await this.prisma.user.findMany({
       where: {
         isActive: true,
@@ -116,26 +114,48 @@ export class ListingWorker extends WorkerHost {
     }
 
     const userIds = siteAccessUsers.map((u) => u.id);
+    const title = 'New food available nearby!';
+    const body = `${businessName} listed ${totalQtyKg}kg at ${pickupAddress}`;
+    const expiresAt = new Date(Date.now() + ONE_HOUR_MS);
+
+    // Send push + save inbox notifications + schedule deletion — all in parallel
+    await Promise.all([
+      this.notificationService
+        .send({
+          title,
+          body,
+          data: {
+            listingId: String(listingId),
+            type: 'new_listing_nearby',
+            bestBefore: typeof bestBefore === 'string' ? bestBefore : new Date(bestBefore).toISOString(),
+          },
+          targetUserIds: userIds.map(String),
+          priority: 'normal',
+        })
+        .catch((err) => this.logger.warn(`push non-critical error: ${err.message}`)),
+
+      // One row per nearby site — charities see their inbox by siteId
+      this.prisma.siteNotification.createMany({
+        data: [...nearbySiteIds].map((nearSiteId) => ({
+          siteId: nearSiteId,
+          listingId,
+          title,
+          body,
+          type: 'new_listing_nearby',
+          expiresAt,
+        })),
+        skipDuplicates: true,
+      }),
+
+      // Schedule cleanup for each site after 1 hour
+      ...[...nearbySiteIds].map((nearSiteId) =>
+        this.listingQueue.enqueueExpireSiteNotifications(nearSiteId),
+      ),
+    ]);
 
     this.logger.log(
-      `[listing ${listingId}] Queuing notification to ${userIds.length} users (radius=${radiusKm}km)`,
+      `[listing ${listingId}] SiteNotifications created for ${nearbySiteIds.size} sites, expiry jobs queued`,
     );
-
-    await this.notificationService
-      .send({
-        title: 'New food available nearby!',
-        body: `${businessName} listed ${totalQtyKg}kg at ${pickupAddress}`,
-        data: {
-          listingId: String(listingId),
-          type: 'new_listing_nearby',
-          bestBefore: typeof bestBefore === 'string' ? bestBefore : new Date(bestBefore).toISOString(),
-        },
-        targetUserIds: userIds.map(String),
-        priority: 'normal',
-      })
-      .catch((err) =>
-        this.logger.warn(`notifyNewListingNearby non-critical error: ${err.message}`),
-      );
   }
 
   private async handleListingExpiry(payload: { listingId: number }): Promise<void> {
@@ -152,9 +172,7 @@ export class ListingWorker extends WorkerHost {
     }
 
     if (listing.status !== ListingStatus.ACTIVE) {
-      this.logger.log(
-        `Expiry job: listing ${listingId} is ${listing.status} — no action needed`,
-      );
+      this.logger.log(`Expiry job: listing ${listingId} is ${listing.status} — no action needed`);
       return;
     }
 
@@ -181,5 +199,15 @@ export class ListingWorker extends WorkerHost {
     ]);
 
     this.logger.log(`Listing ${listingId} expired after 30 minutes with no claims`);
+  }
+
+  private async handleExpireSiteNotifications(payload: { siteId: number }): Promise<void> {
+    const { siteId } = payload;
+
+    const { count } = await this.prisma.siteNotification.deleteMany({
+      where: { siteId, expiresAt: { lte: new Date() } },
+    });
+
+    this.logger.log(`Deleted ${count} expired site notifications for siteId=${siteId}`);
   }
 }

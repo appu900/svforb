@@ -143,8 +143,8 @@ model User {
   updatedAt       DateTime         @updatedAt
   orgMemeberShips OrgMemeberShip[]
   siteAccesses    siteAccess[]
-  driverPickups   DriverPickup[]   @relation("DriverPickups")
-  deviceTokens    DeviceToken[]
+  driverPickups  DriverPickup[] @relation("DriverPickups")
+  deviceTokens   DeviceToken[]
 
   @@index([email])
   @@index([phoneNumber])
@@ -246,10 +246,11 @@ model Site {
   isActive         Boolean                                @default(true)
   pickupRadiusKm   Int?
 
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  siteAccesses siteAccess[]
-  foodListings FoodListing[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  siteAccesses      siteAccess[]
+  foodListings      FoodListing[]
+  siteNotifications SiteNotification[]
 
   @@index([organisationId])
   @@map("sites")
@@ -343,6 +344,7 @@ model FoodListing {
   foodClaims        FoodClaim[]
   listingActivities ListingActivity[]
   driverPickups     DriverPickup[]
+  siteNotifications SiteNotification[]
 
   @@index([siteId])
   @@index([organisationId])
@@ -537,3 +539,26 @@ model NotificationRecord {
   @@index([createdAt])
   @@map("notification_records")
 }
+
+model SiteNotification {
+  id        Int         @id @default(autoincrement())
+  siteId    Int
+  site      Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  listingId Int
+  listing   FoodListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  type      String      @default("new_listing_nearby")
+  isRead    Boolean     @default(false)
+  readAt    DateTime?
+  expiresAt DateTime
+  createdAt DateTime    @default(now())
+
+  @@unique([siteId, listingId])
+  @@index([siteId, expiresAt])
+  @@index([siteId, isRead])
+  @@index([listingId])
+  @@map("site_notifications")
+}
+
+

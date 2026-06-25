@@ -6,7 +6,8 @@ import { DEFAULT_JOB_OPTIONS, LISTINGS_JOBS } from '../../../infra/queues/queus.
 
 export const LISTINGS_QUEUE = 'listings';
 
-const EXPIRY_DELAY_MS = 30 * 60 * 1000; 
+const LISTING_EXPIRY_DELAY_MS = 30 * 60 * 1000;
+const NOTIFICATION_EXPIRY_DELAY_MS = 60 * 60 * 1000;
 
 export interface NewListingJobPayload {
   listingId: number;
@@ -30,7 +31,15 @@ export class ListingQueueService {
     await this.queue.add(
       LISTINGS_JOBS.EXPIRE_LISTING,
       { listingId },
-      { ...DEFAULT_JOB_OPTIONS, delay: EXPIRY_DELAY_MS },
+      { ...DEFAULT_JOB_OPTIONS, delay: LISTING_EXPIRY_DELAY_MS },
+    );
+  }
+
+  async enqueueExpireSiteNotifications(siteId: number): Promise<void> {
+    await this.queue.add(
+      LISTINGS_JOBS.EXPIRE_SITE_NOTIFICATIONS,
+      { siteId },
+      { ...DEFAULT_JOB_OPTIONS, delay: NOTIFICATION_EXPIRY_DELAY_MS },
     );
   }
 }

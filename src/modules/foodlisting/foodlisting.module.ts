@@ -7,6 +7,7 @@ import { FoodListingService } from './services/food.listing.service';
 import { FoodListingCacheManager } from './cache/food.listing.cache';
 import { ListingQueueService, LISTINGS_QUEUE } from './queues/listing.queue.service';
 import { ListingWorker } from './workers/listing.worker';
+import { SiteNotificationService } from './services/site.notification.service';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ListingWorker } from './workers/listing.worker';
     FoodListingCacheManager,
     ListingQueueService,
     ListingWorker,
+    SiteNotificationService,
   ],
   exports: [FoodListingService],
 })

@@ -35,10 +35,11 @@ export const NOTIFICATION_PUSH_JOBS = {
 // ── Listings job names ────────────────────────────────────────────────────────
 
 export const LISTINGS_JOBS = {
-  NEW_LISTING:          'listing.new',                 // proximity notify on listing create
-  EXPIRE_LISTING:       'listing.expire',
-  PROXIMITY_REQUERY:    'listing.proximity_requery',   // after partial claim
-  IMPACT_AGGREGATE:     'listing.impact_aggregate',
+  NEW_LISTING:               'listing.new',
+  EXPIRE_LISTING:            'listing.expire',
+  EXPIRE_SITE_NOTIFICATIONS: 'listing.expire_site_notifications',
+  PROXIMITY_REQUERY:         'listing.proximity_requery',
+  IMPACT_AGGREGATE:          'listing.impact_aggregate',
 } as const;
 
 // ── Reports job names ─────────────────────────────────────────────────────────

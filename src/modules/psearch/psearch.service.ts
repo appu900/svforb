@@ -155,11 +155,7 @@ export class ProximityService {
       })),
     };
 
-    //   await this.redis.setex(
-    //     cacheKey,
-    //     this.CHARITY_CACHE_TTL,
-    //     JSON.stringify(result),
-    //   );
+    await this.redis.setex(cacheKey, this.CHARITY_CACHE_TTL, JSON.stringify(result));
 
     return result;
   }

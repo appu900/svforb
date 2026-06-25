@@ -3,8 +3,8 @@ import Redis, { RedisOptions } from 'ioredis';
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
-  setex(cacheKey: string, CHARITY_CACHE_TTL: number, arg2: string) {
-      throw new Error('Method not implemented.');
+  async setex(key: string, ttlSeconds: number, value: string): Promise<void> {
+    await this.client.setex(key, ttlSeconds, value);
   }
   private readonly client: Redis;
 

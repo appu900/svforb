@@ -1,13 +1,14 @@
 import {
-  Body,
   Controller,
   Delete,
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Req,
+  Body,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -18,13 +19,16 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 import { FoodListingService } from '../services/food.listing.service';
+import { SiteNotificationService } from '../services/site.notification.service';
 import { ListingStatus } from '@prisma/client';
-import { get } from 'https';
 
 @Controller('food-listings')
 @UseGuards(JwtAuthGuard)
 export class FoodListingController {
-  constructor(private readonly service: FoodListingService) {}
+  constructor(
+    private readonly service: FoodListingService,
+    private readonly notificationService: SiteNotificationService,
+  ) {}
 
   @Post()
   @UseInterceptors(FilesInterceptor('photos', 5))
@@ -48,13 +52,8 @@ export class FoodListingController {
 
   @Get('/site')
   async getListingBySiteId(@Req() req: Request & { user: Jwtpayload }) {
-    const userId = req.user.sub;
-    const siteId = req.user.siteId;
-    const response = await this.service.getAllListingOfSiteID(siteId!, userId);
-    return {
-      message: 'all listing fetched sucessfully',
-      response,
-    };
+    const response = await this.service.getAllListingOfSiteID(req.user.siteId!, req.user.sub);
+    return { message: 'all listing fetched sucessfully', response };
   }
 
   @Get('recent')
@@ -65,6 +64,32 @@ export class FoodListingController {
   ) {
     return this.service.getRecentListings(req.user.siteId!, page, limit);
   }
+
+  // notification for listings
+
+  @Get('notifications')
+  getNotificationInbox(
+    @Req() req: Request & { user: Jwtpayload },
+    @Query('page', new ParseIntPipe({ optional: true })) page = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
+  ) {
+    return this.notificationService.getInbox(req.user, page, limit);
+  }
+
+  @Patch('notifications/read-all')
+  markAllRead(@Req() req: Request & { user: Jwtpayload }) {
+    return this.notificationService.markAllRead(req.user);
+  }
+
+  @Patch('notifications/:id/read')
+  markRead(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.notificationService.markRead(req.user, id);
+  }
+
+  
 
   @Get(':id')
   getOne(@Param('id', ParseIntPipe) id: number) {

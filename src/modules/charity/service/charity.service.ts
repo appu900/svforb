@@ -515,27 +515,28 @@ export class CharityService {
     const cached = await this.cache.getUsers<any>(caller.orgId!);
     if (cached) return cached;
 
-    const memberships = await this.prisma.orgMemeberShip.findMany({
-      where: { organisationId: caller.orgId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            phoneNumber: true,
-            isActive: true,
+    const [memberships, siteAccesses] = await Promise.all([
+      this.prisma.orgMemeberShip.findMany({
+        where: { organisationId: caller.orgId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phoneNumber: true,
+              isActive: true,
+            },
           },
         },
-      },
-      orderBy: { joinedAt: 'asc' },
-    });
-
-    const siteAccesses = await this.prisma.siteAccess.findMany({
-      where: { organisationId: caller.orgId },
-      include: { site: { select: { id: true, organisationName: true } } },
-    });
+        orderBy: { joinedAt: 'asc' },
+      }),
+      this.prisma.siteAccess.findMany({
+        where: { organisationId: caller.orgId },
+        include: { site: { select: { id: true, organisationName: true } } },
+      }),
+    ]);
 
     const accessByUser = new Map<number, typeof siteAccesses>();
     for (const a of siteAccesses) {
@@ -597,38 +598,39 @@ export class CharityService {
   async getUser(caller: Jwtpayload, targetUserId: number) {
     this.assertCharityOrg(caller);
 
-    const membership = await this.prisma.orgMemeberShip.findFirst({
-      where: { userId: targetUserId, organisationId: caller.orgId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            phoneNumber: true,
-            isActive: true,
-            createdAt: true,
+    const [membership, accesses] = await Promise.all([
+      this.prisma.orgMemeberShip.findFirst({
+        where: { userId: targetUserId, organisationId: caller.orgId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phoneNumber: true,
+              isActive: true,
+              createdAt: true,
+            },
           },
         },
-      },
-    });
+      }),
+      this.prisma.siteAccess.findMany({
+        where: { userId: targetUserId, organisationId: caller.orgId },
+        include: {
+          site: {
+            select: {
+              id: true,
+              organisationName: true,
+              address: true,
+              postcode: true,
+            },
+          },
+        },
+      }),
+    ]);
     if (!membership)
       throw new NotFoundException('User not found in your organisation');
-
-    const accesses = await this.prisma.siteAccess.findMany({
-      where: { userId: targetUserId, organisationId: caller.orgId },
-      include: {
-        site: {
-          select: {
-            id: true,
-            organisationName: true,
-            address: true,
-            postcode: true,
-          },
-        },
-      },
-    });
 
     return {
       id: membership.user.id,
