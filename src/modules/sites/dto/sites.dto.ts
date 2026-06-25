@@ -12,9 +12,6 @@ export class CreateSiteDto {
   @IsString() @IsNotEmpty() siteName!: string;
   @IsString() @IsNotEmpty() address!: string;
   @IsString() @IsNotEmpty() postcode!: string;
-  @IsString() @IsNotEmpty() contactName!: string;
-  @IsEmail() contactEmail!: string;
-  @IsString() @IsOptional() phoneNumber?: string;
 
   @IsNotEmpty()
   @Type(() => Number)

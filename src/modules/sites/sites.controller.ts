@@ -81,6 +81,7 @@ export class SitesController {
     @Param('siteId', ParseIntPipe) siteId: number,
     @Body() dto: AssignSiteManagerDto,
   ) {
+    console.log("requeted site id",siteId)
     return this.sitesService.assignSiteManager(req.user, siteId, dto);
   }
 

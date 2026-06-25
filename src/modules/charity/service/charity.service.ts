@@ -22,7 +22,11 @@ import { CharityCacheManager } from '../cache/charity.cache.manager';
 import { ProximityService } from '../../../modules/psearch/psearch.service';
 import { RedisGeoSearchService } from '../../../modules/redis-geo-search/redis.geosearch.service';
 
-const CHARITY_ORG_TYPES: OrgType[] = [OrgType.CHARITY, OrgType.CHARITY_SINGLE, OrgType.CHARITY_MULTI];
+const CHARITY_ORG_TYPES: OrgType[] = [
+  OrgType.CHARITY,
+  OrgType.CHARITY_SINGLE,
+  OrgType.CHARITY_MULTI,
+];
 
 @Injectable()
 export class CharityService {
@@ -36,13 +40,13 @@ export class CharityService {
     private readonly geoSearch: RedisGeoSearchService,
   ) {}
 
-  
-
   async addLocation(caller: Jwtpayload, dto: AddCharityLocationDto) {
     this.assertSuperAdmin(caller);
     this.assertMultiCharity(caller);
 
-    const org = await this.prisma.organisation.findUnique({ where: { id: caller.orgId } });
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: caller.orgId },
+    });
     if (!org) throw new NotFoundException('Organisation not found');
 
     const existingUser = await this.prisma.user.findUnique({
@@ -54,7 +58,9 @@ export class CharityService {
         where: { userId: existingUser.id },
       });
       if (membership && membership.organisationId !== caller.orgId) {
-        throw new ConflictException('This email is registered with another organisation');
+        throw new ConflictException(
+          'This email is registered with another organisation',
+        );
       }
     }
 
@@ -137,7 +143,11 @@ export class CharityService {
       return { site, adminUser, isNewAdmin };
     });
 
-    await this.proximityService.syncListingLocation(result.site.id,dto.latitude!,dto.longitude!)
+    await this.proximityService.syncListingLocation(
+      result.site.id,
+      dto.latitude!,
+      dto.longitude!,
+    );
 
     if (org.region && dto.latitude && dto.longitude) {
       await this.geoSearch.indexCharitySite(
@@ -175,10 +185,7 @@ export class CharityService {
     };
   }
 
-
-
   // ** list all locations for a organizations
-
   async listLocations(caller: Jwtpayload) {
     this.assertCharityOrg(caller);
 
@@ -193,7 +200,8 @@ export class CharityService {
         orderBy: { createdAt: 'asc' },
       });
     } else {
-      if (!caller.siteId) throw new ForbiddenException('No location assigned to your account');
+      if (!caller.siteId)
+        throw new ForbiddenException('No location assigned to your account');
       const site = await this.prisma.site.findFirst({
         where: { id: caller.siteId, organisationId: caller.orgId },
       });
@@ -268,8 +276,11 @@ export class CharityService {
     return result;
   }
 
-
-  async updateLocation(caller: Jwtpayload, locationId: number, dto: UpdateCharityLocationDto) {
+  async updateLocation(
+    caller: Jwtpayload,
+    locationId: number,
+    dto: UpdateCharityLocationDto,
+  ) {
     this.assertSuperAdmin(caller);
     this.assertCharityOrg(caller);
 
@@ -294,10 +305,11 @@ export class CharityService {
     await this.cache.invalidateLocation(locationId);
     await this.cache.invalidateLocations(caller.orgId!);
 
-    return { message: 'Location updated successfully', location: this.formatLocation(updated) };
+    return {
+      message: 'Location updated successfully',
+      location: this.formatLocation(updated),
+    };
   }
-
-
 
   async deactivateLocation(caller: Jwtpayload, locationId: number) {
     this.assertSuperAdmin(caller);
@@ -327,8 +339,6 @@ export class CharityService {
     return { message: 'Location deactivated successfully' };
   }
 
-
-
   async addMember(caller: Jwtpayload, dto: AddCharityMemberDto) {
     this.assertCharityOrg(caller);
 
@@ -352,19 +362,29 @@ export class CharityService {
       caller.orgRole !== OrgRole.SUPER_ADMIN &&
       !locationRoles.includes(dto.role)
     ) {
-      throw new ForbiddenException('You do not have permission to add this role');
+      throw new ForbiddenException(
+        'You do not have permission to add this role',
+      );
     }
 
     if (locationRoles.includes(dto.role) && !dto.locationId) {
       if (caller.orgType === OrgType.CHARITY_SINGLE && caller.siteId) {
         dto.locationId = caller.siteId;
       } else {
-        throw new BadRequestException('locationId is required for location-based roles');
+        throw new BadRequestException(
+          'locationId is required for location-based roles',
+        );
       }
     }
 
-    if (caller.orgRole !== OrgRole.SUPER_ADMIN && dto.locationId && caller.siteId !== dto.locationId) {
-      throw new ForbiddenException('You can only add members to your own location');
+    if (
+      caller.orgRole !== OrgRole.SUPER_ADMIN &&
+      dto.locationId &&
+      caller.siteId !== dto.locationId
+    ) {
+      throw new ForbiddenException(
+        'You can only add members to your own location',
+      );
     }
 
     let site: any = null;
@@ -384,7 +404,9 @@ export class CharityService {
         where: { userId: existingUser.id, organisationId: caller.orgId },
       });
       if (!membership) {
-        throw new ConflictException('This email is already registered and does not belong to your organisation');
+        throw new ConflictException(
+          'This email is already registered and does not belong to your organisation',
+        );
       }
     }
 
@@ -417,13 +439,19 @@ export class CharityService {
       } else {
         await tx.orgMemeberShip.upsert({
           where: {
-            userId_organisationId: { userId: user.id, organisationId: caller.orgId! },
+            userId_organisationId: {
+              userId: user.id,
+              organisationId: caller.orgId!,
+            },
           },
           create: { userId: user.id, organisationId: caller.orgId!, orgRole },
           update: { orgRole },
         });
 
-        await tx.user.update({ where: { id: user.id }, data: { isActive: true } });
+        await tx.user.update({
+          where: { id: user.id },
+          data: { isActive: true },
+        });
       }
 
       if (siteRole && dto.locationId) {
@@ -480,8 +508,6 @@ export class CharityService {
       },
     };
   }
-
-
 
   async listUsers(caller: Jwtpayload) {
     this.assertCharityOrg(caller);
@@ -568,8 +594,6 @@ export class CharityService {
     return result;
   }
 
-  // ─── Get User ──────────────────────────────────────────────────────────────
-
   async getUser(caller: Jwtpayload, targetUserId: number) {
     this.assertCharityOrg(caller);
 
@@ -589,7 +613,8 @@ export class CharityService {
         },
       },
     });
-    if (!membership) throw new NotFoundException('User not found in your organisation');
+    if (!membership)
+      throw new NotFoundException('User not found in your organisation');
 
     const accesses = await this.prisma.siteAccess.findMany({
       where: { userId: targetUserId, organisationId: caller.orgId },
@@ -626,21 +651,27 @@ export class CharityService {
     };
   }
 
-  // ─── Update User ───────────────────────────────────────────────────────────
-
-  async updateUser(caller: Jwtpayload, targetUserId: number, dto: UpdateCharityMemberDto) {
+  async updateUser(
+    caller: Jwtpayload,
+    targetUserId: number,
+    dto: UpdateCharityMemberDto,
+  ) {
     this.assertCharityOrg(caller);
 
     const membership = await this.prisma.orgMemeberShip.findFirst({
       where: { userId: targetUserId, organisationId: caller.orgId },
     });
-    if (!membership) throw new NotFoundException('User not found in your organisation');
+    if (!membership)
+      throw new NotFoundException('User not found in your organisation');
 
     if (caller.orgRole !== OrgRole.SUPER_ADMIN) {
       const access = await this.prisma.siteAccess.findFirst({
         where: { userId: targetUserId, siteId: caller.siteId },
       });
-      if (!access) throw new ForbiddenException('You can only update members of your location');
+      if (!access)
+        throw new ForbiddenException(
+          'You can only update members of your location',
+        );
     }
 
     await this.prisma.user.update({
@@ -663,14 +694,15 @@ export class CharityService {
     return { message: 'User updated successfully' };
   }
 
-  // ─── Deactivate / Activate User ────────────────────────────────────────────
-
   async deactivateUser(caller: Jwtpayload, targetUserId: number) {
     this.assertSuperAdmin(caller);
     this.assertCharityOrg(caller);
     await this.assertUserInOrg(targetUserId, caller.orgId!);
 
-    await this.prisma.user.update({ where: { id: targetUserId }, data: { isActive: false } });
+    await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { isActive: false },
+    });
     await this.cache.invalidateUsers(caller.orgId!);
     return { message: 'User deactivated successfully' };
   }
@@ -680,12 +712,13 @@ export class CharityService {
     this.assertCharityOrg(caller);
     await this.assertUserInOrg(targetUserId, caller.orgId!);
 
-    await this.prisma.user.update({ where: { id: targetUserId }, data: { isActive: true } });
+    await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { isActive: true },
+    });
     await this.cache.invalidateUsers(caller.orgId!);
     return { message: 'User activated successfully' };
   }
-
-  // ─── Delete User ───────────────────────────────────────────────────────────
 
   async deleteUser(caller: Jwtpayload, targetUserId: number) {
     this.assertSuperAdmin(caller);
@@ -698,20 +731,30 @@ export class CharityService {
       });
       await tx.orgMemeberShip.delete({
         where: {
-          userId_organisationId: { userId: targetUserId, organisationId: caller.orgId! },
+          userId_organisationId: {
+            userId: targetUserId,
+            organisationId: caller.orgId!,
+          },
         },
       });
-      await tx.user.update({ where: { id: targetUserId }, data: { isActive: false } });
+      await tx.user.update({
+        where: { id: targetUserId },
+        data: { isActive: false },
+      });
     });
 
     await this.cache.invalidateUsers(caller.orgId!);
-    this.logger.log(`User removed from org: userId=${targetUserId} org=${caller.orgId}`);
+    this.logger.log(
+      `User removed from org: userId=${targetUserId} org=${caller.orgId}`,
+    );
     return { message: 'User removed from organisation' };
   }
 
-  // ─── Resend Invite ─────────────────────────────────────────────────────────
-
-  async resendInvite(caller: Jwtpayload, targetUserId: number, newPassword: string) {
+  async resendInvite(
+    caller: Jwtpayload,
+    targetUserId: number,
+    newPassword: string,
+  ) {
     this.assertSuperAdmin(caller);
     this.assertCharityOrg(caller);
 
@@ -719,7 +762,8 @@ export class CharityService {
       where: { userId: targetUserId, organisationId: caller.orgId },
       include: { user: true },
     });
-    if (!membership) throw new NotFoundException('User not found in your organisation');
+    if (!membership)
+      throw new NotFoundException('User not found in your organisation');
 
     const siteAccess = await this.prisma.siteAccess.findFirst({
       where: { userId: targetUserId, organisationId: caller.orgId },
@@ -727,7 +771,10 @@ export class CharityService {
     });
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await this.prisma.user.update({ where: { id: targetUserId }, data: { passwordHash } });
+    await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { passwordHash },
+    });
 
     await this.emailService.sendStaffInvite({
       to: membership.user.email,
@@ -735,13 +782,14 @@ export class CharityService {
       email: membership.user.email,
       password: newPassword,
       siteName: siteAccess?.site.organisationName ?? 'Head Office',
-      role: this.getOrgRoleDisplayName(membership.orgRole, siteAccess?.siteRole),
+      role: this.getOrgRoleDisplayName(
+        membership.orgRole,
+        siteAccess?.siteRole,
+      ),
     });
 
     return { message: 'Invite resent successfully' };
   }
-
-  // ─── Private Helpers ───────────────────────────────────────────────────────
 
   private mapCharityRole(role: CharityMemberRole): {
     orgRole: OrgRole;
@@ -772,7 +820,10 @@ export class CharityService {
     return map[role];
   }
 
-  private getOrgRoleDisplayName(orgRole: OrgRole, siteRole?: SiteRole | null): string {
+  private getOrgRoleDisplayName(
+    orgRole: OrgRole,
+    siteRole?: SiteRole | null,
+  ): string {
     if (orgRole === OrgRole.SUPER_ADMIN) return 'Head Office Admin';
     if (!siteRole) return 'Head Office Member';
     if (siteRole === SiteRole.SITE_ADMIN) return 'Location Admin';
@@ -799,13 +850,17 @@ export class CharityService {
 
   private assertSuperAdmin(caller: Jwtpayload) {
     if (caller.orgRole !== OrgRole.SUPER_ADMIN) {
-      throw new ForbiddenException('Only head office admins can perform this action');
+      throw new ForbiddenException(
+        'Only head office admins can perform this action',
+      );
     }
   }
 
   private assertCharityOrg(caller: Jwtpayload) {
     if (!caller.orgType || !CHARITY_ORG_TYPES.includes(caller.orgType)) {
-      throw new ForbiddenException('This endpoint is only available for charity organisations');
+      throw new ForbiddenException(
+        'This endpoint is only available for charity organisations',
+      );
     }
   }
 

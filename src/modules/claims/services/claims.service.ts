@@ -638,8 +638,6 @@ export class ClaimsService {
     });
   }
 
-  // ─── Private helpers ─────────────────────────────────────────────────────────────
-
   private async getOrgUserIds(orgId: number): Promise<number[]> {
     const users = await this.prisma.user.findMany({
       where: {

@@ -40,6 +40,14 @@ export class ListingGateway implements OnGatewayConnection, OnGatewayDisconnect 
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
+
+
+  @SubscribeMessage('greet')
+  handleGreetClient(@ConnectedSocket() client: Socket){
+    return {
+      message:"aniket is a gay",
+    }
+  }
   // Restaurant subscribes to listing-level events (all claims, status changes)
   @SubscribeMessage('subscribe:listing')
   handleListingSubscribe(

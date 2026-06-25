@@ -13,6 +13,18 @@ import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
 import { EmailQueueService } from '../../../modules/notifications/queues/email.queue.service';
 import { AddStaffDto, AssignSiteManagerDto, CreateSiteDto, UpdateSiteDto } from '../dto/sites.dto';
 
+/**
+ * SitesService
+ *
+ * Manages the full lifecycle of sites within an organisation — from creation
+ * to staff management. A "site" is a physical location (branch, outlet, kitchen)
+ * that belongs to a multi-site business organisation.
+ *
+ * Access rules at a glance:
+ *  - SUPER_ADMIN  → full access across all sites in their org
+ *  - SITE_ADMIN   → read/write access scoped to their assigned site only
+ *  - STAFF        → read-only, scoped to their site
+ */
 @Injectable()
 export class SitesService {
   private readonly logger = new Logger(SitesService.name);
@@ -23,6 +35,8 @@ export class SitesService {
   ) {}
 
   // ─── Create Site ──────────────────────────────────────────────────────────────
+  // Only SUPER_ADMINs of BUSINESS_MULTI orgs can add new sites.
+  // Enforces the plan's maxSites cap before creation.
 
   async createSite(caller: Jwtpayload, dto: CreateSiteDto) {
     this.assertSuperAdmin(caller);
@@ -54,9 +68,9 @@ export class SitesService {
         organisationName: dto.siteName,
         address: dto.address,
         postcode: dto.postcode,
-        contactName: dto.contactName,
-        contactEmail: dto.contactEmail,
-        contactMobile: dto.phoneNumber ?? '',
+        contactName: 'not provided',
+        contactEmail:'not provided',
+        contactMobile: 'not provided',
         latitude: dto.latitude,
         longitude: dto.longitude,
       },
@@ -73,6 +87,9 @@ export class SitesService {
   }
 
   // ─── Organisation Overview ────────────────────────────────────────────────────
+  // Returns a scoped snapshot of the org:
+  //   SUPER_ADMIN  → full org info + all sites + all members grouped by site
+  //   SITE_ADMIN   → only their assigned site + that site's staff list
 
   async getOrganisationOverview(caller: Jwtpayload) {
     const org = await this.prisma.organisation.findUnique({
@@ -144,7 +161,7 @@ export class SitesService {
       orderBy: { grantedAt: 'asc' },
     });
 
-    // Group accesses by siteId
+    // Group accesses by siteId for O(n) assembly instead of per-site DB calls
     const accessBySite = new Map<number, typeof allAccesses>();
     for (const access of allAccesses) {
       const list = accessBySite.get(access.siteId) ?? [];
@@ -192,6 +209,8 @@ export class SitesService {
   }
 
   // ─── Site Details ─────────────────────────────────────────────────────────────
+  // Full detail of a single site: metadata + managers + staff list.
+  // Caller must either be SUPER_ADMIN or have access to that specific site.
 
   async getSiteDetails(caller: Jwtpayload, siteId: number) {
     const site = await this.assertSiteInOrg(siteId, caller.orgId!);
@@ -236,6 +255,7 @@ export class SitesService {
   }
 
   // ─── List Sites ───────────────────────────────────────────────────────────────
+  // SUPER_ADMIN gets all sites. SITE_ADMIN/STAFF gets only their assigned site.
 
   async listSites(caller: Jwtpayload) {
     if (caller.orgRole === OrgRole.SUPER_ADMIN) {
@@ -268,6 +288,8 @@ export class SitesService {
   }
 
   // ─── Assign Site Manager ──────────────────────────────────────────────────────
+  // SUPER_ADMIN only. Creates the user account if they don't exist yet,
+  // then grants SITE_ADMIN access. Sends invite email for brand-new users.
 
   async assignSiteManager(caller: Jwtpayload, siteId: number, dto: AssignSiteManagerDto) {
     this.assertSuperAdmin(caller);
@@ -321,6 +343,16 @@ export class SitesService {
       });
     }
 
+    const updateSitedata = await this.prisma.site.update({
+      where: {
+        id:siteId
+      },
+      data: {
+        contactName: dto.firstName + '' + dto.lastName,
+        contactEmail: dto.email,
+        contactMobile:dto.phoneNumber
+      }
+    })
     this.logger.log(
       `Site manager assigned: userId=${user.id} siteId=${siteId} by super_admin=${caller.sub}`,
     );
@@ -344,7 +376,9 @@ export class SitesService {
     };
   }
 
-// bro this is add staff enpoint hihihihi
+  // ─── Add Staff ────────────────────────────────────────────────────────────────
+  // SITE_ADMIN or SUPER_ADMIN can add staff to a site they manage.
+  // Same findOrCreate pattern as assignSiteManager — upserts the SiteAccess row.
 
   async addStaff(caller: Jwtpayload, siteId: number, dto: AddStaffDto) {
     this.assertSiteAccess(caller, siteId);
@@ -441,6 +475,9 @@ export class SitesService {
   }
 
   // ─── Remove Access ────────────────────────────────────────────────────────────
+  // Removes a user's SiteAccess record. If they have no remaining access to any
+  // site in the org, their account is deactivated automatically.
+  // Only SUPER_ADMINs can remove a SITE_ADMIN — staff can be removed by managers.
 
   async removeAccess(caller: Jwtpayload, siteId: number, targetUserId: number) {
     await this.assertSiteInOrg(siteId, caller.orgId!);
@@ -462,6 +499,7 @@ export class SitesService {
       where: { userId_siteId: { userId: targetUserId, siteId } },
     });
 
+    // Deactivate user account if they no longer have access to any site in the org
     const remainingAccesses = await this.prisma.siteAccess.count({
       where: { userId: targetUserId, organisationId: caller.orgId },
     });
@@ -490,6 +528,8 @@ export class SitesService {
   }
 
   // ─── Delete Site ──────────────────────────────────────────────────────────────
+  // Soft-deletes the site (isActive = false) and cleans up all SiteAccess rows.
+  // Any user left with zero site accesses is also deactivated. All in one tx.
 
   async deleteSite(caller: Jwtpayload, siteId: number) {
     this.assertSuperAdmin(caller);
@@ -524,6 +564,8 @@ export class SitesService {
   }
 
   // ─── Update Site ──────────────────────────────────────────────────────────────
+  // Partial update — only fields present in the DTO are written.
+  // SUPER_ADMIN + BUSINESS_MULTI only.
 
   async updateSite(caller: Jwtpayload, siteId: number, dto: UpdateSiteDto) {
     this.assertSuperAdmin(caller);
@@ -550,7 +592,10 @@ export class SitesService {
     return { message: 'Site updated successfully', site: this.formatSite(updated) };
   }
 
-  // ─── Private: find existing user or create new one ────────────────────────────
+  // ─── Private: Find or Create Org User ────────────────────────────────────────
+  // Looks up the user by email. If they exist, ensures they belong to this org.
+  // If not, creates the account + org membership in a single transaction and
+  // returns isNewUser=true so the caller knows to send the invite email.
 
   private async findOrCreateOrgUser(
     dto: { firstName: string; lastName: string; email: string; password: string; phoneNumber?: string },
@@ -578,7 +623,7 @@ export class SitesService {
       return { user: existing, isNewUser: false };
     }
 
-    // Create user + org membership in a transaction
+    // New user — hash password and create account + membership atomically
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -611,6 +656,7 @@ export class SitesService {
 
   // ─── Private Helpers ──────────────────────────────────────────────────────────
 
+  /** Normalises the DB Site row into the public-facing shape. */
   private formatSite(s: {
     id: number;
     organisationName: string;
@@ -639,12 +685,14 @@ export class SitesService {
     };
   }
 
+  /** Throws 403 if caller is not a SUPER_ADMIN of their org. */
   private assertSuperAdmin(caller: Jwtpayload) {
     if (caller.orgRole !== OrgRole.SUPER_ADMIN) {
       throw new ForbiddenException('Only organisation super admins can perform this action');
     }
   }
 
+  /** Throws 403 if the org is not a multi-site business (BUSINESS_MULTI). */
   private assertMultiBusiness(caller: Jwtpayload) {
     if (caller.orgType !== OrgType.BUSINESS_MULTI) {
       throw new ForbiddenException(
@@ -653,6 +701,7 @@ export class SitesService {
     }
   }
 
+  /** Throws 403 if the subscription is cancelled or expired. */
   private assertActiveSubscription(status: SubscriptionStatus | null | undefined) {
     if (
       !status ||
@@ -665,6 +714,10 @@ export class SitesService {
     }
   }
 
+  /**
+   * Throws 403 if the caller does not have access to the given site.
+   * SUPER_ADMIN bypasses this check — they can access any site in their org.
+   */
   private assertSiteAccess(caller: Jwtpayload, siteId: number) {
      console.log("======== this is the test endpoint =============")
      console.log("siteId",siteId)
@@ -675,6 +728,7 @@ export class SitesService {
     throw new ForbiddenException('You do not have access to this site');
   }
 
+  /** Throws 404 if the site doesn't exist or doesn't belong to the org. */
   private async assertSiteInOrg(siteId: number, orgId: number) {
     const site = await this.prisma.site.findFirst({
       where: { id: siteId, organisationId: orgId },
@@ -683,6 +737,7 @@ export class SitesService {
     return site;
   }
 
+  /** Throws 403 if the site has already hit the plan's user cap. */
   private async assertUserLimitNotExceeded(siteId: number, maxUsersPerSite: number) {
     const currentCount = await this.prisma.siteAccess.count({ where: { siteId } });
     if (currentCount >= maxUsersPerSite) {
