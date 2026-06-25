@@ -1,4 +1,4 @@
-import { Logger, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
@@ -10,7 +10,6 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { SitesModule } from './modules/sites/sites.module';
 import { CharityModule } from './modules/charity/charity.module';
 import { ProximityModule } from './modules/psearch/psearch.module';
-import { KafkaModule } from './infra/kafka/kafka.module';
 import { OrganizationModule } from './modules/organisation/organization.module';
 import { RedisProxyModule } from './modules/redisProxy/redis.proxy.module';
 import { RedisGeoSearchModule } from './modules/redis-geo-search/redis-geo-search.module';
@@ -25,7 +24,6 @@ import { ClaimsModule } from './modules/claims/claims.module';
     GatewayModule,
     DriversModule,
     ClaimsModule,
-    KafkaModule,
     PrismaModule,
     RedisModule,
     NotificationModule,

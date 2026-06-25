@@ -18,9 +18,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
       const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: {
-        rejectUnauthorized:false,
-        ca:fs.readFileSync(path.join(process.cwd(),'src/infra/prisma','ca.pem')).toString()
+        rejectUnauthorized: false,
+        ca: fs.readFileSync(path.join(process.cwd(), 'src/infra/prisma', 'ca.pem')).toString(),
       },
+      max: 20,                   // max connections in the pool
+      min: 2,                    // keep 2 connections warm at all times
+      idleTimeoutMillis: 30_000, // close idle connections after 30s
+      connectionTimeoutMillis: 5_000, // fail fast if pool is exhausted
     });
     const adapter = new PrismaPg(pool);
     super({ adapter });
