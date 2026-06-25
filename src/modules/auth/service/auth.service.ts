@@ -918,9 +918,7 @@ export class AuthService {
 
     // Always return success to avoid leaking whether the email exists
     if (!user || !user.isActive) {
-      return {
-        message: 'If that email is registered, a reset code has been sent.',
-      };
+      throw new NotFoundException("user not found with this email ID")
     }
 
     const otp = GenerateOtp();
