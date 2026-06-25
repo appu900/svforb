@@ -1,4 +1,5 @@
 import {
+    BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -271,6 +272,16 @@ export class SitesService {
   async assignSiteManager(caller: Jwtpayload, siteId: number, dto: AssignSiteManagerDto) {
     this.assertSuperAdmin(caller);
 
+    const isAlreadyAssigned = await this.prisma.siteAccess.findFirst({
+      where:{
+        user:{
+          email:dto.email
+        }
+      }
+    })
+    if(isAlreadyAssigned){
+      throw new BadRequestException("this user  already has access for this site")
+    }
     const site = await this.assertSiteInOrg(siteId, caller.orgId!);
 
     const org = await this.prisma.organisation.findUnique({
@@ -333,7 +344,7 @@ export class SitesService {
     };
   }
 
-  // ─── Add Staff ────────────────────────────────────────────────────────────────
+// bro this is add staff enpoint hihihihi
 
   async addStaff(caller: Jwtpayload, siteId: number, dto: AddStaffDto) {
     this.assertSiteAccess(caller, siteId);
@@ -655,6 +666,10 @@ export class SitesService {
   }
 
   private assertSiteAccess(caller: Jwtpayload, siteId: number) {
+     console.log("======== this is the test endpoint =============")
+     console.log("siteId",siteId)
+     console.log("caller siteId",caller.siteId)
+     console.log("caller role",caller.siteRole)
     if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
     if (caller.siteRole === SiteRole.SITE_ADMIN && caller.siteId === siteId) return;
     throw new ForbiddenException('You do not have access to this site');

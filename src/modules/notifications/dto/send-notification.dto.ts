@@ -14,12 +14,12 @@ export class SendNotificationDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
-  title: string;
+  title!: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(4096)
-  body: string;
+  body!: string;
 
   @IsOptional()
   @IsObject()

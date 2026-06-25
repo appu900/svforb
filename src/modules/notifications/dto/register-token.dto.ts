@@ -8,15 +8,15 @@ import {
 export class RegisterTokenDto {
   @IsString()
   @IsNotEmpty()
-  token: string;
+  token!: string;
 
   @IsString()
   @IsEnum(['ios', 'android'])
-  platform: 'ios' | 'android';
+  platform!: 'ios' | 'android';
 
   @IsString()
   @IsEnum(['apns', 'fcm', 'expo'])
-  tokenType: 'apns' | 'fcm' | 'expo';
+  tokenType!: 'apns' | 'fcm' | 'expo';
 
   @IsOptional()
   @IsString()
@@ -39,5 +39,5 @@ export class RegisterTokenDto {
 export class UnregisterTokenDto {
   @IsString()
   @IsNotEmpty()
-  token: string;
+  token!: string;
 }
