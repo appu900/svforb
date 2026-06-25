@@ -6,10 +6,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { DriverPickupStatus, SiteRole } from '@prisma/client';
+import { ClaimStatus, DriverPickupStatus, SiteRole } from '@prisma/client';
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { RedisService } from 'src/infra/redis/redis.service';
 import { S3Service } from 'src/uploads/s3/s3.service';
+import { NotificationService } from 'src/modules/notifications/services/notification.service';
 
 const DRIVER_TTL_SECONDS = 8 * 60 * 60;
 const PHOTO_FOLDER = 'driver-pickups';
@@ -42,6 +43,7 @@ export class DriverLocationService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly s3: S3Service,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private liveKey(userId: number) {
@@ -342,5 +344,204 @@ export class DriverLocationService {
         ...(photoUrl && { photoUrl }),
       },
     });
+  }
+
+  // ─── Charity-initiated Driver Assignment ──────────────────────────────────────
+
+  async assignDriverToPickup(
+    assignerOrgId: number,
+    claimId: number,
+    listingId: number,
+    driverId: number,
+  ) {
+    const claim = await this.prisma.foodClaim.findUnique({
+      where: { id: claimId },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            pickupAddress: true,
+            pickupFromTime: true,
+            pickupByTime: true,
+            totalQtyKg: true,
+            organisation: { select: { id: true, name: true } },
+          },
+        },
+        claimantOrg: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!claim) throw new NotFoundException('Claim not found');
+    if (claim.listingId !== listingId) throw new BadRequestException('Listing does not match claim');
+    if (claim.claimantOrgId !== assignerOrgId) {
+      throw new ForbiddenException('You can only assign drivers for your own claims');
+    }
+    if (claim.status !== ClaimStatus.CONFIRMED) {
+      throw new BadRequestException(
+        'Driver can only be assigned to a confirmed claim',
+      );
+    }
+
+    const driverAccess = await this.prisma.siteAccess.findFirst({
+      where: { userId: driverId, siteRole: SiteRole.DRIVER, organisationId: assignerOrgId },
+    });
+    if (!driverAccess) {
+      throw new ForbiddenException('The specified user is not a driver in your organisation');
+    }
+
+    const activePickup = await this.prisma.driverPickup.findFirst({
+      where: { claimId, status: { in: CURRENT_STATUSES } },
+    });
+    if (activePickup) {
+      throw new ConflictException('This claim already has an active driver assigned');
+    }
+
+    const driver = await this.prisma.user.findUnique({
+      where: { id: driverId },
+      select: { firstName: true, lastName: true },
+    });
+    if (!driver) throw new NotFoundException('Driver not found');
+
+    const pickup = await this.prisma.driverPickup.create({
+      data: { driverId, claimId, listingId, status: DriverPickupStatus.ACCEPTED },
+    });
+
+    const listing = claim.listing;
+
+    await this.notificationService
+      .send({
+        title: 'New pickup assigned to you!',
+        body: `Collect ${listing.totalQtyKg}kg from ${listing.organisation.name} at ${listing.pickupAddress}`,
+        data: {
+          pickupId: String(pickup.id),
+          claimId: String(claimId),
+          listingId: String(listingId),
+          type: 'driver_assigned',
+          claimantOrgName: claim.claimantOrg.name,
+        },
+        targetUserIds: [String(driverId)],
+        priority: 'high',
+      })
+      .catch((err) =>
+        this.logger.warn(`notifyDriverAssigned non-critical error: ${err.message}`),
+      );
+
+    this.logger.log(
+      `Driver ${driverId} assigned to claim=${claimId} listing=${listingId} by org=${assignerOrgId}`,
+    );
+
+    return {
+      pickup,
+      driver: { name: `${driver.firstName} ${driver.lastName}` },
+      restaurant: {
+        name: listing.organisation.name,
+        address: listing.pickupAddress,
+        pickupFromTime: listing.pickupFromTime,
+        pickupByTime: listing.pickupByTime,
+      },
+    };
+  }
+
+  async respondToPickupAssignment(pickupId: number, driverId: number, accept: boolean) {
+    const pickup = await this.prisma.driverPickup.findFirst({
+      where: { id: pickupId, driverId },
+      include: {
+        claim: {
+          select: {
+            id: true,
+            claimantOrgId: true,
+          },
+        },
+        listing: {
+          select: {
+            organisationId: true,
+          },
+        },
+      },
+    });
+
+    if (!pickup) throw new NotFoundException('Pickup not found');
+
+    if (
+      pickup.status === DriverPickupStatus.COLLECTED ||
+      pickup.status === DriverPickupStatus.CANCELLED
+    ) {
+      throw new BadRequestException('Cannot respond to a completed or cancelled pickup');
+    }
+
+    const driver = await this.prisma.user.findUnique({
+      where: { id: driverId },
+      select: { firstName: true, lastName: true },
+    });
+    const driverName = driver ? `${driver.firstName} ${driver.lastName}` : 'Driver';
+
+    if (accept) {
+      const [charityUserIds, restaurantUserIds] = await Promise.all([
+        this.getOrgUserIds(pickup.claim.claimantOrgId),
+        this.getOrgUserIds(pickup.listing.organisationId),
+      ]);
+
+      const notifyUserIds = [...new Set([...charityUserIds, ...restaurantUserIds])];
+      if (notifyUserIds.length > 0) {
+        await this.notificationService
+          .send({
+            title: 'Driver accepted your pickup!',
+            body: `${driverName} is on the way to collect the food`,
+            data: {
+              pickupId: String(pickupId),
+              claimId: String(pickup.claimId),
+              type: 'driver_accepted',
+              driverName,
+            },
+            targetUserIds: notifyUserIds.map(String),
+            priority: 'high',
+          })
+          .catch((err) =>
+            this.logger.warn(`notifyDriverAccepted non-critical error: ${err.message}`),
+          );
+      }
+
+      this.logger.log(`Driver ${driverId} accepted pickup ${pickupId}`);
+      return { message: 'Pickup accepted', pickup };
+    } else {
+      await this.prisma.driverPickup.update({
+        where: { id: pickupId },
+        data: { status: DriverPickupStatus.CANCELLED, cancelledAt: new Date() },
+      });
+
+      const charityUserIds = await this.getOrgUserIds(pickup.claim.claimantOrgId);
+      if (charityUserIds.length > 0) {
+        await this.notificationService
+          .send({
+            title: 'Driver declined the pickup',
+            body: `${driverName} has declined the pickup. Please re-assign a driver.`,
+            data: {
+              pickupId: String(pickupId),
+              claimId: String(pickup.claimId),
+              type: 'driver_rejected',
+              driverName,
+            },
+            targetUserIds: charityUserIds.map(String),
+            priority: 'high',
+          })
+          .catch((err) =>
+            this.logger.warn(`notifyDriverRejected non-critical error: ${err.message}`),
+          );
+      }
+
+      this.logger.log(`Driver ${driverId} rejected pickup ${pickupId}`);
+      return { message: 'Pickup declined. The charity has been notified.' };
+    }
+  }
+
+  private async getOrgUserIds(orgId: number): Promise<number[]> {
+    const users = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        orgMemeberShips: { some: { organisationId: orgId } },
+      },
+      select: { id: true },
+    });
+    return users.map((u) => u.id);
   }
 }

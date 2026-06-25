@@ -14,7 +14,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
-import { PushQueueService } from '../../notifications/queues/push.queue.service';
+import { NotificationService } from '../../notifications/services/notification.service';
 import { ListingGateway } from '../../../gateway/listing.gateway';
 import { DriverLocationService } from '../../drivers/service/driver.location.service';
 import { ClaimsCacheManager } from '../cache/claims.cachemanager';
@@ -35,7 +35,7 @@ export class ClaimsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: ClaimsCacheManager,
-    private readonly pushQueue: PushQueueService,
+    private readonly notificationService: NotificationService,
     private readonly gateway: ListingGateway,
     private readonly driverService: DriverLocationService,
   ) {}
@@ -205,19 +205,44 @@ export class ClaimsService {
       timestamp: new Date().toISOString(),
     });
 
+    // Notify the restaurant that a claim has been made (fan-out pipeline)
+    const restaurantUserIds = await this.getOrgUserIds(result.listing.organisationId);
+    if (restaurantUserIds.length) {
+      await this.notificationService.send({
+        title: 'New claim on your listing!',
+        body: `${claimantOrg?.name ?? 'An organisation'} claimed ${result.totalClaimedKg}kg of food`,
+        data: {
+          claimId: String(result.claim.id),
+          listingId: String(dto.listingId),
+          type: 'claim_made',
+        },
+        targetUserIds: restaurantUserIds.map(String),
+        priority: 'high',
+      }).catch((err) =>
+        this.logger.warn(`notifyClaimMade non-critical error: ${err.message}`),
+      );
+    }
+
+    // When food is still partially available, re-notify all OTHER eligible orgs
     if (result.newStatus === ListingStatus.PARTIAL) {
-      const eligibleTokens = await this.getEligibleDeviceTokens(
+      const eligibleUserIds = await this.getEligibleUserIds(
         result.listing.listingType,
         caller.orgId!,
       );
-      if (eligibleTokens.length) {
-        await this.pushQueue.notifyPartialClaimUpdate({
-          listingId: dto.listingId,
-          businessName: result.listing.organisation.name,
-          pickupAddress: result.listing.pickupAddress,
-          remainingQtyKg: result.newRemainingQtyKg,
-          deviceTokens: eligibleTokens,
-        });
+      if (eligibleUserIds.length) {
+        await this.notificationService.send({
+          title: 'Food still available nearby!',
+          body: `${result.newRemainingQtyKg}kg still available from ${result.listing.organisation.name}`,
+          data: {
+            listingId: String(dto.listingId),
+            type: 'partial_claim_update',
+            remainingQtyKg: String(result.newRemainingQtyKg),
+          },
+          targetUserIds: eligibleUserIds.map(String),
+          priority: 'normal',
+        }).catch((err) =>
+          this.logger.warn(`notifyPartialClaimUpdate non-critical error: ${err.message}`),
+        );
       }
     }
 
@@ -275,32 +300,44 @@ export class ClaimsService {
       timestamp: new Date().toISOString(),
     });
 
-    const [claimantTokens, liveDrivers] = await Promise.all([
-      this.getOrgDeviceTokens(claim.claimantOrgId),
+    const [claimantUserIds, liveDrivers] = await Promise.all([
+      this.getOrgUserIds(claim.claimantOrgId),
       this.driverService.getLiveDriversForSite(claim.listing.siteId),
     ]);
 
-    if (claimantTokens.length) {
-      await this.pushQueue.notifyClaimConfirmed({
-        claimId,
-        listingId: claim.listingId,
-        businessName: claim.listing.organisation.name,
-        pickupAddress: claim.listing.pickupAddress,
-        pickupByTime: claim.listing.pickupByTime?.toISOString(),
-        deviceTokens: claimantTokens,
-      });
+    // Notify the claimant their claim is confirmed
+    if (claimantUserIds.length) {
+      await this.notificationService.send({
+        title: 'Your claim is confirmed!',
+        body: `Collect from ${claim.listing.organisation.name} at ${claim.listing.pickupAddress}`,
+        data: {
+          claimId: String(claimId),
+          listingId: String(claim.listingId),
+          type: 'claim_confirmed',
+        },
+        targetUserIds: claimantUserIds.map(String),
+        priority: 'high',
+      }).catch((err) =>
+        this.logger.warn(`notifyClaimConfirmed non-critical error: ${err.message}`),
+      );
     }
 
-    const driverTokens = liveDrivers.map((d) => d.deviceToken).filter((t): t is string => !!t);
-    if (driverTokens.length) {
-      await this.pushQueue.notifyPickupAvailable({
-        claimId,
-        listingId: claim.listingId,
-        businessName: claim.listing.organisation.name,
-        pickupAddress: claim.listing.pickupAddress,
-        totalQtyKg: claim.listing.totalQtyKg,
-        deviceTokens: driverTokens,
-      });
+    // Notify all live drivers that a pickup is available
+    const liveDriverUserIds = liveDrivers.map((d) => d.userId);
+    if (liveDriverUserIds.length) {
+      await this.notificationService.send({
+        title: 'Pickup available!',
+        body: `${claim.listing.totalQtyKg}kg ready for collection from ${claim.listing.organisation.name}`,
+        data: {
+          claimId: String(claimId),
+          listingId: String(claim.listingId),
+          type: 'pickup_available',
+        },
+        targetUserIds: liveDriverUserIds.map(String),
+        priority: 'high',
+      }).catch((err) =>
+        this.logger.warn(`notifyPickupAvailable non-critical error: ${err.message}`),
+      );
     }
 
     this.logger.log(`Notified ${liveDrivers.length} live drivers for listing ${claim.listingId}`);
@@ -416,14 +453,21 @@ export class ClaimsService {
       ? result.claim.listing.organisationId
       : result.claim.claimantOrgId;
 
-    const tokens = await this.getOrgDeviceTokens(notifyOrgId);
-    if (tokens.length) {
-      await this.pushQueue.notifyClaimCancelled({
-        claimId,
-        listingId: result.claim.listingId,
-        cancelledByName: result.cancellerName,
-        deviceTokens: tokens,
-      });
+    const userIds = await this.getOrgUserIds(notifyOrgId);
+    if (userIds.length) {
+      await this.notificationService.send({
+        title: 'Claim cancelled',
+        body: `${result.cancellerName} cancelled a claim — ${result.restoredQty}kg restored`,
+        data: {
+          claimId: String(claimId),
+          listingId: String(result.claim.listingId),
+          type: 'claim_cancelled',
+        },
+        targetUserIds: userIds.map(String),
+        priority: 'normal',
+      }).catch((err) =>
+        this.logger.warn(`notifyClaimCancelled non-critical error: ${err.message}`),
+      );
     }
 
     return { message: 'Claim cancelled', restoredQtyKg: result.restoredQty };
@@ -594,26 +638,26 @@ export class ClaimsService {
     });
   }
 
-  private async getOrgDeviceTokens(orgId: number): Promise<string[]> {
+  // ─── Private helpers ─────────────────────────────────────────────────────────────
+
+  private async getOrgUserIds(orgId: number): Promise<number[]> {
     const users = await this.prisma.user.findMany({
       where: {
-        deviceToken: { not: null },
         isActive: true,
         orgMemeberShips: { some: { organisationId: orgId } },
       },
-      select: { deviceToken: true },
+      select: { id: true },
     });
-    return users.map((u) => u.deviceToken!);
+    return users.map((u) => u.id);
   }
 
-  private async getEligibleDeviceTokens(
+  private async getEligibleUserIds(
     listingType: FoodListingType,
     excludeOrgId: number,
-  ): Promise<string[]> {
+  ): Promise<number[]> {
     const eligibleTypes = CLAIMANT_TYPES[listingType];
     const users = await this.prisma.user.findMany({
       where: {
-        deviceToken: { not: null },
         isActive: true,
         orgMemeberShips: {
           some: {
@@ -624,8 +668,8 @@ export class ClaimsService {
           },
         },
       },
-      select: { deviceToken: true },
+      select: { id: true },
     });
-    return users.map((u) => u.deviceToken!);
+    return users.map((u) => u.id);
   }
 }

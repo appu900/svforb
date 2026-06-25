@@ -17,6 +17,8 @@
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
-     
+    "paths": {
+      "@prisma/client": ["./node_modules/.prisma/client"]
+    }
   }
 }

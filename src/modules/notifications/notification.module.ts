@@ -1,14 +1,21 @@
-import { Module, Global } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { NOTIFICATION_QUEUE_NAME } from './constants';
 import { EMAIL_QUEUE } from './types/email.types';
-import { PUSH_QUEUE } from './types/push.types';
+
+import { FirebaseGateway } from './gateways/firebase.gateway';
+import { ExpoGateway } from './gateways/expo.gateway';
+
+import { NotificationProducer } from './producers/notification.producer';
+import { NotificationWorker } from './workers/notification.worker';
+
+import { NotificationService } from './services/notification.service';
+import { NotificationController } from './controllers/notification.controller';
+
 import { MailerService } from './services/mailer.service';
-import { FirebaseService } from './services/firebase.service';
 import { EmailQueueService } from './queues/email.queue.service';
-import { PushQueueService } from './queues/push.queue.service';
 import { EmailWorker } from './workers/email.worker';
-import { PushWorker } from './workers/push.worker';
 
 @Global()
 @Module({
@@ -18,14 +25,13 @@ import { PushWorker } from './workers/push.worker';
       useFactory: (config: ConfigService) => {
         const url = config.get<string>('REDIS_URL');
         const tls = config.get<string>('REDIS_TLS') === 'true';
-
         return {
           connection: url
             ? { url, ...(tls ? { tls: {} } : {}) }
             : {
                 host: config.get<string>('REDIS_HOST', 'localhost'),
                 port: config.get<number>('REDIS_PORT', 6379),
-                password: config.get<string>('REDIS_PASSWORD'), 
+                password: config.get<string>('REDIS_PASSWORD'),
                 username: config.get<string>('REDIS_USERNAME'),
                 ...(tls ? { tls: {} } : {}),
               },
@@ -33,17 +39,21 @@ import { PushWorker } from './workers/push.worker';
       },
       inject: [ConfigService],
     }),
+    BullModule.registerQueue({ name: NOTIFICATION_QUEUE_NAME }),
     BullModule.registerQueue({ name: EMAIL_QUEUE }),
-    BullModule.registerQueue({ name: PUSH_QUEUE }),
   ],
+  controllers: [NotificationController],
   providers: [
+    FirebaseGateway,
+    ExpoGateway,
+    NotificationProducer,
+    NotificationWorker,
+    NotificationService,
+
     MailerService,
-    // FirebaseService,
     EmailQueueService,
-    PushQueueService,
     EmailWorker,
-    // PushWorker,
   ],
-  exports: [EmailQueueService, PushQueueService],
+  exports: [NotificationService, EmailQueueService],
 })
 export class NotificationModule {}

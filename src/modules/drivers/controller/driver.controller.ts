@@ -19,9 +19,11 @@ import { Jwtpayload } from 'src/modules/auth/interface/jwt.interface';
 import { DriverLocationService } from '../service/driver.location.service';
 import {
   AcceptPickupDto,
+  AssignDriverDto,
   CompletePickupDto,
   GoLiveDto,
   GoOfflineDto,
+  RespondToPickupDto,
   UpdatePickupStatusDto,
 } from '../dto/driver.dto';
 
@@ -51,7 +53,7 @@ export class DriverController {
     return { message: 'You are now offline' };
   }
 
-  // ─── Accept Pickup ────────────────────────────────────────────────────────
+  // ─── Accept Pickup (driver self-selects) ──────────────────────────────────
 
   @Post('pickup/accept')
   async acceptPickup(
@@ -61,7 +63,30 @@ export class DriverController {
     return this.driverService.acceptPickup(req.user.sub, dto.claimId, dto.listingId);
   }
 
-  // ─── My Pickups ───────────────────────────────────────────────────────────
+  // ─── Assign Driver (charity-initiated) ────────────────────────────────────
+
+  @Post('pickups/assign')
+  async assignDriver(
+    @Req() req: Request & { user: Jwtpayload },
+    @Body() dto: AssignDriverDto,
+  ) {
+    return this.driverService.assignDriverToPickup(
+      req.user.orgId!,
+      dto.claimId,
+      dto.listingId,
+      dto.driverId,
+    );
+  }
+
+  @Patch('pickups/:id/respond')
+  async respondToAssignment(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RespondToPickupDto,
+  ) {
+    return this.driverService.respondToPickupAssignment(id, req.user.sub, dto.accept);
+  }
+
 
   @Get('pickups')
   async getMyPickups(

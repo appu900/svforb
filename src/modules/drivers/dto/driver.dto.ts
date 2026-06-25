@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNumber,
@@ -56,4 +57,20 @@ export class CompletePickupDto {
   @Min(1)
   @Max(5)
   rating?: number;
+}
+
+export class AssignDriverDto {
+  @IsInt()
+  claimId!: number;
+
+  @IsInt()
+  listingId!: number;
+
+  @IsInt()
+  driverId!: number;
+}
+
+export class RespondToPickupDto {
+  @IsBoolean()
+  accept!: boolean;
 }

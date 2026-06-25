@@ -4,7 +4,7 @@ import { Job } from 'bullmq';
 import { FoodListingType, ListingStatus } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { RedisGeoSearchService } from '../../redis-geo-search/redis.geosearch.service';
-import { PushQueueService } from '../../notifications/queues/push.queue.service';
+import { NotificationService } from '../../notifications/services/notification.service';
 import { LISTINGS_JOBS } from '../../../infra/queues/queus.constants';
 import { LISTINGS_QUEUE, NewListingJobPayload } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
@@ -18,12 +18,12 @@ export class ListingWorker extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly geoSearch: RedisGeoSearchService,
-    private readonly pushQueue: PushQueueService,
+    private readonly notificationService: NotificationService,
     private readonly cache: FoodListingCacheManager,
   ) {
     super();
   }
-      
+
   async process(job: Job): Promise<void> {
     this.logger.log(`Processing listing job [${job.id}] name=${job.name}`);
 
@@ -43,7 +43,6 @@ export class ListingWorker extends WorkerHost {
     const { listingId, siteId, listingType, pickupAddress, businessName, totalQtyKg, bestBefore } =
       payload;
 
-    // Fetch site coordinates + radius + linked org's region
     const site = await this.prisma.site.findUnique({
       where: { id: siteId },
       select: {
@@ -73,7 +72,6 @@ export class ListingWorker extends WorkerHost {
     const radiusKm = site.pickupRadiusKm ?? DEFAULT_RADIUS_KM;
     const { region } = org;
 
-    // Run geo searches in parallel based on listing type — both at site level
     const [charityResults, farmerConsumerSiteIds] = await Promise.all([
       listingType === FoodListingType.HUMAN || listingType === FoodListingType.BOTH
         ? this.geoSearch.searchNearbyCharities(lat, lng, radiusKm, region)
@@ -83,7 +81,6 @@ export class ListingWorker extends WorkerHost {
         : null,
     ]);
 
-    // Collect site IDs — everything goes through siteId → siteAccess → user
     const nearbySiteIds = new Set<number>();
 
     if (charityResults) {
@@ -93,7 +90,7 @@ export class ListingWorker extends WorkerHost {
     }
 
     if (farmerConsumerSiteIds) {
-      for (const siteId of farmerConsumerSiteIds) nearbySiteIds.add(siteId);
+      for (const sid of farmerConsumerSiteIds) nearbySiteIds.add(sid);
     }
 
     if (!nearbySiteIds.size) {
@@ -103,53 +100,41 @@ export class ListingWorker extends WorkerHost {
 
     this.logger.log(`[listing ${listingId}] Nearby site IDs: ${[...nearbySiteIds].join(', ')}`);
 
-    // Users with siteAccess to any of the nearby sites
-    const siteAccessUsers = await this.prisma.user.findMany({
+    // Collect user IDs (not device tokens) — the fan-out worker resolves tokens
+    const nearbyUsers = await this.prisma.user.findMany({
       where: {
-        deviceToken: { not: null },
         isActive: true,
         siteAccesses: { some: { siteId: { in: [...nearbySiteIds] } } },
       },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        deviceToken: true,
-        siteAccesses: { where: { siteId: { in: [...nearbySiteIds] } }, select: { siteId: true } },
-      },
+      select: { id: true },
     });
 
-    this.logger.log(
-      `[listing ${listingId}] Users who will be notified:\n` +
-        siteAccessUsers
-          .map(
-            (u) =>
-              `  → userId=${u.id} name="${u.firstName} ${u.lastName}" email=${u.email} ` +
-              `siteIds=[${u.siteAccesses.map((s) => s.siteId).join(',')}] token=${u.deviceToken}`,
-          )
-          .join('\n'),
-    );
-
-    const deviceTokens = [...new Set(siteAccessUsers.map((u) => u.deviceToken!))];
-
-    if (!deviceTokens.length) {
-      this.logger.log(`No device tokens found for listing ${listingId} proximity`);
+    if (!nearbyUsers.length) {
+      this.logger.log(`No users found for listing ${listingId} proximity`);
       return;
     }
 
-    await this.pushQueue.notifyNearbyCharities({
-      listingId,
-      businessName,
-      pickupAddress,
-      totalQtyKg,
-      bestBefore,
-      deviceTokens,
-    });
+    const userIds = nearbyUsers.map((u) => u.id);
 
     this.logger.log(
-      `Queued push for listing ${listingId} → ${deviceTokens.length} devices (radius=${radiusKm}km)`,
+      `[listing ${listingId}] Queuing notification to ${userIds.length} users (radius=${radiusKm}km)`,
     );
+
+    await this.notificationService
+      .send({
+        title: 'New food available nearby!',
+        body: `${businessName} listed ${totalQtyKg}kg at ${pickupAddress}`,
+        data: {
+          listingId: String(listingId),
+          type: 'new_listing_nearby',
+          bestBefore: typeof bestBefore === 'string' ? bestBefore : new Date(bestBefore).toISOString(),
+        },
+        targetUserIds: userIds.map(String),
+        priority: 'normal',
+      })
+      .catch((err) =>
+        this.logger.warn(`notifyNewListingNearby non-critical error: ${err.message}`),
+      );
   }
 
   private async handleListingExpiry(payload: { listingId: number }): Promise<void> {
