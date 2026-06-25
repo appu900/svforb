@@ -23,7 +23,7 @@ export class ListingWorker extends WorkerHost {
   ) {
     super();
   }
-
+      
   async process(job: Job): Promise<void> {
     this.logger.log(`Processing listing job [${job.id}] name=${job.name}`);
 
