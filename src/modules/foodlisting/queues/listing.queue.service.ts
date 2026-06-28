@@ -6,7 +6,7 @@ import { DEFAULT_JOB_OPTIONS, LISTINGS_JOBS } from '../../../infra/queues/queus.
 
 export const LISTINGS_QUEUE = 'listings';
 
-const LISTING_EXPIRY_DELAY_MS = 30 * 60 * 1000;
+const LISTING_EXPIRY_DELAY_MS = 2 * 60 * 60 * 1000;
 const NOTIFICATION_EXPIRY_DELAY_MS = 60 * 60 * 1000;
 
 export interface NewListingJobPayload {
