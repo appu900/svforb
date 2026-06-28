@@ -916,7 +916,7 @@ export class AuthService {
       where: { email: dto.email.toLowerCase() },
     });
 
-    // Always return success to avoid leaking whether the email exists
+    
     if (!user || !user.isActive) {
       throw new NotFoundException("user not found with this email ID")
     }
@@ -935,7 +935,7 @@ export class AuthService {
 
     this.logger.log(`Password reset OTP sent: ${dto.email}`);
     return {
-      message: 'If that email is registered, a reset code has been sent.',
+      message: 'a reset code has been sent.',
     };
   }
 
