@@ -1,18 +1,20 @@
 import { Logger, Injectable } from '@nestjs/common';
 import { RedisService } from '../../../infra/redis/redis.service';
 
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+
 const K = {
-  EMAIL_OTP: (email: string) => `auth:otp:email:${email}`,
-  RESET_TOKEN: (otp: string) => `auth:otp:reset:${otp}`,
+  EMAIL_OTP: (email: string) => `auth:otp:email:${normalizeEmail(email)}`,
+  RESET_TOKEN: (email: string) => `auth:otp:reset:${normalizeEmail(email)}`,
   REFRESH_TOKEN: (token: string) => `auth:refresh:${token}`,
   TOKEN_BLACKLIST: (jti: string) => `auth:blacklist:${jti}`,
-  LOGIN_ATTEMPTS: (email: string) => `auth:login_attempts:${email}`,
+  LOGIN_ATTEMPTS: (email: string) => `auth:login_attempts:${normalizeEmail(email)}`,
   USER_PROFILE: (userId: string) => `cache:user:${userId}`,
   ORG_PLAN: (orgId: string) => `cache:org:plan:${orgId}`,
 } as const;
 
 const TTL = {
-  EMAIL_OTP: 10 * 60, // 10 min — matches OTP expiry
+  EMAIL_OTP: 30 * 60, // 30 min — allow time for email delivery
   RESET_OTP: 60 * 60, // 1 hour
   REFRESH_TOKEN: 7 * 24 * 60 * 60, // 7 days
   BLACKLIST: 60 * 60, // 1 hour (matches JWT expiry)

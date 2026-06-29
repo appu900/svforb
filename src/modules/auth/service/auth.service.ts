@@ -48,6 +48,10 @@ function GenerateOtp() {
   return num.toString();
 }
 
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -64,7 +68,8 @@ export class AuthService {
   ) {}
 
   async registerBusiness(dto: RegisterBusinessDto, logo?: Express.Multer.File) {
-    await this.assertEmailUnique(dto.email);
+    const email = normalizeEmail(dto.email);
+    await this.assertEmailUnique(email);
     const trialPlan = await this.prisma.subscriptionPlan.findFirst({
       where: { name: 'FREE_TRIAL', isActive: true },
     });
@@ -91,90 +96,103 @@ export class AuthService {
      * 4. for single buisness grant admin access
      *
      */
-    const result = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          email: dto.email,
-          passwordHash,
-          phoneNumber: dto.mobile,
-          platformRole: PlatformRole.ORG_USER,
-          emailverifyToken: verifyToken,
-          emailVerifyExpiry: verifyExpiery,
-        },
-      });
-
-      const org = await tx.organisation.create({
-        data: {
-          name: dto.businessName,
-          address: dto.businessAddress,
-          organizationType: dto.orgType,
-          registrationNumber: dto.registrationNumber,
-          venueType: dto.venueType,
-          brandName: dto.brandName ?? '',
-          latitude: dto.latitude,
-          longitude: dto.longitude,
-          logoUrl: uploadLogoUrl,
-        },
-      });
-
-      await tx.orgSubscription.create({
-        data: {
-          organisationId: org.id,
-          planId: trialPlan!.id,
-          status: SubscriptionStatus.TRIALING,
-          trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        },
-      });
-
-      await tx.orgMemeberShip.create({
-        data: {
-          userId: user.id,
-          organisationId: org.id,
-          orgRole: OrgRole.SUPER_ADMIN,
-        },
-      });
-
-      if (dto.orgType === OrgType.BUSINESS_SINGLE) {
-        const site = await tx.site.create({
+    let result: { user: User; org: Organisation };
+    try {
+      result = await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
           data: {
-            organisationId: org.id,
+            firstName: dto.firstName,
+            lastName: dto.lastName,
+            email,
+            passwordHash,
+            phoneNumber: dto.mobile,
+            platformRole: PlatformRole.ORG_USER,
+            emailverifyToken: verifyToken,
+            emailVerifyExpiry: verifyExpiery,
+          },
+        });
+
+        const org = await tx.organisation.create({
+          data: {
+            name: dto.businessName,
             address: dto.businessAddress,
-            contactName: `${dto.firstName} ${dto.lastName}`,
-            contactEmail: dto.email ?? '',
+            organizationType: dto.orgType,
+            registrationNumber: dto.registrationNumber,
+            venueType: dto.venueType,
+            brandName: dto.brandName ?? '',
             latitude: dto.latitude,
             longitude: dto.longitude,
-            contactMobile: dto.mobile ?? '',
-            organisationName: dto.businessName,
+            logoUrl: uploadLogoUrl,
           },
         });
 
-        await tx.siteAccess.create({
+        await tx.orgSubscription.create({
+          data: {
+            organisationId: org.id,
+            planId: trialPlan!.id,
+            status: SubscriptionStatus.TRIALING,
+            trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          },
+        });
+
+        await tx.orgMemeberShip.create({
           data: {
             userId: user.id,
-            siteId: site.id,
             organisationId: org.id,
-            siteRole: SiteRole.SITE_ADMIN,
-            grantedBy: user.id,
+            orgRole: OrgRole.SUPER_ADMIN,
           },
         });
-      }
-      return { user, org };
-    });
 
-    await this.geoSearch.indexBusiness(
-      result.org.id,
-      dto.latitude,
-      dto.longitude,
-      dto.region,
-    );
-    await this.emailService.sendOtp({
-      to: dto.email,
-      otp: otp.toString(),
-      name: dto.firstName,
-    });
-    await this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp);
+        if (dto.orgType === OrgType.BUSINESS_SINGLE) {
+          const site = await tx.site.create({
+            data: {
+              organisationId: org.id,
+              address: dto.businessAddress,
+              contactName: `${dto.firstName} ${dto.lastName}`,
+              contactEmail: email,
+              latitude: dto.latitude,
+              longitude: dto.longitude,
+              contactMobile: dto.mobile ?? '',
+              organisationName: dto.businessName,
+            },
+          });
+
+          await tx.siteAccess.create({
+            data: {
+              userId: user.id,
+              siteId: site.id,
+              organisationId: org.id,
+              siteRole: SiteRole.SITE_ADMIN,
+              grantedBy: user.id,
+            },
+          });
+        }
+        return { user, org };
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('An account with this email already exists');
+      }
+      throw error;
+    }
+
+    await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
+    await Promise.all([
+      this.geoSearch.indexBusiness(
+        result.org.id,
+        dto.latitude,
+        dto.longitude,
+        dto.region,
+      ),
+      this.emailService.sendOtp({
+        to: email,
+        otp: otp.toString(),
+        name: dto.firstName,
+      }),
+    ]);
     return {
       message: 'Account created, check your inbox to verify your email',
     };
@@ -196,7 +214,8 @@ export class AuthService {
       );
     }
 
-    await this.assertEmailUnique(dto.email);
+    const email = normalizeEmail(dto.email);
+    await this.assertEmailUnique(email);
     const trialPlan = await this.prisma.subscriptionPlan.findFirst({
       where: { name: 'FREE_TRIAL', isActive: true },
     });
@@ -216,7 +235,7 @@ export class AuthService {
         data: {
           firstName: dto.firstName,
           lastName: dto.lastName,
-          email: dto.email.toLowerCase(),
+          email,
           passwordHash,
           phoneNumber: dto.mobile ?? '',
           platformRole: PlatformRole.ORG_USER,
@@ -263,7 +282,7 @@ export class AuthService {
             address: dto.charityAddress,
             postcode: dto.pickupPostCode ?? '',
             contactName: `${dto.firstName} ${dto.lastName}`,
-            contactEmail: dto.email.toLowerCase(),
+            contactEmail: email,
             contactMobile: dto.mobile ?? '',
             latitude: dto.latitude,
             longitude: dto.longitude,
@@ -314,16 +333,14 @@ export class AuthService {
       }
     }
 
-    await Promise.all([
-      this.emailService.sendOtp({
-        to: dto.email,
-        otp: otp.toString(),
-        name: dto.firstName,
-      }),
-      this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp),
-    ]);
+    await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
+    await this.emailService.sendOtp({
+      to: email,
+      otp: otp.toString(),
+      name: dto.firstName,
+    });
     this.logger.log(
-      `Charity registered: ${dto.email} type=${dto.charityType} org=${result.org.name}`,
+      `Charity registered: ${email} type=${dto.charityType} org=${result.org.name}`,
     );
 
     return {
@@ -335,12 +352,14 @@ export class AuthService {
     dto: RegisterFarmerConsumerDto,
     logo?: Express.Multer.File,
   ): Promise<{
+    email: string;
     passwordHash: string;
     trialPlanId: number;
     otp: string;
     logoUrl: string;
   }> {
-    await this.assertEmailUnique(dto.email);
+    const email = normalizeEmail(dto.email);
+    await this.assertEmailUnique(email);
     const [passwordHash, subscription] = await Promise.all([
       bcrypt.hash(dto.password, 10),
       this.prisma.subscriptionPlan.findFirst({
@@ -355,6 +374,7 @@ export class AuthService {
       : '';
     const otp = GenerateOtp();
     return {
+      email,
       passwordHash,
       trialPlanId: subscription.id,
       otp,
@@ -366,7 +386,7 @@ export class AuthService {
     dto: RegisterFarmerConsumerDto,
     logo?: Express.Multer.File,
   ) {
-    const { passwordHash, trialPlanId, otp, logoUrl } =
+    const { email, passwordHash, trialPlanId, otp, logoUrl } =
       await this.prepareFarmerConsumerRegistration(dto, logo);
     const verifyToken = randomBytes(32).toString('hex');
     const verifyExpiery = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -375,7 +395,7 @@ export class AuthService {
         data: {
           firstName: dto.firstName,
           lastName: dto.lastName,
-          email: dto.email,
+          email,
           passwordHash,
           phoneNumber: dto.mobile ?? '',
           platformRole: PlatformRole.ORG_USER,
@@ -416,7 +436,7 @@ export class AuthService {
           organisationId: org.id,
           address: dto.address,
           contactName: `${dto.firstName} ${dto.lastName}`,
-          contactEmail: dto.email ?? '',
+          contactEmail: email,
           latitude: dto.latitude,
           longitude: dto.longitude,
           contactMobile: dto.mobile ?? '',
@@ -435,26 +455,25 @@ export class AuthService {
       return { org, site };
     });
 
-    await this.geoSearch.indexFarmerConsumer(
-      result.org.id,
-      dto.latitude,
-      dto.longitude,
-      dto.region,
-    );
-    await this.geoSearch.indexFarmerConsumerSite(
-      result.site.id,
-      dto.latitude,
-      dto.longitude,
-      dto.region,
-    );
-
+    await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
     await Promise.all([
+      this.geoSearch.indexFarmerConsumer(
+        result.org.id,
+        dto.latitude,
+        dto.longitude,
+        dto.region,
+      ),
+      this.geoSearch.indexFarmerConsumerSite(
+        result.site.id,
+        dto.latitude,
+        dto.longitude,
+        dto.region,
+      ),
       this.emailService.sendOtp({
-        to: dto.email,
+        to: email,
         otp: otp.toString(),
         name: dto.firstName,
       }),
-      this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp),
     ]);
     return {
       message: 'Account created, check your inbox to verify your email',
@@ -465,7 +484,8 @@ export class AuthService {
     dto: RegisterFarmerProducerDto,
     logo?: Express.Multer.File,
   ) {
-    await this.assertEmailUnique(dto.email);
+    const email = normalizeEmail(dto.email);
+    await this.assertEmailUnique(email);
     const subscription = await this.prisma.subscriptionPlan.findFirst({
       where: { name: 'FREE_TRIAL', isActive: true },
     });
@@ -492,7 +512,7 @@ export class AuthService {
         data: {
           firstName: dto.firstName,
           lastName: dto.lastName,
-          email: dto.email,
+          email,
           passwordHash,
           phoneNumber: dto.mobileNumber ?? '',
           platformRole: PlatformRole.ORG_USER,
@@ -532,7 +552,7 @@ export class AuthService {
           organisationId: org.id,
           address: dto.businessAddress,
           contactName: `${dto.firstName} ${dto.lastName}`,
-          contactEmail: dto.email ?? '',
+          contactEmail: email,
           latitude: dto.latitude,
           longitude: dto.longitude,
           contactMobile: dto.mobileNumber ?? '',
@@ -551,20 +571,19 @@ export class AuthService {
       return { org };
     });
 
-    await this.geoSearch.indexBusiness(
-      result.org.id,
-      dto.latitude,
-      dto.longitude,
-      dto.region,
-    );
-
+    await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
     await Promise.all([
+      this.geoSearch.indexBusiness(
+        result.org.id,
+        dto.latitude,
+        dto.longitude,
+        dto.region,
+      ),
       this.emailService.sendOtp({
-        to: dto.email,
+        to: email,
         otp: otp.toString(),
         name: dto.firstName,
       }),
-      this.authCacheManaher.storeEmailVerificationOtp(dto.email, otp),
     ]);
     return {
       message: 'Account created, check your inbox to verify your email',
@@ -572,16 +591,17 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
+    const email = normalizeEmail(dto.email);
     const currentLoginAttempts =
-      await this.authCacheManaher.incrementLoginattempts(dto.email);
+      await this.authCacheManaher.incrementLoginattempts(email);
     if (currentLoginAttempts > 5) {
       throw new ForbiddenException(
         'Too many login attepmts, Try again after 15 Minutes',
       );
     }
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: {
-        email: dto.email.toLowerCase(),
+        email: { equals: email, mode: 'insensitive' },
       },
     });
     if (!user || !user.isActive)
@@ -593,7 +613,7 @@ export class AuthService {
         'Please verify your email before logging in',
       );
 
-    await this.authCacheManaher.clearLoginAttempts(dto.email);
+    await this.authCacheManaher.clearLoginAttempts(email);
 
     // Platform admins have no org membership — issue token directly
     if (user.platformRole === PlatformRole.PLATFORM_ADMIN) {
@@ -691,7 +711,8 @@ export class AuthService {
   }
 
   async verifyEmail(dto: VerifyEmailOtpDto) {
-    const cachedOtp = await this.authCacheManaher.getEmailVerifyOtp(dto.email);
+    const email = normalizeEmail(dto.email);
+    const cachedOtp = await this.authCacheManaher.getEmailVerifyOtp(email);
     if (!cachedOtp) {
       throw new BadRequestException(
         'OTP has expired, please request a new one',
@@ -701,16 +722,22 @@ export class AuthService {
       throw new BadRequestException('Invalid OTP');
     }
 
+    const existingUser = await this.findUserByEmail(email);
+    if (!existingUser) {
+      throw new NotFoundException('User not found');
+    }
+
     const user = await this.prisma.user.update({
-      where: { email: dto.email.toLowerCase() },
+      where: { id: existingUser.id },
       data: {
         emailVerified: true,
         emailverifyToken: null,
         emailVerifyExpiry: null,
+        email,
       },
     });
 
-    await this.authCacheManaher.revokeEmailVerifyOtp(dto.email);
+    await this.authCacheManaher.revokeEmailVerifyOtp(email);
 
     const membership = await this.prisma.orgMemeberShip.findFirst({
       where: { userId: user.id },
@@ -756,14 +783,15 @@ export class AuthService {
   }
 
   async registerPlatformAdmin(dto: RegisterPlatformAdminDto) {
-    await this.assertEmailUnique(dto.email);
+    const email = normalizeEmail(dto.email);
+    await this.assertEmailUnique(email);
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.user.create({
       data: {
         firstName: dto.firstName,
         lastName: dto.lastName,
-        email: dto.email.toLowerCase(),
+        email,
         passwordHash,
         platformRole: PlatformRole.PLATFORM_ADMIN,
         emailVerified: true,
@@ -968,10 +996,17 @@ export class AuthService {
     };
   }
 
-  private async assertEmailUnique(email: string) {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+  private async findUserByEmail(email: string): Promise<User | null> {
+    const normalized = normalizeEmail(email);
+    return this.prisma.user.findFirst({
+      where: {
+        email: { equals: normalized, mode: 'insensitive' },
+      },
     });
+  }
+
+  private async assertEmailUnique(email: string) {
+    const existing = await this.findUserByEmail(email);
     if (existing)
       throw new ConflictException('An account with this email already exists');
   }
@@ -983,24 +1018,22 @@ export class AuthService {
     ]);
   }
 
-  async resendVerificationEmail(email: string) {
-    const user = await this.prisma.user.findUnique({
-      where: {
-        email: email,
-      },
-    });
+  async resendVerificationEmail(emailInput: string) {
+    const email = normalizeEmail(emailInput);
+    const user = await this.findUserByEmail(email);
     if (!user) throw new NotFoundException('user with this email not found');
-    if (user.emailVerified === true)
-      return new BadRequestException('email already verified');
+    if (user.emailVerified === true) {
+      throw new BadRequestException('email already verified');
+    }
     const otp = GenerateOtp();
+    await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
     await this.emailService.sendOtp({
       to: email,
       otp: otp.toString(),
       name: user.firstName,
     });
-    await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
     return {
-      message: 'done',
+      message: 'Verification code sent',
     };
   }
 }
