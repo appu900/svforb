@@ -17,6 +17,7 @@ import { FoodListingModule } from './modules/foodlisting/foodlisting.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { ClaimsModule } from './modules/claims/claims.module';
+import { ImpactModule } from './modules/impact/impact.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { ClaimsModule } from './modules/claims/claims.module';
     RedisProxyModule,
     RedisGeoSearchModule,
     FoodListingModule,
+    ImpactModule,
   ],
   controllers: [AppController],
   providers: [AppService],
