@@ -44,7 +44,7 @@ export class RegisterCharityDto {
   @IsString() @IsNotEmpty() charityAddress!: string;
   @IsString() @IsOptional() registrationNumber?: string;
   @IsString() @IsOptional() brandName?: string;
-  @IsEnum(Region) @IsOptional() region?: Region;
+  @IsEnum(Region) region!: Region;
   @IsOptional() @Type(() => Number) @IsNumber() latitude?: number;
   @IsOptional() @Type(() => Number) @IsNumber() longitude?: number;
 

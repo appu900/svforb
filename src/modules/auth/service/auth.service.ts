@@ -122,6 +122,7 @@ export class AuthService {
             brandName: dto.brandName ?? '',
             latitude: dto.latitude,
             longitude: dto.longitude,
+            region: dto.region,
             logoUrl: uploadLogoUrl,
           },
         });
@@ -529,6 +530,7 @@ export class AuthService {
           brandName: dto.brandName ?? 'not provided',
           latitude: dto.latitude,
           longitude: dto.longitude,
+          region: dto.region,
           logoUrl: uploadLogoUrl,
         },
       });
