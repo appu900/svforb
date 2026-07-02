@@ -246,6 +246,27 @@ export class ClaimsService {
       }
     }
 
+    // Notify all live drivers on this site — a pickup may be needed
+    const liveDrivers = await this.driverService.getLiveDriversForSite(result.listing.siteId);
+    if (liveDrivers.length) {
+      await this.notificationService.send({
+        title: 'New pickup available!',
+        body: `${result.totalClaimedKg}kg claimed from ${result.listing.organisation.name} — pickup needed`,
+        data: {
+          claimId: String(result.claim.id),
+          listingId: String(dto.listingId),
+          type: 'claim_made_driver',
+          claimMode: dto.claimMode,
+          remainingQtyKg: String(result.newRemainingQtyKg),
+        },
+        targetUserIds: liveDrivers.map((d) => String(d.userId)),
+        priority: 'high',
+      }).catch((err) =>
+        this.logger.warn(`notifyLiveDriversOnClaim non-critical error: ${err.message}`),
+      );
+      this.logger.log(`Notified ${liveDrivers.length} live driver(s) for claim on listing ${dto.listingId}`);
+    }
+
     this.logger.log(
       `Claim created: id=${result.claim.id} listing=${dto.listingId} org=${caller.orgId} mode=${dto.claimMode} qty=${result.totalClaimedKg}kg`,
     );
