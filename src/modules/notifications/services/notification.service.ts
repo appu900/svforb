@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { TokenPlatform, TokenType } from '@prisma/client';
+import { TokenPlatform, TokenTargetApp, TokenType } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { RedisService } from '../../../infra/redis/redis.service';
 import { NotificationProducer } from '../producers/notification.producer';
@@ -13,7 +13,11 @@ import { RegisterTokenDto } from '../dto/register-token.dto';
 import {
   BROADCAST_COOLDOWN_SECONDS,
   BROADCAST_RATE_KEY,
+  channelForTargetApp,
+  NotificationTargetApp,
   PRIORITY_WEIGHT,
+  resolveTokenTargetApp,
+  toPrismaTargetApp,
 } from '../constants';
 
 export interface SendNotificationInput {
@@ -27,6 +31,10 @@ export interface SendNotificationInput {
   isBroadcast?: boolean;
   scheduledAt?: string;
   targetPlatform?: 'all' | 'ios' | 'android';
+  /** Which mobile app should receive this push (defaults to business app). */
+  targetApp?: NotificationTargetApp;
+  /** When true, skip queueing if no tokens exist (for non-critical driver alerts). */
+  allowEmptyTargets?: boolean;
 }
 
 @Injectable()
@@ -43,7 +51,7 @@ export class NotificationService {
   async registerToken(
     userId: number,
     dto: RegisterTokenDto,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; targetApp: NotificationTargetApp }> {
     const platform =
       dto.platform === 'ios' ? TokenPlatform.IOS : TokenPlatform.ANDROID;
     const tokenType =
@@ -52,6 +60,11 @@ export class NotificationService {
         : dto.tokenType === 'expo'
           ? TokenType.EXPO
           : TokenType.FCM;
+    const targetApp = resolveTokenTargetApp({
+      targetApp: dto.targetApp,
+      appBundle: dto.appBundle,
+    });
+    const prismaTargetApp = toPrismaTargetApp(targetApp);
 
     const existing = await this.prisma.deviceToken.findUnique({
       where: { token: dto.token },
@@ -68,13 +81,16 @@ export class NotificationService {
           appVersion: dto.appVersion,
           appBuild: dto.appBuild,
           appBundle: dto.appBundle,
+          targetApp: prismaTargetApp,
           isActive: true,
           failureCount: 0,
           deactivationReason: null,
         },
       });
-      this.logger.log(`Device token re-registered: userId=${userId} platform=${dto.platform}`);
-      return { message: 'Token updated' };
+      this.logger.log(
+        `Device token re-registered: userId=${userId} platform=${dto.platform} targetApp=${targetApp}`,
+      );
+      return { message: 'Token updated', targetApp };
     }
 
     await this.prisma.deviceToken.create({
@@ -87,11 +103,14 @@ export class NotificationService {
         appVersion: dto.appVersion,
         appBuild: dto.appBuild,
         appBundle: dto.appBundle,
+        targetApp: prismaTargetApp,
       },
     });
 
-    this.logger.log(`Device token registered: userId=${userId} platform=${dto.platform}`);
-    return { message: 'Token registered' };
+    this.logger.log(
+      `Device token registered: userId=${userId} platform=${dto.platform} targetApp=${targetApp}`,
+    );
+    return { message: 'Token registered', targetApp };
   }
 
   async unregisterToken(userId: number, token: string): Promise<{ message: string }> {
@@ -110,12 +129,25 @@ export class NotificationService {
     return { message: 'Token unregistered' };
   }
 
-  async unregisterAllTokens(userId: number): Promise<{ count: number }> {
+  async unregisterAllTokens(
+    userId: number,
+    targetApp?: NotificationTargetApp,
+  ): Promise<{ count: number }> {
+    const where: {
+      userId: number;
+      isActive: boolean;
+      targetApp?: ReturnType<typeof toPrismaTargetApp>;
+    } = { userId, isActive: true };
+
+    if (targetApp) {
+      where.targetApp = toPrismaTargetApp(targetApp);
+    }
+
     const result = await this.prisma.deviceToken.updateMany({
-      where: { userId, isActive: true },
+      where,
       data: {
         isActive: false,
-        deactivationReason: 'user_disabled_all',
+        deactivationReason: targetApp ? `user_disabled_${targetApp}` : 'user_disabled_all',
         lastFailureAt: new Date(),
       },
     });
@@ -154,8 +186,10 @@ export class NotificationService {
     const isBroadcast = input.isBroadcast ?? false;
     const targetUserIds = input.targetUserIds?.map((id) => parseInt(id, 10)) ?? [];
     const targetPlatform = input.targetPlatform ?? 'all';
+    const targetApp = input.targetApp ?? 'business';
+    const prismaTargetApp = toPrismaTargetApp(targetApp);
 
-    const tokenWhere: any = { isActive: true };
+    const tokenWhere: any = { isActive: true, targetApp: prismaTargetApp };
     if (!isBroadcast && targetUserIds.length > 0) {
       tokenWhere.userId = { in: targetUserIds };
     } else if (!isBroadcast) {
@@ -169,8 +203,18 @@ export class NotificationService {
     const targetCount = await this.prisma.deviceToken.count({ where: tokenWhere });
 
     if (targetCount === 0) {
+      if (input.allowEmptyTargets) {
+        this.logger.warn(
+          `No active ${targetApp} device tokens found — skipping notification: title="${input.title}"`,
+        );
+        return {
+          notificationId: 0,
+          targetCount: 0,
+          message: `No active ${targetApp} device tokens found — notification skipped`,
+        };
+      }
       throw new BadRequestException(
-        'No active mobile device tokens found for this audience',
+        `No active ${targetApp} mobile device tokens found for this audience`,
       );
     }
 
@@ -186,6 +230,7 @@ export class NotificationService {
         targetUserIds,
         isBroadcast,
         targetPlatform,
+        channel: channelForTargetApp(targetApp),
         totalTargets: targetCount,
         scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : undefined,
         createdById,
@@ -204,7 +249,7 @@ export class NotificationService {
     );
 
     this.logger.log(
-      `Notification queued: id=${notif.id} isBroadcast=${isBroadcast} targetCount=${targetCount} platform=${targetPlatform} scheduled=${!!input.scheduledAt}`,
+      `Notification queued: id=${notif.id} targetApp=${targetApp} isBroadcast=${isBroadcast} targetCount=${targetCount} platform=${targetPlatform} scheduled=${!!input.scheduledAt}`,
     );
 
     return {
@@ -252,6 +297,8 @@ export class NotificationService {
     const [
       totalTokens,
       activeTokens,
+      activeBusinessTokens,
+      activeDriverTokens,
       iosTokens,
       androidTokens,
       queuedNotifications,
@@ -260,6 +307,12 @@ export class NotificationService {
     ] = await Promise.all([
       this.prisma.deviceToken.count(),
       this.prisma.deviceToken.count({ where: { isActive: true } }),
+      this.prisma.deviceToken.count({
+        where: { isActive: true, targetApp: TokenTargetApp.BUSINESS },
+      }),
+      this.prisma.deviceToken.count({
+        where: { isActive: true, targetApp: TokenTargetApp.DRIVER },
+      }),
       this.prisma.deviceToken.count({ where: { isActive: true, platform: TokenPlatform.IOS } }),
       this.prisma.deviceToken.count({ where: { isActive: true, platform: TokenPlatform.ANDROID } }),
       this.prisma.notificationRecord.count({ where: { status: { in: ['queued', 'processing'] } } }),
@@ -275,6 +328,8 @@ export class NotificationService {
     return {
       totalTokens,
       activeTokens,
+      activeBusinessTokens,
+      activeDriverTokens,
       iosTokens,
       androidTokens,
       queuedNotifications,

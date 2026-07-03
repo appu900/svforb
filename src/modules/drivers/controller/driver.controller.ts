@@ -53,6 +53,23 @@ export class DriverController {
     return { message: 'You are now offline' };
   }
 
+  /** List drivers currently live on a site (for charity/farmer assignment UI). */
+  @Get('site/:siteId/live')
+  async getLiveDriversForSite(@Param('siteId', ParseIntPipe) siteId: number) {
+    const drivers = await this.driverService.getLiveDriversForSite(siteId);
+    return {
+      drivers: drivers.map((d) => ({
+        id: d.userId,
+        name: d.name,
+        phone: d.phone,
+        online: true,
+        vehicleType: d.vehicleType,
+        lat: d.lat,
+        lng: d.lng,
+      })),
+    };
+  }
+
   // ─── Accept Pickup (driver self-selects) ──────────────────────────────────
 
   @Post('pickup/accept')

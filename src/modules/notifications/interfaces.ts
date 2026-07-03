@@ -23,6 +23,7 @@ export interface FirebaseMessagePayload {
 export interface TokenWithType {
   token: string;
   tokenType: 'apns' | 'fcm' | 'expo';
+  appBundle?: string | null;
 }
 
 export interface FanOutJobData {

@@ -54,4 +54,8 @@ export class SendNotificationDto {
   @IsOptional()
   @IsEnum(['all', 'ios', 'android'])
   targetPlatform?: 'all' | 'ios' | 'android';
+
+  @IsOptional()
+  @IsEnum(['business', 'driver'])
+  targetApp?: 'business' | 'driver';
 }

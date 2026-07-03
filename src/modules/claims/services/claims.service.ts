@@ -260,6 +260,8 @@ export class ClaimsService {
           remainingQtyKg: String(result.newRemainingQtyKg),
         },
         targetUserIds: liveDrivers.map((d) => String(d.userId)),
+        targetApp: 'driver',
+        allowEmptyTargets: true,
         priority: 'high',
       }).catch((err) =>
         this.logger.warn(`notifyLiveDriversOnClaim non-critical error: ${err.message}`),
@@ -355,6 +357,8 @@ export class ClaimsService {
           type: 'pickup_available',
         },
         targetUserIds: liveDriverUserIds.map(String),
+        targetApp: 'driver',
+        allowEmptyTargets: true,
         priority: 'high',
       }).catch((err) =>
         this.logger.warn(`notifyPickupAvailable non-critical error: ${err.message}`),

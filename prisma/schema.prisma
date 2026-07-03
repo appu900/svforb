@@ -118,6 +118,11 @@ enum TokenType {
   EXPO
 }
 
+enum TokenTargetApp {
+  BUSINESS
+  DRIVER
+}
+
 model User {
   id           Int     @id @default(autoincrement())
   firstName    String
@@ -490,6 +495,7 @@ model DeviceToken {
   appVersion String?
   appBuild   String?
   appBundle  String?
+  targetApp  TokenTargetApp @default(BUSINESS)
 
   isActive           Boolean   @default(true)
   failureCount       Int       @default(0)
@@ -501,6 +507,7 @@ model DeviceToken {
   updatedAt DateTime @updatedAt
 
   @@index([userId, isActive])
+  @@index([userId, isActive, targetApp])
   @@index([isActive])
   @@map("device_tokens")
 }

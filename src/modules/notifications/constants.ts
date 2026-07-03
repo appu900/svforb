@@ -1,4 +1,49 @@
+import { TokenTargetApp } from '@prisma/client';
+
 export const NOTIFICATION_QUEUE_NAME = 'notifications';
+
+export type NotificationTargetApp = 'business' | 'driver';
+
+export const BUSINESS_APP_BUNDLES = new Set([
+  'com.saveful.business.app',
+  'com.priteepriyadarshini.savefulbusiness',
+]);
+
+export const PUSH_CHANNEL_BUSINESS = 'push';
+export const PUSH_CHANNEL_DRIVER = 'push:driver';
+
+export function channelForTargetApp(targetApp: NotificationTargetApp): string {
+  return targetApp === 'driver' ? PUSH_CHANNEL_DRIVER : PUSH_CHANNEL_BUSINESS;
+}
+
+export function targetAppFromChannel(channel: string | null | undefined): NotificationTargetApp {
+  return channel === PUSH_CHANNEL_DRIVER ? 'driver' : 'business';
+}
+
+export function toPrismaTargetApp(targetApp: NotificationTargetApp): TokenTargetApp {
+  return targetApp === 'driver' ? TokenTargetApp.DRIVER : TokenTargetApp.BUSINESS;
+}
+
+export function fromPrismaTargetApp(targetApp: TokenTargetApp): NotificationTargetApp {
+  return targetApp === TokenTargetApp.DRIVER ? 'driver' : 'business';
+}
+
+/** Resolve which app a token belongs to at registration time. */
+export function resolveTokenTargetApp(input: {
+  targetApp?: NotificationTargetApp;
+  appBundle?: string;
+}): NotificationTargetApp {
+  if (input.targetApp === 'driver' || input.targetApp === 'business') {
+    return input.targetApp;
+  }
+  if (input.appBundle && BUSINESS_APP_BUNDLES.has(input.appBundle)) {
+    return 'business';
+  }
+  if (input.appBundle) {
+    return 'driver';
+  }
+  return 'business';
+}
 
 export const FCM_BATCH_SIZE = 500;
 export const FCM_PARALLEL_BATCHES = 15;

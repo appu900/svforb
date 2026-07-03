@@ -5,58 +5,52 @@ import { BatchSendResult, FirebaseMessagePayload } from '../interfaces';
 import {
   FCM_BATCH_SIZE,
   FCM_PARALLEL_BATCHES,
-  UNREGISTERED_FCM_ERROR_CODES,
+  NotificationTargetApp,
   TRANSIENT_FCM_ERROR_CODES,
+  UNREGISTERED_FCM_ERROR_CODES,
 } from '../constants';
+
+const FIREBASE_APP_NAMES: Record<NotificationTargetApp, string> = {
+  business: 'saveful-business',
+  driver: 'saveful-b-driver',
+};
 
 @Injectable()
 export class FirebaseGateway implements OnModuleInit {
   private readonly logger = new Logger(FirebaseGateway.name);
-  private app: admin.app.App | null = null;
+  private readonly apps: Partial<Record<NotificationTargetApp, admin.app.App>> = {};
 
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
-    const projectId = this.config.get<string>('FIREBASE_PROJECT_ID');
-    const clientEmail = this.config.get<string>('FIREBASE_CLIENT_EMAIL');
-    const privateKey = this.config.get<string>('FIREBASE_PRIVATE_KEY');
+    this.initApp('business', {
+      projectId: this.config.get<string>('FIREBASE_PROJECT_ID'),
+      clientEmail: this.config.get<string>('FIREBASE_CLIENT_EMAIL'),
+      privateKey: this.config.get<string>('FIREBASE_PRIVATE_KEY'),
+    });
 
-    if (!projectId || !clientEmail || !privateKey) {
-      this.logger.warn(
-        'Firebase credentials not configured — push notifications disabled',
-      );
-      return;
-    }
-
-    const resolvedKey = privateKey.replace(/\\n/g, '\n');
-
-    try {
-      try {
-        this.app = admin.app();
-        this.logger.log(`Reusing existing Firebase Admin app (project=${projectId})`);
-      } catch {
-        this.app = admin.initializeApp({
-          credential: admin.credential.cert({ projectId, clientEmail, privateKey: resolvedKey }),
-        });
-        this.logger.log(`Firebase Admin SDK initialised (project=${projectId})`);
-      }
-    } catch (error) {
-      this.logger.error(
-        `Firebase Admin SDK init failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+    this.initApp('driver', {
+      projectId: this.config.get<string>('FIREBASE_DRIVER_PROJECT_ID'),
+      clientEmail: this.config.get<string>('FIREBASE_DRIVER_CLIENT_EMAIL'),
+      privateKey: this.config.get<string>('FIREBASE_DRIVER_PRIVATE_KEY'),
+    });
   }
 
-  isReady(): boolean {
-    return !!this.app;
+  isReady(target: NotificationTargetApp = 'business'): boolean {
+    return !!this.apps[target];
   }
 
   async sendToTokens(
     tokens: string[],
     payload: FirebaseMessagePayload,
+    target: NotificationTargetApp = 'business',
   ): Promise<BatchSendResult> {
-    if (!this.isReady()) {
-      this.logger.error('Firebase not initialised — treating all tokens as retryable');
+    const app = this.apps[target];
+
+    if (!app) {
+      this.logger.error(
+        `Firebase (${target}) not initialised — treating all tokens as retryable`,
+      );
       return { successTokens: [], retryableTokens: tokens, invalidTokens: [] };
     }
 
@@ -74,7 +68,9 @@ export class FirebaseGateway implements OnModuleInit {
 
     for (let i = 0; i < chunks.length; i += FCM_PARALLEL_BATCHES) {
       const window = chunks.slice(i, i + FCM_PARALLEL_BATCHES);
-      const results = await Promise.all(window.map((chunk) => this.sendBatch(chunk, payload)));
+      const results = await Promise.all(
+        window.map((chunk) => this.sendBatch(app, chunk, payload, target)),
+      );
 
       for (const result of results) {
         aggregated.successTokens.push(...result.successTokens);
@@ -84,16 +80,58 @@ export class FirebaseGateway implements OnModuleInit {
     }
 
     this.logger.log(
-      `FCM send complete: total=${tokens.length} success=${aggregated.successTokens.length} ` +
+      `FCM send complete (${target}): total=${tokens.length} success=${aggregated.successTokens.length} ` +
         `retryable=${aggregated.retryableTokens.length} invalid=${aggregated.invalidTokens.length}`,
     );
 
     return aggregated;
   }
 
+  private initApp(
+    target: NotificationTargetApp,
+    creds: { projectId?: string; clientEmail?: string; privateKey?: string },
+  ): void {
+    const { projectId, clientEmail, privateKey } = creds;
+
+    if (!projectId || !clientEmail || !privateKey) {
+      this.logger.warn(
+        `Firebase credentials not configured for ${target} — ${target} push notifications disabled`,
+      );
+      return;
+    }
+
+    const appName = FIREBASE_APP_NAMES[target];
+    const resolvedKey = privateKey.replace(/\\n/g, '\n');
+
+    try {
+      this.apps[target] = admin.app(appName);
+      this.logger.log(`Reusing existing Firebase Admin app (${target}, project=${projectId})`);
+    } catch {
+      try {
+        this.apps[target] = admin.initializeApp(
+          {
+            credential: admin.credential.cert({
+              projectId,
+              clientEmail,
+              privateKey: resolvedKey,
+            }),
+          },
+          appName,
+        );
+        this.logger.log(`Firebase Admin SDK initialised (${target}, project=${projectId})`);
+      } catch (error) {
+        this.logger.error(
+          `Firebase Admin SDK init failed (${target}): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+
   private async sendBatch(
+    app: admin.app.App,
     tokens: string[],
     payload: FirebaseMessagePayload,
+    target: NotificationTargetApp,
   ): Promise<BatchSendResult> {
     const result: BatchSendResult = {
       successTokens: [],
@@ -108,14 +146,14 @@ export class FirebaseGateway implements OnModuleInit {
         body: payload.body,
         ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
       },
-      data: payload.data ?? {},
+      data: stringifyFcmData(payload.data ?? {}),
       android: {
         priority: payload.android?.priority === 'normal' ? 'normal' : 'high',
         notification: {
           channelId: payload.android?.channelId ?? 'default',
           sound: 'default',
           icon: 'notification_icon',
-          color: '#4B2176',
+          color: target === 'driver' ? '#1B5E20' : '#4B2176',
         },
       },
       apns: {
@@ -130,7 +168,7 @@ export class FirebaseGateway implements OnModuleInit {
     };
 
     try {
-      const response = await admin.messaging(this.app!).sendEachForMulticast(message);
+      const response = await admin.messaging(app).sendEachForMulticast(message);
 
       response.responses.forEach((resp, idx) => {
         const token = tokens[idx];
@@ -144,7 +182,7 @@ export class FirebaseGateway implements OnModuleInit {
             result.retryableTokens.push(token);
           } else {
             this.logger.warn(
-              `Unknown FCM error — treating as retryable: code=${errorCode} token=${token.slice(0, 12)}…`,
+              `Unknown FCM error (${target}) — treating as retryable: code=${errorCode} token=${token.slice(0, 12)}…`,
             );
             result.retryableTokens.push(token);
           }
@@ -152,7 +190,7 @@ export class FirebaseGateway implements OnModuleInit {
       });
     } catch (error) {
       this.logger.error(
-        `FCM batch send threw: ${error instanceof Error ? error.message : String(error)} (${tokens.length} tokens)`,
+        `FCM batch send threw (${target}): ${error instanceof Error ? error.message : String(error)} (${tokens.length} tokens)`,
       );
       result.retryableTokens.push(...tokens);
     }
@@ -167,4 +205,14 @@ export class FirebaseGateway implements OnModuleInit {
     }
     return chunks;
   }
+}
+
+/** FCM requires all data payload values to be strings. */
+function stringifyFcmData(data: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined || value === null) continue;
+    out[key] = typeof value === 'string' ? value : JSON.stringify(value);
+  }
+  return out;
 }

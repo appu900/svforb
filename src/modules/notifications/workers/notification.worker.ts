@@ -19,6 +19,8 @@ import {
   WORKER_CONCURRENCY,
   TOKEN_FAILURE_THRESHOLD,
   FAN_OUT_BATCH_SIZE,
+  targetAppFromChannel,
+  toPrismaTargetApp,
 } from '../constants';
 
 @Processor(NOTIFICATION_QUEUE_NAME, { concurrency: WORKER_CONCURRENCY })
@@ -160,14 +162,23 @@ export class NotificationWorker extends WorkerHost {
   }
 
   private async sendTokens(
-    notif: { id: number; title: string; body: string; data: any; imageUrl: string | null; deepLink: string | null },
+    notif: {
+      id: number;
+      title: string;
+      body: string;
+      data: any;
+      imageUrl: string | null;
+      deepLink: string | null;
+      channel: string;
+    },
     tokens: TokenWithType[],
   ): Promise<void> {
+    const targetApp = targetAppFromChannel(notif.channel);
     const payload: FirebaseMessagePayload = {
       title: notif.title,
       body: notif.body,
       data: {
-        ...(notif.data ?? {}),
+        ...stringifyRecordValues(notif.data ?? {}),
         ...(notif.deepLink ? { deepLink: notif.deepLink } : {}),
         notificationId: String(notif.id),
       },
@@ -184,7 +195,7 @@ export class NotificationWorker extends WorkerHost {
         ? this.expo.sendToTokens(expoTokens, payload)
         : Promise.resolve<BatchSendResult>({ successTokens: [], retryableTokens: [], invalidTokens: [] }),
       fcmTokens.length > 0
-        ? this.firebase.sendToTokens(fcmTokens, payload)
+        ? this.firebase.sendToTokens(fcmTokens, payload, targetApp)
         : Promise.resolve<BatchSendResult>({ successTokens: [], retryableTokens: [], invalidTokens: [] }),
     ]);
 
@@ -222,7 +233,11 @@ export class NotificationWorker extends WorkerHost {
       `;
 
       const retryDocs = await this.prisma.deviceToken.findMany({
-        where: { token: { in: result.retryableTokens }, isActive: true },
+        where: {
+          token: { in: result.retryableTokens },
+          isActive: true,
+          targetApp: toPrismaTargetApp(targetApp),
+        },
         select: { token: true, tokenType: true },
       });
 
@@ -286,8 +301,13 @@ export class NotificationWorker extends WorkerHost {
     isBroadcast: boolean;
     targetUserIds: number[];
     targetPlatform: string;
+    channel: string;
   }): Promise<TokenWithType[]> {
-    const where: any = { isActive: true };
+    const targetApp = targetAppFromChannel(notif.channel);
+    const where: any = {
+      isActive: true,
+      targetApp: toPrismaTargetApp(targetApp),
+    };
 
     if (!notif.isBroadcast && notif.targetUserIds.length > 0) {
       where.userId = { in: notif.targetUserIds };
@@ -302,12 +322,13 @@ export class NotificationWorker extends WorkerHost {
 
     const docs = await this.prisma.deviceToken.findMany({
       where,
-      select: { token: true, tokenType: true },
+      select: { token: true, tokenType: true, appBundle: true },
     });
 
     return docs.map((d) => ({
       token: d.token,
       tokenType: d.tokenType.toLowerCase() as 'apns' | 'fcm' | 'expo',
+      appBundle: d.appBundle,
     }));
   }
 
@@ -341,3 +362,12 @@ export class NotificationWorker extends WorkerHost {
 }
 
 const JOB_ATTEMPTS_FALLBACK = 3;
+
+function stringifyRecordValues(data: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined || value === null) continue;
+    out[key] = typeof value === 'string' ? value : String(value);
+  }
+  return out;
+}

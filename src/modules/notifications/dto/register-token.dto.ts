@@ -34,6 +34,11 @@ export class RegisterTokenDto {
   @IsOptional()
   @IsString()
   appBundle?: string;
+
+  /** Which mobile app this token belongs to. Required for the driver app. */
+  @IsOptional()
+  @IsEnum(['business', 'driver'])
+  targetApp?: 'business' | 'driver';
 }
 
 export class UnregisterTokenDto {

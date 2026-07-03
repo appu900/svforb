@@ -420,6 +420,8 @@ export class DriverLocationService {
           claimantOrgName: claim.claimantOrg.name,
         },
         targetUserIds: [String(driverId)],
+        targetApp: 'driver',
+        allowEmptyTargets: true,
         priority: 'high',
       })
       .catch((err) =>

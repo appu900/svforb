@@ -50,8 +50,11 @@ export class NotificationController {
 
   @Delete('tokens/all')
   @UseGuards(JwtAuthGuard)
-  async unregisterAllTokens(@Req() req: Request & { user: Jwtpayload }) {
-    return this.notificationService.unregisterAllTokens(req.user.sub);
+  async unregisterAllTokens(
+    @Req() req: Request & { user: Jwtpayload },
+    @Query('targetApp') targetApp?: 'business' | 'driver',
+  ) {
+    return this.notificationService.unregisterAllTokens(req.user.sub, targetApp);
   }
 
   @Post('send')
@@ -72,6 +75,7 @@ export class NotificationController {
         isBroadcast: dto.isBroadcast,
         scheduledAt: dto.scheduledAt,
         targetPlatform: dto.targetPlatform,
+        targetApp: dto.targetApp,
       },
       req.user.sub,
     );
