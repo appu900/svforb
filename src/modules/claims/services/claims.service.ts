@@ -325,9 +325,16 @@ export class ClaimsService {
       timestamp: new Date().toISOString(),
     });
 
+    const charitySite = await this.prisma.site.findFirst({
+      where: { organisationId: claim.claimantOrgId },
+      select: { id: true },
+    });
+
     const [claimantUserIds, liveDrivers] = await Promise.all([
       this.getOrgUserIds(claim.claimantOrgId),
-      this.driverService.getLiveDriversForSite(claim.listing.siteId),
+      charitySite
+        ? this.driverService.getLiveDriversForSite(charitySite.id)
+        : Promise.resolve([]),
     ]);
 
     // Notify the claimant their claim is confirmed
