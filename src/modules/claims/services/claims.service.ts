@@ -246,8 +246,10 @@ export class ClaimsService {
       }
     }
 
-    // Notify all live drivers on this site — a pickup may be needed
-    const liveDrivers = await this.driverService.getLiveDriversForSite(result.listing.siteId);
+    // Notify live drivers on the charity's site — they are the ones who do the pickup
+    const liveDrivers = caller.siteId
+      ? await this.driverService.getLiveDriversForSite(caller.siteId)
+      : [];
     if (liveDrivers.length) {
       await this.notificationService.send({
         title: 'New pickup available!',
