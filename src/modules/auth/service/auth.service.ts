@@ -109,6 +109,7 @@ export class AuthService {
             platformRole: PlatformRole.ORG_USER,
             emailverifyToken: verifyToken,
             emailVerifyExpiry: verifyExpiery,
+            region: dto.region,
           },
         });
 
