@@ -246,18 +246,22 @@ export class ClaimsService {
       }
     }
 
-    // Notify live drivers on the charity's site — they are the ones who do the pickup
-    const liveDrivers = caller.siteId
-      ? await this.driverService.getLiveDriversForSite(caller.siteId)
+    // Notify live drivers on the charity's site as soon as a claim is created
+    const charitySite = await this.prisma.site.findFirst({
+      where: { organisationId: caller.orgId! },
+      select: { id: true },
+    });
+    const liveDrivers = charitySite
+      ? await this.driverService.getLiveDriversForSite(charitySite.id)
       : [];
     if (liveDrivers.length) {
       await this.notificationService.send({
-        title: 'New pickup available!',
-        body: `${result.totalClaimedKg}kg claimed from ${result.listing.organisation.name} — pickup needed`,
+        title: 'Pickup available!',
+        body: `${result.totalClaimedKg}kg ready for collection from ${result.listing.organisation.name}`,
         data: {
           claimId: String(result.claim.id),
           listingId: String(dto.listingId),
-          type: 'claim_made_driver',
+          type: 'pickup_available',
           claimMode: dto.claimMode,
           remainingQtyKg: String(result.newRemainingQtyKg),
         },
@@ -325,17 +329,7 @@ export class ClaimsService {
       timestamp: new Date().toISOString(),
     });
 
-    const charitySite = await this.prisma.site.findFirst({
-      where: { organisationId: claim.claimantOrgId },
-      select: { id: true },
-    });
-
-    const [claimantUserIds, liveDrivers] = await Promise.all([
-      this.getOrgUserIds(claim.claimantOrgId),
-      charitySite
-        ? this.driverService.getLiveDriversForSite(charitySite.id)
-        : Promise.resolve([]),
-    ]);
+    const claimantUserIds = await this.getOrgUserIds(claim.claimantOrgId);
 
     // Notify the claimant their claim is confirmed
     if (claimantUserIds.length) {
@@ -353,28 +347,6 @@ export class ClaimsService {
         this.logger.warn(`notifyClaimConfirmed non-critical error: ${err.message}`),
       );
     }
-
-    // Notify all live drivers that a pickup is available
-    const liveDriverUserIds = liveDrivers.map((d) => d.userId);
-    if (liveDriverUserIds.length) {
-      await this.notificationService.send({
-        title: 'Pickup available!',
-        body: `${claim.listing.totalQtyKg}kg ready for collection from ${claim.listing.organisation.name}`,
-        data: {
-          claimId: String(claimId),
-          listingId: String(claim.listingId),
-          type: 'pickup_available',
-        },
-        targetUserIds: liveDriverUserIds.map(String),
-        targetApp: 'driver',
-        allowEmptyTargets: true,
-        priority: 'high',
-      }).catch((err) =>
-        this.logger.warn(`notifyPickupAvailable non-critical error: ${err.message}`),
-      );
-    }
-
-    this.logger.log(`Notified ${liveDrivers.length} live drivers for listing ${claim.listingId}`);
 
     return { message: 'Claim confirmed' };
   }

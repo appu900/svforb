@@ -341,12 +341,6 @@ export class DriverLocationService {
     }
 
     const claimAlreadyCollected = pickup.claim.status === ClaimStatus.COLLECTED;
-    if (
-      !claimAlreadyCollected &&
-      pickup.claim.status !== ClaimStatus.CONFIRMED
-    ) {
-      throw new BadRequestException('Claim must be confirmed before completing pickup');
-    }
 
     let photoUrl: string | undefined;
     if (photo) {
@@ -373,7 +367,10 @@ export class DriverLocationService {
       }
 
       const claimUpdate = await tx.foodClaim.updateMany({
-        where: { id: pickup.claimId, status: ClaimStatus.CONFIRMED },
+        where: {
+          id: pickup.claimId,
+          status: { in: [ClaimStatus.PENDING, ClaimStatus.CONFIRMED] },
+        },
         data: {
           status: ClaimStatus.COLLECTED,
           collectedAt,
@@ -444,9 +441,9 @@ export class DriverLocationService {
     if (claim.claimantOrgId !== assignerOrgId) {
       throw new ForbiddenException('You can only assign drivers for your own claims');
     }
-    if (claim.status !== ClaimStatus.CONFIRMED) {
+    if (claim.status === ClaimStatus.COLLECTED || claim.status === ClaimStatus.CANCELLED) {
       throw new BadRequestException(
-        'Driver can only be assigned to a confirmed claim',
+        `Cannot assign a driver to a ${claim.status.toLowerCase()} claim`,
       );
     }
 

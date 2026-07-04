@@ -76,12 +76,13 @@ export class ImpactService {
     end: Date,
   ): Promise<ClaimRow[]> {
     const collectedAtFilter = start ? { gte: start, lte: end } : { lte: end };
+    // Count food actually collected: claim marked COLLECTED, or any completed driver pickup
+    // (covers PENDING→COLLECTED via driver without restaurant confirm, plus legacy rows).
     const collectedClaimWhere = {
       status: { not: ClaimStatus.CANCELLED },
       OR: [
         { status: ClaimStatus.COLLECTED, collectedAt: collectedAtFilter },
         {
-          status: ClaimStatus.CONFIRMED,
           driverPickups: {
             some: {
               status: DriverPickupStatus.COLLECTED,
