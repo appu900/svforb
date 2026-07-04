@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ClaimStatus, OrgType } from '@prisma/client';
+import { ClaimStatus, DriverPickupStatus, OrgType } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import {
@@ -75,19 +75,43 @@ export class ImpactService {
     start: Date | null,
     end: Date,
   ): Promise<ClaimRow[]> {
-    const collectedAt = start ? { gte: start, lte: end } : { lte: end };
+    const collectedAtFilter = start ? { gte: start, lte: end } : { lte: end };
+    const collectedClaimWhere = {
+      status: { not: ClaimStatus.CANCELLED },
+      OR: [
+        { status: ClaimStatus.COLLECTED, collectedAt: collectedAtFilter },
+        {
+          status: ClaimStatus.CONFIRMED,
+          driverPickups: {
+            some: {
+              status: DriverPickupStatus.COLLECTED,
+              collectedAt: collectedAtFilter,
+            },
+          },
+        },
+      ],
+    };
+    const claimInclude = {
+      claimItems: { select: { qtyKg: true } },
+      driverPickups: {
+        where: { status: DriverPickupStatus.COLLECTED },
+        orderBy: { collectedAt: 'desc' as const },
+        take: 1,
+        select: { collectedAt: true },
+      },
+    };
 
     if (mode === 'DONOR') {
       const claims = await this.prisma.foodClaim.findMany({
-        where: { status: ClaimStatus.COLLECTED, collectedAt, listing: { siteId } },
+        where: { ...collectedClaimWhere, listing: { siteId } },
         include: {
-          claimItems: { select: { qtyKg: true } },
+          ...claimInclude,
           claimantOrg: { select: { id: true, organizationType: true } },
         },
       });
 
       return claims.map((c) => ({
-        collectedAt: c.collectedAt!,
+        collectedAt: c.collectedAt ?? c.driverPickups[0]!.collectedAt!,
         rating: c.rating,
         qtyKg: c.claimItems.reduce((sum, ci) => sum + ci.qtyKg, 0),
         partnerOrgId: c.claimantOrg.id,
@@ -100,15 +124,15 @@ export class ImpactService {
     const isPeopleOrg = CHARITY_ORG_TYPES.includes(organisation.organizationType);
 
     const claims = await this.prisma.foodClaim.findMany({
-      where: { status: ClaimStatus.COLLECTED, collectedAt, claimantOrgId: organisation.id },
+      where: { ...collectedClaimWhere, claimantOrgId: organisation.id },
       include: {
-        claimItems: { select: { qtyKg: true } },
+        ...claimInclude,
         listing: { select: { organisationId: true } },
       },
     });
 
     return claims.map((c) => ({
-      collectedAt: c.collectedAt!,
+      collectedAt: c.collectedAt ?? c.driverPickups[0]!.collectedAt!,
       rating: c.rating,
       qtyKg: c.claimItems.reduce((sum, ci) => sum + ci.qtyKg, 0),
       partnerOrgId: c.listing.organisationId,

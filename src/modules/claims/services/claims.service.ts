@@ -519,15 +519,18 @@ export class ClaimsService {
     if (claim.claimantOrgId !== caller.orgId) {
       throw new ForbiddenException('Only the claimant can mark as collected');
     }
+    if (claim.status === ClaimStatus.COLLECTED) {
+      return { message: 'Already marked as collected' };
+    }
     if (claim.status !== ClaimStatus.CONFIRMED) {
       throw new BadRequestException('Claim must be confirmed before marking collected');
     }
 
     const totalQtyKg = claim.claimItems.reduce((sum, ci) => sum + ci.qtyKg, 0);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.foodClaim.update({
-        where: { id: claimId },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const claimUpdate = await tx.foodClaim.updateMany({
+        where: { id: claimId, status: ClaimStatus.CONFIRMED },
         data: {
           status: ClaimStatus.COLLECTED,
           collectedAt: new Date(),
@@ -536,6 +539,10 @@ export class ClaimsService {
             : {}),
         },
       });
+
+      if (claimUpdate.count === 0) {
+        return false;
+      }
 
       if (dto.rating !== undefined) {
         const org = await tx.organisation.findUnique({
@@ -561,7 +568,13 @@ export class ClaimsService {
           qtyKg: totalQtyKg,
         },
       });
+
+      return true;
     });
+
+    if (!updated) {
+      return { message: 'Already marked as collected' };
+    }
 
     await Promise.all([
       this.cache.delListingClaims(claim.listingId),

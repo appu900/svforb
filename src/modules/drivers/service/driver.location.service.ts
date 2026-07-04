@@ -322,11 +322,30 @@ export class DriverLocationService {
   ) {
     const pickup = await this.prisma.driverPickup.findFirst({
       where: { id: pickupId, driverId },
+      include: {
+        claim: {
+          include: {
+            claimItems: true,
+            listing: { select: { organisationId: true } },
+          },
+        },
+      },
     });
 
     if (!pickup) throw new NotFoundException('Pickup not found');
+    if (pickup.status === DriverPickupStatus.COLLECTED) {
+      return pickup;
+    }
     if (pickup.status !== DriverPickupStatus.ARRIVED) {
       throw new BadRequestException('Mark as ARRIVED before completing the pickup');
+    }
+
+    const claimAlreadyCollected = pickup.claim.status === ClaimStatus.COLLECTED;
+    if (
+      !claimAlreadyCollected &&
+      pickup.claim.status !== ClaimStatus.CONFIRMED
+    ) {
+      throw new BadRequestException('Claim must be confirmed before completing pickup');
     }
 
     let photoUrl: string | undefined;
@@ -334,15 +353,64 @@ export class DriverLocationService {
       photoUrl = await this.s3.uploadFile(photo, PHOTO_FOLDER);
     }
 
-    return this.prisma.driverPickup.update({
-      where: { id: pickupId },
-      data: {
-        status: DriverPickupStatus.COLLECTED,
-        collectedAt: new Date(),
-        ...(notes !== undefined && { completionNotes: notes }),
-        ...(rating !== undefined && { restaurantRating: rating }),
-        ...(photoUrl && { photoUrl }),
-      },
+    const totalQtyKg = pickup.claim.claimItems.reduce((sum, ci) => sum + ci.qtyKg, 0);
+    const collectedAt = pickup.claim.collectedAt ?? new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const updatedPickup = await tx.driverPickup.update({
+        where: { id: pickupId },
+        data: {
+          status: DriverPickupStatus.COLLECTED,
+          collectedAt,
+          ...(notes !== undefined && { completionNotes: notes }),
+          ...(rating !== undefined && { restaurantRating: rating }),
+          ...(photoUrl && { photoUrl }),
+        },
+      });
+
+      if (claimAlreadyCollected) {
+        return updatedPickup;
+      }
+
+      const claimUpdate = await tx.foodClaim.updateMany({
+        where: { id: pickup.claimId, status: ClaimStatus.CONFIRMED },
+        data: {
+          status: ClaimStatus.COLLECTED,
+          collectedAt,
+          ...(rating !== undefined && { rating }),
+        },
+      });
+
+      if (claimUpdate.count === 0) {
+        return updatedPickup;
+      }
+
+      if (rating !== undefined) {
+        const org = await tx.organisation.findUnique({
+          where: { id: pickup.claim.listing.organisationId },
+          select: { ratingAvg: true, ratingCount: true },
+        });
+        const newAvg = org
+          ? (org.ratingAvg * org.ratingCount + rating) / (org.ratingCount + 1)
+          : rating;
+
+        await tx.organisation.update({
+          where: { id: pickup.claim.listing.organisationId },
+          data: { ratingAvg: newAvg, ratingCount: { increment: 1 } },
+        });
+      }
+
+      await tx.listingActivity.create({
+        data: {
+          listingId: pickup.listingId,
+          actorOrgId: pickup.claim.claimantOrgId,
+          eventType: 'CLAIM_COLLECTED',
+          message: `${totalQtyKg}kg collected by driver${rating !== undefined ? ` — rated ${rating}/5` : ''}`,
+          qtyKg: totalQtyKg,
+        },
+      });
+
+      return updatedPickup;
     });
   }
 
