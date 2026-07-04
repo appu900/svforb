@@ -9,7 +9,7 @@ import { LISTINGS_JOBS } from '../../../infra/queues/queus.constants';
 import { LISTINGS_QUEUE, ListingQueueService, NewListingJobPayload } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 
-const DEFAULT_RADIUS_KM = 20;
+const DEFAULT_RADIUS_KM = 50;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 @Processor(LISTINGS_QUEUE)
