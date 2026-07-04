@@ -55,6 +55,11 @@ export class UpdateCharityLocationDto {
   @Type(() => Number)
   @IsNumber()
   radiusKm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  pickupRadiusKm?: number;
 }
 
 export class AddCharityMemberDto {

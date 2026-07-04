@@ -103,4 +103,8 @@ export class JoinTeamDto {
   @IsString() @IsNotEmpty() inviteCode!: string;
 }
 
+export class UpdateProfileDto {
+  @IsString() @IsNotEmpty() phoneNumber!: string;
+}
+
 

@@ -1,14 +1,24 @@
-import { IsNotEmpty } from "class-validator";
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { VenueType } from '@prisma/client';
 
+export class UpdateLocationDto {
+  @IsNotEmpty()
+  longitude!: number;
 
+  @IsNotEmpty()
+  latitude!: number;
+}
 
+export class UpdateOrganizationDto {
+  @IsOptional()
+  @IsString()
+  brandName?: string;
 
-export class UpdateLocationDto{
+  @IsOptional()
+  @IsString()
+  registrationNumber?: string;
 
-
-    @IsNotEmpty()
-    longitude!: number;
-
-    @IsNotEmpty()
-    latitude!: number;
+  @IsOptional()
+  @IsEnum(VenueType)
+  venueType?: VenueType;
 }

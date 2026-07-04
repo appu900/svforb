@@ -1,6 +1,10 @@
-import { Body, Controller, Logger, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Logger, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors, ParseIntPipe } from "@nestjs/common";
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Request } from 'express';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { Jwtpayload } from '../auth/interface/jwt.interface';
 import { OrganisationService } from "./organization.service";
-import { UpdateLocationDto } from "./dto/update.location.dto";
+import { UpdateLocationDto, UpdateOrganizationDto } from "./dto/update.location.dto";
 
 
 //bhAi ki api
@@ -12,5 +16,17 @@ export class OrganizationController {
     @Patch('ccordinates/:organizationId')
     async updateOrganizationLocation(@Param('organizationId') organizationId: number, @Body() dto: UpdateLocationDto) {
         return await this.organizationService.updateOrganizationLocation(dto, organizationId);
+    }
+
+    @Patch(':orgId')
+    @UseGuards(JwtAuthGuard)
+    @UseInterceptors(FileInterceptor('logo'))
+    updateOrganization(
+        @Req() req: Request & { user: Jwtpayload },
+        @Param('orgId', ParseIntPipe) orgId: number,
+        @Body() dto: UpdateOrganizationDto,
+        @UploadedFile() logo?: Express.Multer.File,
+    ) {
+        return this.organizationService.updateOrganization(req.user, orgId, dto, logo);
     }
 }

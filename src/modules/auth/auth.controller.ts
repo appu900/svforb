@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Post,
   Req,
   UploadedFile,
@@ -18,6 +19,7 @@ import {
   RegisterPlatformAdminDto,
   ResetPasswordDto,
   VerifyEmailOtpDto,
+  UpdateProfileDto,
 } from './dto/auth.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from './interface/jwt.interface';
@@ -85,6 +87,15 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   getProfile(@Req() req: Request & { user: Jwtpayload }) {
     return this.authService.getProfile(req.user.sub);
+  }
+
+  @Patch('profile')
+  @UseGuards(JwtAuthGuard)
+  updateProfile(
+    @Req() req: Request & { user: Jwtpayload },
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.authService.updateProfile(req.user.sub, dto.phoneNumber);
   }
 
   @Post('forgot-password')

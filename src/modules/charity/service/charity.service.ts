@@ -289,6 +289,8 @@ export class CharityService {
     });
     if (!site) throw new NotFoundException('Location not found');
 
+    const radiusKm = dto.radiusKm ?? dto.pickupRadiusKm;
+
     const updated = await this.prisma.site.update({
       where: { id: locationId },
       data: {
@@ -298,7 +300,7 @@ export class CharityService {
         ...(dto.contactName && { contactName: dto.contactName }),
         ...(dto.contactEmail && { contactEmail: dto.contactEmail }),
         ...(dto.contactMobile && { contactMobile: dto.contactMobile }),
-        ...(dto.radiusKm !== undefined && { pickupRadiusKm: dto.radiusKm }),
+        ...(radiusKm !== undefined && { pickupRadiusKm: radiusKm }),
       },
     });
 

@@ -42,6 +42,17 @@ import { RegisterFarmerConsumerDto } from '../dto/register.farmer.consumer.dto';
 import { RegisterFarmerProducerDto } from '../dto/register.farmer.producer.dto';
 import { RedisGeoSearchService } from '../../../modules/redis-geo-search/redis.geosearch.service';
 
+const PROFILE_BUSINESS_TYPES: OrgType[] = [
+  OrgType.BUSINESS_SINGLE,
+  OrgType.BUSINESS_MULTI,
+  OrgType.FARMER_PRODUCER,
+];
+const PROFILE_CHARITY_TYPES: OrgType[] = [
+  OrgType.CHARITY,
+  OrgType.CHARITY_SINGLE,
+  OrgType.CHARITY_MULTI,
+];
+
 function GenerateOtp() {
   const buf = randomBytes(3);
   const num = (((buf[0] << 16) | (buf[1] << 8) | buf[2]) % 900000) + 100000;
@@ -850,7 +861,10 @@ export class AuthService {
       where: { userId: user.id },
       include: {
         organisation: {
-          include: { subscription: { include: { plan: true } } },
+          include: {
+            subscription: { include: { plan: true } },
+            charityPickupPrefs: { select: { radiusKm: true } },
+          },
         },
       },
     });
@@ -870,6 +884,7 @@ export class AuthService {
             postcode: true,
             contactEmail: true,
             contactMobile: true,
+            pickupRadiusKm: true,
             isActive: true,
           },
         },
@@ -878,6 +893,8 @@ export class AuthService {
     });
 
     const { subscription } = organisation;
+
+    const primarySitePickupRadiusKm = siteAccesses[0]?.site.pickupRadiusKm ?? null;
 
     return {
       user: {
@@ -889,22 +906,10 @@ export class AuthService {
         platformRole: user.platformRole,
         memberSince: membership.joinedAt.getFullYear(),
       },
-      organisation: {
-        id: organisation.id,
-        name: organisation.name,
-        type: organisation.organizationType,
-        registrationNumber: organisation.registrationNumber,
-        address: organisation.address,
-        brandName: organisation.brandName,
-        venueType: organisation.venueType,
-        logoUrl: organisation.logoUrl,
-        region: organisation.region,
-        latitude: organisation.latitude,
-        longitude: organisation.longitude,
-        ratingAvg: organisation.ratingAvg,
-        ratingCount: organisation.ratingCount,
-        createdAt: organisation.createdAt,
-      },
+      organisation: this.formatOrganisationProfile(
+        organisation,
+        primarySitePickupRadiusKm,
+      ),
       role: {
         platformRole: user.platformRole,
         orgRole: membership.orgRole,
@@ -927,18 +932,22 @@ export class AuthService {
             currentPeriodEnd: subscription.currentPeriodEnd,
           }
         : null,
-      sites: siteAccesses.map((sa) => ({
-        id: sa.site.id,
-        name: sa.site.organisationName,
-        address: sa.site.address,
-        postcode: sa.site.postcode,
-        contactEmail: sa.site.contactEmail,
-        contactMobile: sa.site.contactMobile,
-        isActive: sa.site.isActive,
-        siteRole: sa.siteRole,
-        grantedAt: sa.grantedAt,
-      })),
+      sites: siteAccesses.map((sa) =>
+        this.formatSiteProfile(sa.site, sa.siteRole, sa.grantedAt),
+      ),
     };
+  }
+
+  async updateProfile(userId: number, phoneNumber: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { phoneNumber },
+    });
+
+    return this.getProfile(userId);
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
@@ -995,6 +1004,66 @@ export class AuthService {
     this.logger.log(`Password reset successful: ${dto.email}`);
     return {
       message: 'Password has been reset successfully. You can now log in.',
+    };
+  }
+
+  private formatOrganisationProfile(
+    organisation: Organisation & {
+      charityPickupPrefs?: { radiusKm: number } | null;
+    },
+    primarySitePickupRadiusKm?: number | null,
+  ) {
+    const isBusiness = PROFILE_BUSINESS_TYPES.includes(organisation.organizationType);
+    const isCharity = PROFILE_CHARITY_TYPES.includes(organisation.organizationType);
+    const pickupRadiusKm =
+      organisation.charityPickupPrefs?.radiusKm ?? primarySitePickupRadiusKm ?? null;
+
+    return {
+      id: organisation.id,
+      name: organisation.name,
+      type: organisation.organizationType,
+      registrationNumber: organisation.registrationNumber,
+      address: organisation.address,
+      ...(isBusiness && { businessAddress: organisation.address }),
+      ...(isCharity && { charityAddress: organisation.address }),
+      brandName: organisation.brandName,
+      venueType: organisation.venueType,
+      logoUrl: organisation.logoUrl,
+      region: organisation.region,
+      latitude: organisation.latitude,
+      longitude: organisation.longitude,
+      ratingAvg: organisation.ratingAvg,
+      ratingCount: organisation.ratingCount,
+      createdAt: organisation.createdAt,
+      ...(isCharity && pickupRadiusKm !== null && { pickupRadiusKm }),
+    };
+  }
+
+  private formatSiteProfile(
+    site: {
+      id: number;
+      organisationName: string;
+      address: string;
+      postcode: string | null;
+      contactEmail: string;
+      contactMobile: string;
+      pickupRadiusKm: number | null;
+      isActive: boolean;
+    },
+    siteRole?: string,
+    grantedAt?: Date,
+  ) {
+    return {
+      id: site.id,
+      name: site.organisationName,
+      address: site.address,
+      postcode: site.postcode,
+      contactEmail: site.contactEmail,
+      contactMobile: site.contactMobile,
+      pickupRadiusKm: site.pickupRadiusKm,
+      isActive: site.isActive,
+      ...(siteRole !== undefined && { siteRole }),
+      ...(grantedAt !== undefined && { grantedAt }),
     };
   }
 
