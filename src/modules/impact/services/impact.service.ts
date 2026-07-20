@@ -66,6 +66,94 @@ export class ImpactService {
     return this.buildResponse(site, organisation, mode, period, start, end, claims, buckets);
   }
 
+  async getSiteImpactByRange(
+    caller: Jwtpayload,
+    siteId: number,
+    startDate: string,
+    endDate?: string,
+  ) {
+    const hasAccess = await this.prisma.siteAccess.findFirst({
+      where: { siteId, userId: caller.sub },
+    });
+    if (!hasAccess) throw new ForbiddenException('You do not have access to this site');
+
+    const site = await this.prisma.site.findUnique({ where: { id: siteId } });
+    if (!site) throw new NotFoundException('Site not found');
+
+    const organisation = await this.prisma.organisation.findUnique({
+      where: { id: site.organisationId },
+      select: { id: true, name: true, organizationType: true },
+    });
+    if (!organisation) throw new NotFoundException('Organisation not found');
+
+    const mode: ImpactMode = RECEIVER_ORG_TYPES.includes(organisation.organizationType)
+      ? 'RECEIVER'
+      : 'DONOR';
+
+    const start = new Date(startDate);
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const claims = await this.fetchClaims(mode, siteId, organisation, start, end);
+    const buckets = this.buildBucketsForRange(start, end);
+
+    return this.buildResponse(site, organisation, mode, 'range' as any, start, end, claims, buckets);
+  }
+
+  private buildBucketsForRange(start: Date, end: Date): ChartBucket[] {
+    const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays <= 7) {
+      // daily buckets
+      const buckets: ChartBucket[] = [];
+      for (let i = 0; i < diffDays; i++) {
+        const bucketStart = new Date(start);
+        bucketStart.setDate(start.getDate() + i);
+        bucketStart.setHours(0, 0, 0, 0);
+        const bucketEnd = new Date(bucketStart);
+        bucketEnd.setHours(23, 59, 59, 999);
+        buckets.push({
+          label: bucketStart.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }),
+          start: bucketStart,
+          end: bucketEnd,
+        });
+      }
+      return buckets;
+    }
+
+    if (diffDays <= 31) {
+      // weekly buckets
+      const buckets: ChartBucket[] = [];
+      let cursor = new Date(start);
+      let weekNum = 1;
+      while (cursor <= end) {
+        const bucketStart = new Date(cursor);
+        const tentativeEnd = new Date(cursor);
+        tentativeEnd.setDate(tentativeEnd.getDate() + 6);
+        tentativeEnd.setHours(23, 59, 59, 999);
+        const bucketEnd = tentativeEnd < end ? tentativeEnd : new Date(end);
+        buckets.push({ label: `Week ${weekNum}`, start: bucketStart, end: bucketEnd });
+        cursor = new Date(bucketEnd.getTime() + 1);
+        weekNum++;
+      }
+      return buckets;
+    }
+
+    // monthly buckets
+    const buckets: ChartBucket[] = [];
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    while (cursor <= end) {
+      const bucketStart = new Date(cursor);
+      const bucketEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0, 23, 59, 59, 999);
+      buckets.push({
+        label: bucketStart.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
+        start: bucketStart,
+        end: bucketEnd < end ? bucketEnd : new Date(end),
+      });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return buckets;
+  }
+
   // ─── Data fetching ────────────────────────────────────────────────────────────
 
   private async fetchClaims(
