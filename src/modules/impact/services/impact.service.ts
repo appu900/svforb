@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ClaimStatus, DriverPickupStatus, OrgType } from '@prisma/client';
+import { ClaimStatus, DriverPickupStatus, OrgType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import {
@@ -228,6 +228,83 @@ export class ImpactService {
       isPeople: isPeopleOrg,
       isAnimal: !isPeopleOrg,
     }));
+  }
+
+  // ─── Top foods ────────────────────────────────────────────────────────────────
+
+  async getTopFoods(
+    caller: Jwtpayload,
+    orgId: number,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const membership = await this.prisma.orgMemeberShip.findFirst({
+      where: { userId: caller.sub, organisationId: orgId },
+    });
+    if (!membership) throw new ForbiddenException('You do not have access to this organisation');
+
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const collectedFilter = start
+      ? Prisma.sql`AND (
+          (fc.status = 'COLLECTED' AND fc."collectedAt" >= ${start} AND fc."collectedAt" <= ${end})
+          OR EXISTS (
+            SELECT 1 FROM driver_pickups dp
+            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
+            AND dp."collectedAt" >= ${start} AND dp."collectedAt" <= ${end}
+          )
+        )`
+      : Prisma.sql`AND (
+          fc.status = 'COLLECTED'
+          OR EXISTS (
+            SELECT 1 FROM driver_pickups dp
+            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
+          )
+        )`;
+
+    const rows = await this.prisma.$queryRaw<{
+      foodName: string;
+      unit: string | null;
+      category: string | null;
+      totalKg: number;
+    }[]>`
+      SELECT
+        fi.name            AS "foodName",
+        fi.unit            AS "unit",
+        fi.category        AS "category",
+        CAST(SUM(ci."qtyKg") AS FLOAT) AS "totalKg"
+      FROM claim_items ci
+      JOIN food_items    fi ON fi.id   = ci."foodItemId"
+      JOIN food_claims   fc ON fc.id   = ci."claimId"
+      JOIN food_listings fl ON fl.id   = fc."listingId"
+      WHERE
+        fl."organisationId" = ${orgId}
+        AND fc.status != 'CANCELLED'
+        ${collectedFilter}
+      GROUP BY fi.name, fi.unit, fi.category
+      ORDER BY "totalKg" DESC
+      LIMIT 10
+    `;
+
+    return {
+      organisationId: orgId,
+      rangeStart: start?.toISOString() ?? null,
+      rangeEnd: end.toISOString(),
+      topFoods: rows.map((row, i) => {
+        const kg = round2(row.totalKg);
+        return {
+          rank: i + 1,
+          foodName: row.foodName,
+          unit: row.unit ?? 'kg',
+          category: row.category ?? null,
+          totalKg: kg,
+          co2AvoidedKg: round2(kg * CO2_PER_KG),
+          mealsCreated: Math.round(kg / MEAL_WEIGHT_KG),
+          totalFoodSavedUsd: round2(kg * FOOD_VALUE_PER_KG_USD),
+        };
+      }),
+    };
   }
 
   // ─── Period / bucket math ─────────────────────────────────────────────────────

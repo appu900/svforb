@@ -3,7 +3,7 @@ import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { ImpactService } from '../services/impact.service';
-import { ImpactQueryDto, ImpactRangeQueryDto } from '../dto/impact.query.dto';
+import { ImpactQueryDto, ImpactRangeQueryDto, TopFoodsQueryDto } from '../dto/impact.query.dto';
 
 @Controller('impact')
 @UseGuards(JwtAuthGuard)
@@ -26,6 +26,15 @@ export class ImpactController {
     @Query() query: ImpactRangeQueryDto,
   ) {
     return this.service.getSiteImpactByRange(req.user, siteId, query.startDate, query.endDate);
+  }
+
+  @Get('organisations/:orgId/top-foods')
+  getTopFoods(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('orgId', ParseIntPipe) orgId: number,
+    @Query() query: TopFoodsQueryDto,
+  ) {
+    return this.service.getTopFoods(req.user, orgId, query.startDate, query.endDate);
   }
 }
 

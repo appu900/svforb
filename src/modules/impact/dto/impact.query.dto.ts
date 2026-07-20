@@ -15,3 +15,13 @@ export class ImpactRangeQueryDto {
   @IsDateString()
   endDate?: string;
 }
+
+export class TopFoodsQueryDto {
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}
