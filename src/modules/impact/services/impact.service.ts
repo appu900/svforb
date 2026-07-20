@@ -346,8 +346,6 @@ export class ImpactService {
     `;
 
     return this.buildTopFoodsResponse(siteId, null, start, end, rows);
-
-    return this.buildTopFoodsResponse(null, orgId, start, end, rows);
   }
 
   private buildTopFoodsResponse(
