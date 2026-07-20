@@ -36,6 +36,15 @@ export class ImpactController {
   ) {
     return this.service.getTopFoods(req.user, orgId, query.startDate, query.endDate);
   }
+
+  @Get('sites/:siteId/top-foods')
+  getTopFoodsBySite(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('siteId', ParseIntPipe) siteId: number,
+    @Query() query: TopFoodsQueryDto,
+  ) {
+    return this.service.getTopFoodsBySite(req.user, siteId, query.startDate, query.endDate);
+  }
 }
 
 

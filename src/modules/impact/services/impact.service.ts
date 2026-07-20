@@ -287,8 +287,79 @@ export class ImpactService {
       LIMIT 10
     `;
 
+    return this.buildTopFoodsResponse(null, orgId, start, end, rows);
+  }
+
+  async getTopFoodsBySite(
+    caller: Jwtpayload,
+    siteId: number,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const hasAccess = await this.prisma.siteAccess.findFirst({
+      where: { siteId, userId: caller.sub },
+    });
+    if (!hasAccess) throw new ForbiddenException('You do not have access to this site');
+
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const collectedFilter = start
+      ? Prisma.sql`AND (
+          (fc.status = 'COLLECTED' AND fc."collectedAt" >= ${start} AND fc."collectedAt" <= ${end})
+          OR EXISTS (
+            SELECT 1 FROM driver_pickups dp
+            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
+            AND dp."collectedAt" >= ${start} AND dp."collectedAt" <= ${end}
+          )
+        )`
+      : Prisma.sql`AND (
+          fc.status = 'COLLECTED'
+          OR EXISTS (
+            SELECT 1 FROM driver_pickups dp
+            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
+          )
+        )`;
+
+    const rows = await this.prisma.$queryRaw<{
+      foodName: string;
+      unit: string | null;
+      category: string | null;
+      totalKg: number;
+    }[]>`
+      SELECT
+        fi.name            AS "foodName",
+        fi.unit            AS "unit",
+        fi.category        AS "category",
+        CAST(SUM(ci."qtyKg") AS FLOAT) AS "totalKg"
+      FROM claim_items ci
+      JOIN food_items    fi ON fi.id = ci."foodItemId"
+      JOIN food_claims   fc ON fc.id = ci."claimId"
+      JOIN food_listings fl ON fl.id = fc."listingId"
+      WHERE
+        fl."siteId" = ${siteId}
+        AND fc.status != 'CANCELLED'
+        ${collectedFilter}
+      GROUP BY fi.name, fi.unit, fi.category
+      ORDER BY "totalKg" DESC
+      LIMIT 10
+    `;
+
+    return this.buildTopFoodsResponse(siteId, null, start, end, rows);
+
+    return this.buildTopFoodsResponse(null, orgId, start, end, rows);
+  }
+
+  private buildTopFoodsResponse(
+    siteId: number | null,
+    organisationId: number | null,
+    start: Date | null,
+    end: Date,
+    rows: { foodName: string; unit: string | null; category: string | null; totalKg: number }[],
+  ) {
     return {
-      organisationId: orgId,
+      siteId,
+      organisationId,
       rangeStart: start?.toISOString() ?? null,
       rangeEnd: end.toISOString(),
       topFoods: rows.map((row, i) => {
