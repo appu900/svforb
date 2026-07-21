@@ -814,6 +814,80 @@ export class CharityService {
     return { message: 'User removed from organisation' };
   }
 
+  /**
+   * Remove a member from one location only.
+   * If they still manage other sites in the org, keep their account.
+   * If this was their last site, remove them from the organisation.
+   */
+  async removeUserFromLocation(
+    caller: Jwtpayload,
+    targetUserId: number,
+    locationId: number,
+  ) {
+    this.assertSuperAdmin(caller);
+    this.assertCharityOrg(caller);
+    await this.assertUserInOrg(targetUserId, caller.orgId!);
+
+    const site = await this.prisma.site.findFirst({
+      where: { id: locationId, organisationId: caller.orgId },
+    });
+    if (!site) throw new NotFoundException('Location not found');
+
+    const access = await this.prisma.siteAccess.findFirst({
+      where: {
+        userId: targetUserId,
+        siteId: locationId,
+        organisationId: caller.orgId,
+      },
+    });
+    if (!access) {
+      throw new NotFoundException('User is not assigned to this location');
+    }
+
+    await this.prisma.siteAccess.delete({
+      where: { userId_siteId: { userId: targetUserId, siteId: locationId } },
+    });
+
+    const remainingAccess = await this.prisma.siteAccess.count({
+      where: { userId: targetUserId, organisationId: caller.orgId },
+    });
+
+    if (remainingAccess === 0) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.orgMemeberShip.delete({
+          where: {
+            userId_organisationId: {
+              userId: targetUserId,
+              organisationId: caller.orgId!,
+            },
+          },
+        });
+        await tx.user.update({
+          where: { id: targetUserId },
+          data: { isActive: false },
+        });
+      });
+      this.logger.log(
+        `User removed from last location and org: userId=${targetUserId} location=${locationId} org=${caller.orgId}`,
+      );
+    } else {
+      this.logger.log(
+        `User removed from location only: userId=${targetUserId} location=${locationId} remaining=${remainingAccess} org=${caller.orgId}`,
+      );
+    }
+
+    await this.cache.invalidateUsers(caller.orgId!);
+    await this.cache.invalidateLocation(locationId);
+
+    return {
+      message:
+        remainingAccess === 0
+          ? 'User removed from location and organisation'
+          : 'User removed from location',
+      remainingLocations: remainingAccess,
+    };
+  }
+
   async resendInvite(
     caller: Jwtpayload,
     targetUserId: number,

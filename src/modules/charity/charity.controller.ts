@@ -111,6 +111,19 @@ export class CharityController {
     return this.charityService.activateUser(req.user, userId);
   }
 
+  @Delete('users/:userId/locations/:locationId')
+  removeUserFromLocation(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('userId', ParseIntPipe) userId: number,
+    @Param('locationId', ParseIntPipe) locationId: number,
+  ) {
+    return this.charityService.removeUserFromLocation(
+      req.user,
+      userId,
+      locationId,
+    );
+  }
+
   @Delete('users/:userId')
   deleteUser(
     @Req() req: Request & { user: Jwtpayload },
