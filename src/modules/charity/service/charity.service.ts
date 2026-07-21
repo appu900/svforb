@@ -143,29 +143,53 @@ export class CharityService {
       return { site, adminUser, isNewAdmin };
     });
 
-    await this.proximityService.syncListingLocation(
-      result.site.id,
-      dto.latitude!,
-      dto.longitude!,
-    );
+    // Post-commit side effects must not fail the create after the site is persisted.
+    if (dto.latitude != null && dto.longitude != null) {
+      try {
+        await this.proximityService.syncSiteLocation(
+          result.site.id,
+          dto.latitude,
+          dto.longitude,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to sync PostGIS location for charity site=${result.site.id}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
 
-    if (org.region && dto.latitude && dto.longitude) {
-      await this.geoSearch.indexCharitySite(
-        result.site.id,
-        dto.latitude,
-        dto.longitude,
-        org.region,
-      );
+      if (org.region) {
+        try {
+          await this.geoSearch.indexCharitySite(
+            result.site.id,
+            dto.latitude,
+            dto.longitude,
+            org.region,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to index charity site=${result.site.id} in redis geo`,
+            error instanceof Error ? error.stack : undefined,
+          );
+        }
+      }
     }
 
-    await this.emailService.sendStaffInvite({
-      to: dto.adminEmail,
-      name: adminFirstName,
-      email: dto.adminEmail,
-      password: dto.adminPassword,
-      siteName: dto.locationName,
-      role: 'Location Admin',
-    });
+    try {
+      await this.emailService.sendStaffInvite({
+        to: dto.adminEmail,
+        name: adminFirstName,
+        email: dto.adminEmail,
+        password: dto.adminPassword,
+        siteName: dto.locationName,
+        role: 'Location Admin',
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to queue staff invite for charity site=${result.site.id}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
 
     await this.cache.invalidateLocations(caller.orgId!);
 
