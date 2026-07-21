@@ -143,7 +143,6 @@ export class CharityService {
       return { site, adminUser, isNewAdmin };
     });
 
-    // Post-commit side effects must not fail the create after the site is persisted.
     if (dto.latitude != null && dto.longitude != null) {
       try {
         await this.proximityService.syncSiteLocation(
@@ -325,8 +324,45 @@ export class CharityService {
         ...(dto.contactEmail && { contactEmail: dto.contactEmail }),
         ...(dto.contactMobile && { contactMobile: dto.contactMobile }),
         ...(radiusKm !== undefined && { pickupRadiusKm: radiusKm }),
+        ...(dto.latitude !== undefined && { latitude: dto.latitude }),
+        ...(dto.longitude !== undefined && { longitude: dto.longitude }),
       },
     });
+
+    if (dto.latitude != null && dto.longitude != null) {
+      try {
+        await this.proximityService.syncSiteLocation(
+          locationId,
+          dto.latitude,
+          dto.longitude,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to sync PostGIS location for charity site=${locationId}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+
+      const org = await this.prisma.organisation.findUnique({
+        where: { id: caller.orgId! },
+        select: { region: true },
+      });
+      if (org?.region) {
+        try {
+          await this.geoSearch.indexCharitySite(
+            locationId,
+            dto.latitude,
+            dto.longitude,
+            org.region,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to index charity site=${locationId} in redis geo`,
+            error instanceof Error ? error.stack : undefined,
+          );
+        }
+      }
+    }
 
     await this.cache.invalidateLocation(locationId);
     await this.cache.invalidateLocations(caller.orgId!);
