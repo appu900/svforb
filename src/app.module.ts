@@ -18,6 +18,7 @@ import { GatewayModule } from './gateway/gateway.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { ClaimsModule } from './modules/claims/claims.module';
 import { ImpactModule } from './modules/impact/impact.module';
+import { FarmerConsumerModule } from './modules/farmer-consumer/farmer-consumer.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { ImpactModule } from './modules/impact/impact.module';
     RedisGeoSearchModule,
     FoodListingModule,
     ImpactModule,
+    FarmerConsumerModule,
   ],
   controllers: [AppController],
   providers: [AppService],
