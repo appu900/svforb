@@ -196,6 +196,7 @@ export class ListingWorker extends WorkerHost {
       this.cache.delListing(listingId),
       this.cache.invalidateRecentPage1(),
       this.cache.invalidateOrgPage1(listing.organisationId),
+      this.cache.invalidateAllNearby(),
     ]);
 
     this.logger.log(`Listing ${listingId} expired after 30 minutes with no claims`);

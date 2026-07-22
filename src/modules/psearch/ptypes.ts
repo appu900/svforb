@@ -16,22 +16,22 @@ export interface NearbyCharity {
 }
 
 export interface NearbyListing {
-  listingId:          number;
-  orgId:              number;
-  orgName:            string;
-  siteId:             number;
-  foodItems:          unknown;
-  totalQtyKg:         number;
-  remainingQtyKg:     number;
-  pickupAddress:      string;
-  pickupFromTime:     Date | null;
-  pickupByTime:       Date | null;
+  listingId: number;
+  orgId: number;
+  orgName: string;
+  siteId: number;
+  listingType: string;
+  foodItems: unknown;
+  totalQtyKg: number;
+  remainingQtyKg: number;
+  pickupAddress: string;
+  pickupFromTime: Date | null;
+  pickupByTime: Date | null;
   needsRefrigeration: boolean;
-  needsReheating:     boolean;
-  containsAllergens:  boolean;
-  isGlutenFree:       boolean;
-  photoUrls:          string[];
-  status:             string;
-  bestBefore:         Date;
-  distanceKm:         number;
+  needsReheating: boolean;
+  allergens: string[];
+  photoUrls: string[];
+  status: string;
+  bestBefore: Date;
+  distanceKm: number;
 }

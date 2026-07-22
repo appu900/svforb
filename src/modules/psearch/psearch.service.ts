@@ -180,13 +180,28 @@ export class ProximityService {
 
     this.logger.debug(`Cache MISS → ${cacheKey}`);
 
+    // Distance on pickupLat/Lng — food_listings.location was dropped from schema.
+    // Prefer authenticated GET /food-listings/nearby for app Available Food feeds.
     const listings = await this.prisma.$queryRaw<NearbyListing[]>`
       SELECT
         fl.id                     AS "listingId",
         fl."organisationId"       AS "orgId",
         o.name                    AS "orgName",
         fl."siteId"               AS "siteId",
-        fl."foodItems"            AS "foodItems",
+        fl."listingType"          AS "listingType",
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', fi.id,
+              'name', fi.name,
+              'totalQtyKg', fi."totalQtyKg",
+              'remainingQtyKg', fi."remainingQtyKg",
+              'unit', fi.unit,
+              'category', fi.category
+            )
+          ) FILTER (WHERE fi.id IS NOT NULL),
+          '[]'::json
+        )                         AS "foodItems",
         fl."totalQtyKg"           AS "totalQtyKg",
         fl."remainingQtyKg"       AS "remainingQtyKg",
         fl."pickupAddress"        AS "pickupAddress",
@@ -194,60 +209,44 @@ export class ProximityService {
         fl."pickupByTime"         AS "pickupByTime",
         fl."needsRefrigeration"   AS "needsRefrigeration",
         fl."needsReheating"       AS "needsReheating",
-        fl."containsAllergens"    AS "containsAllergens",
-        fl."isGlutenFree"         AS "isGlutenFree",
+        fl.allergens              AS "allergens",
         fl."photoUrls"            AS "photoUrls",
         fl.status                 AS "status",
         fl."bestBefore"           AS "bestBefore",
-
         ROUND(
           CAST(
             ST_Distance(
-              fl.location::geography,
-              ST_SetSRID(
-                ST_MakePoint(${lng}, ${lat}),
-                4326
-              )::geography
+              ST_SetSRID(ST_MakePoint(fl."pickupLng", fl."pickupLat"), 4326)::geography,
+              ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography
             ) / 1000
-          AS NUMERIC)
-        , 1)                      AS "distanceKm"
-
+          AS NUMERIC),
+          1
+        ) AS "distanceKm"
       FROM food_listings fl
-      JOIN organisations o
-        ON o.id = fl."organisationId"
-
+      JOIN organisations o ON o.id = fl."organisationId"
+      LEFT JOIN food_items fi ON fi."listingId" = fl.id
       WHERE
-        -- Active listings only
         fl.status IN ('ACTIVE', 'PARTIAL')
-
-        -- Same region
         AND o.region = ${region}::"Region"
-
-        -- Must have location
-        AND fl.location IS NOT NULL
-
-        -- Not expired
-        AND fl."bestBefore"   > NOW()
-        AND fl."pickupByTime" > NOW()
-
-        -- Hard coded 20km
+        AND fl."bestBefore" > NOW()
+        AND (fl."pickupByTime" IS NULL OR fl."pickupByTime" > NOW())
+        AND fl."pickupLat" IS NOT NULL
+        AND fl."pickupLng" IS NOT NULL
         AND ST_DWithin(
-          fl.location::geography,
-          ST_SetSRID(
-            ST_MakePoint(${lng}, ${lat}),
-            4326
-          )::geography,
+          ST_SetSRID(ST_MakePoint(fl."pickupLng", fl."pickupLat"), 4326)::geography,
+          ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography,
           ${this.MAX_RADIUS_KM * 1000}
         )
-
-      ORDER BY
-        "distanceKm"      ASC,
-        fl."pickupByTime" ASC
-
+      GROUP BY fl.id, o.id
+      ORDER BY "distanceKm" ASC, fl."pickupByTime" ASC NULLS LAST
       LIMIT 100
     `;
 
     const result = {
+      deprecated: true,
+      useInstead: 'GET /food-listings/nearby',
+      message:
+        'Deprecated: use authenticated GET /food-listings/nearby for Available Food discovery.',
       searchCoordinates: { lat, lng },
       radiusKm: this.MAX_RADIUS_KM,
       total: listings.length,
@@ -256,6 +255,7 @@ export class ProximityService {
         orgId: l.orgId,
         orgName: l.orgName,
         siteId: l.siteId,
+        listingType: l.listingType,
         foodItems: l.foodItems,
         quantity: {
           total: l.totalQtyKg,
@@ -269,8 +269,7 @@ export class ProximityService {
         flags: {
           needsRefrigeration: l.needsRefrigeration,
           needsReheating: l.needsReheating,
-          containsAllergens: l.containsAllergens,
-          isGlutenFree: l.isGlutenFree,
+          allergens: l.allergens ?? [],
         },
         photoUrls: l.photoUrls,
         status: l.status,
@@ -279,7 +278,6 @@ export class ProximityService {
       })),
     };
 
-    // Cache 60 seconds — listings change frequently
     await this.redis.setex(
       cacheKey,
       this.LISTING_CACHE_TTL,

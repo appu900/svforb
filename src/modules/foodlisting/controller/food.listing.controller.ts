@@ -65,7 +65,21 @@ export class FoodListingController {
     return this.service.getRecentListings(req.user.siteId!, page, limit);
   }
 
-  // notification for listings
+  /**
+   * Available Food feed — pull-based nearby listings.
+   * Push after listing remains mandatory; inbox endpoints stay but are unused for discovery.
+   */
+  @Get('nearby')
+  getNearby(
+    @Req() req: Request & { user: Jwtpayload },
+    @Query('page', new ParseIntPipe({ optional: true })) page = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
+    @Query('radiusKm', new ParseIntPipe({ optional: true })) radiusKm?: number,
+  ) {
+    return this.service.getNearbyListings(req.user, page, limit, radiusKm);
+  }
+
+  // Inbox kept for later — not used for Available Food discovery
 
   @Get('notifications')
   getNotificationInbox(

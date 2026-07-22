@@ -106,6 +106,26 @@ export class RedisService implements OnModuleDestroy {
     await this.set(key, JSON.stringify(value), ttlSeconds);
   }
 
+  /** Delete keys matching a glob pattern via SCAN (avoids blocking KEYS). */
+  async deleteByPattern(pattern: string): Promise<number> {
+    let cursor = '0';
+    let deleted = 0;
+    do {
+      const [nextCursor, keys] = await this.client.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        100,
+      );
+      cursor = nextCursor;
+      if (keys.length) {
+        deleted += await this.client.del(...keys);
+      }
+    } while (cursor !== '0');
+    return deleted;
+  }
+
   async acquireLock(resource: string, ttlMs: number): Promise<boolean> {
     const key = `lock:${resource}`;
     const result = await this.client.set(key, '1', 'PX', ttlMs, 'NX');

@@ -2,15 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { RedisService } from '../../../infra/redis/redis.service';
 
 const K = {
-  LISTING:          (id: number)               => `listing:single:${id}`,
-  ORG_PAGE:         (orgId: number, page: number) => `listing:org:${orgId}:p${page}`,
-  RECENT_PAGE:      (page: number)             => `listing:recent:p${page}`,
+  LISTING:     (id: number) => `listing:single:${id}`,
+  ORG_PAGE:    (orgId: number, page: number) => `listing:org:${orgId}:p${page}`,
+  RECENT_PAGE: (page: number) => `listing:recent:p${page}`,
+  NEARBY:      (siteId: number, radiusKm: number, page: number, limit: number) =>
+    `listing:nearby:${siteId}:r${radiusKm}:p${page}:l${limit}`,
 } as const;
 
 const TTL = {
   LISTING:   5 * 60,  // 5 min — single listing detail
   ORG_PAGE:  2 * 60,  // 2 min — org listing page
   RECENT:    60,      // 1 min — recent global feed (changes fast)
+  NEARBY:    15,      // 15s — nearby browse (short TTL + explicit invalidation)
 } as const;
 
 @Injectable()
@@ -52,5 +55,33 @@ export class FoodListingCacheManager {
 
   async invalidateRecentPage1(): Promise<void> {
     await this.redis.del(K.RECENT_PAGE(1));
+  }
+
+  async getNearbyPage<T>(
+    siteId: number,
+    radiusKm: number,
+    page: number,
+    limit: number,
+  ): Promise<T | null> {
+    return this.redis.getJson<T>(K.NEARBY(siteId, radiusKm, page, limit));
+  }
+
+  async setNearbyPage<T>(
+    siteId: number,
+    radiusKm: number,
+    page: number,
+    limit: number,
+    data: T,
+  ): Promise<void> {
+    await this.redis.setJson(K.NEARBY(siteId, radiusKm, page, limit), data, TTL.NEARBY);
+  }
+
+  async invalidateNearbySite(siteId: number): Promise<void> {
+    await this.redis.deleteByPattern(`listing:nearby:${siteId}:*`);
+  }
+
+  /** Bust all nearby browse caches (listing create/cancel/expire/claim). */
+  async invalidateAllNearby(): Promise<void> {
+    await this.redis.deleteByPattern('listing:nearby:*');
   }
 }

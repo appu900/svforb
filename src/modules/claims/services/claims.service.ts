@@ -192,6 +192,7 @@ export class ClaimsService {
       this.cache.invalidateMyClaims(caller.orgId!),
       this.cache.invalidateListing(dto.listingId),
       this.cache.invalidateRecentPage1(),
+      this.cache.invalidateAllNearby(),
     ]);
 
     this.gateway.pushListingEvents(dto.listingId, {
@@ -445,6 +446,7 @@ export class ClaimsService {
       this.cache.invalidateMyClaims(result.claim.claimantOrgId),
       this.cache.invalidateListing(result.claim.listingId),
       this.cache.invalidateRecentPage1(),
+      this.cache.invalidateAllNearby(),
     ]);
 
     this.gateway.pushListingEvents(result.claim.listingId, {
@@ -552,6 +554,7 @@ export class ClaimsService {
       this.cache.delListingClaims(claim.listingId),
       this.cache.invalidateMyClaims(caller.orgId!),
       this.cache.invalidateListing(claim.listingId),
+      this.cache.invalidateAllNearby(),
     ]);
 
     this.gateway.pushListingEvents(claim.listingId, {

@@ -35,6 +35,7 @@ export class ProximityController {
     return this.proximityService.getNearbyCharities(lat, lng, region);
   }
 
+  // Deprecated — clients should use authenticated GET /food-listings/nearby
   // GET /proximity/listings?lat=12.9716&lng=77.5946&region=IN
   @Get('listings')
   async getNearbyListings(

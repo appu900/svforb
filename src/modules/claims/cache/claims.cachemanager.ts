@@ -49,4 +49,13 @@ export class ClaimsCacheManager {
   async invalidateRecentPage1(): Promise<void> {
     await this.redis.del(K.RECENT_PAGE1());
   }
+
+  /** Bust all nearby Available Food caches after claim mutations. */
+  async invalidateAllNearby(): Promise<void> {
+    await this.redis.deleteByPattern('listing:nearby:*');
+  }
+
+  async invalidateNearbySite(siteId: number): Promise<void> {
+    await this.redis.deleteByPattern(`listing:nearby:${siteId}:*`);
+  }
 }
