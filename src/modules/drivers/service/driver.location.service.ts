@@ -15,7 +15,9 @@ import { NotificationService } from '../../../modules/notifications/services/not
 const DRIVER_TTL_SECONDS = 8 * 60 * 60;
 const PHOTO_FOLDER = 'driver-pickups';
 
+/** Active trip or pending assignment — blocks another assign / self-accept. */
 const CURRENT_STATUSES = [
+  DriverPickupStatus.ASSIGNED,
   DriverPickupStatus.ACCEPTED,
   DriverPickupStatus.EN_ROUTE,
   DriverPickupStatus.ARRIVED,
@@ -297,8 +299,18 @@ export class DriverLocationService {
       throw new BadRequestException('Cannot update a completed or cancelled pickup');
     }
 
+    if (pickup.status === DriverPickupStatus.ASSIGNED) {
+      throw new BadRequestException(
+        'Respond to the assignment (accept/decline) before updating trip status',
+      );
+    }
+
     if (status === DriverPickupStatus.COLLECTED) {
       throw new BadRequestException('Use the complete endpoint to mark as collected');
+    }
+
+    if (status === DriverPickupStatus.ASSIGNED) {
+      throw new BadRequestException('Invalid status transition');
     }
 
     const timestamps: Record<string, Date> = {};
@@ -454,6 +466,11 @@ export class DriverLocationService {
       throw new ForbiddenException('The specified user is not a driver in your organisation');
     }
 
+    const driverInfo = await this.getDriverInfo(driverId);
+    if (!driverInfo || driverInfo.orgId !== assignerOrgId) {
+      throw new BadRequestException('Driver must be live to receive an assignment');
+    }
+
     const activePickup = await this.prisma.driverPickup.findFirst({
       where: { claimId, status: { in: CURRENT_STATUSES } },
     });
@@ -468,7 +485,7 @@ export class DriverLocationService {
     if (!driver) throw new NotFoundException('Driver not found');
 
     const pickup = await this.prisma.driverPickup.create({
-      data: { driverId, claimId, listingId, status: DriverPickupStatus.ACCEPTED },
+      data: { driverId, claimId, listingId, status: DriverPickupStatus.ASSIGNED },
     });
 
     const listing = claim.listing;
@@ -494,7 +511,7 @@ export class DriverLocationService {
       );
 
     this.logger.log(
-      `Driver ${driverId} assigned to claim=${claimId} listing=${listingId} by org=${assignerOrgId}`,
+      `Driver ${driverId} assigned (pending accept) to claim=${claimId} listing=${listingId} by org=${assignerOrgId}`,
     );
 
     return {
@@ -529,11 +546,13 @@ export class DriverLocationService {
 
     if (!pickup) throw new NotFoundException('Pickup not found');
 
-    if (
-      pickup.status === DriverPickupStatus.COLLECTED ||
-      pickup.status === DriverPickupStatus.CANCELLED
-    ) {
-      throw new BadRequestException('Cannot respond to a completed or cancelled pickup');
+    if (pickup.status !== DriverPickupStatus.ASSIGNED) {
+      throw new BadRequestException(
+        pickup.status === DriverPickupStatus.CANCELLED ||
+          pickup.status === DriverPickupStatus.COLLECTED
+          ? 'Cannot respond to a completed or cancelled pickup'
+          : 'This pickup is not awaiting a response',
+      );
     }
 
     const driver = await this.prisma.user.findUnique({
@@ -543,6 +562,11 @@ export class DriverLocationService {
     const driverName = driver ? `${driver.firstName} ${driver.lastName}` : 'Driver';
 
     if (accept) {
+      const updatedPickup = await this.prisma.driverPickup.update({
+        where: { id: pickupId },
+        data: { status: DriverPickupStatus.ACCEPTED },
+      });
+
       const [charityUserIds, restaurantUserIds] = await Promise.all([
         this.getOrgUserIds(pickup.claim.claimantOrgId),
         this.getOrgUserIds(pickup.listing.organisationId),
@@ -569,36 +593,136 @@ export class DriverLocationService {
       }
 
       this.logger.log(`Driver ${driverId} accepted pickup ${pickupId}`);
-      return { message: 'Pickup accepted', pickup };
-    } else {
-      await this.prisma.driverPickup.update({
-        where: { id: pickupId },
-        data: { status: DriverPickupStatus.CANCELLED, cancelledAt: new Date() },
-      });
-
-      const charityUserIds = await this.getOrgUserIds(pickup.claim.claimantOrgId);
-      if (charityUserIds.length > 0) {
-        await this.notificationService
-          .send({
-            title: 'Driver declined the pickup',
-            body: `${driverName} has declined the pickup. Please re-assign a driver.`,
-            data: {
-              pickupId: String(pickupId),
-              claimId: String(pickup.claimId),
-              type: 'driver_rejected',
-              driverName,
-            },
-            targetUserIds: charityUserIds.map(String),
-            priority: 'high',
-          })
-          .catch((err) =>
-            this.logger.warn(`notifyDriverRejected non-critical error: ${err.message}`),
-          );
-      }
-
-      this.logger.log(`Driver ${driverId} rejected pickup ${pickupId}`);
-      return { message: 'Pickup declined. The charity has been notified.' };
+      return { message: 'Pickup accepted', pickup: updatedPickup };
     }
+
+    await this.prisma.driverPickup.update({
+      where: { id: pickupId },
+      data: { status: DriverPickupStatus.CANCELLED, cancelledAt: new Date() },
+    });
+
+    const charityUserIds = await this.getOrgUserIds(pickup.claim.claimantOrgId);
+    if (charityUserIds.length > 0) {
+      await this.notificationService
+        .send({
+          title: 'Driver declined the pickup',
+          body: `${driverName} has declined the pickup. Please re-assign a driver.`,
+          data: {
+            pickupId: String(pickupId),
+            claimId: String(pickup.claimId),
+            type: 'driver_rejected',
+            driverName,
+          },
+          targetUserIds: charityUserIds.map(String),
+          priority: 'high',
+        })
+        .catch((err) =>
+          this.logger.warn(`notifyDriverRejected non-critical error: ${err.message}`),
+        );
+    }
+
+    this.logger.log(`Driver ${driverId} rejected pickup ${pickupId}`);
+    return { message: 'Pickup declined. The charity has been notified.' };
+  }
+
+  /**
+   * All drivers for a site with online/offline status (for charity/farmer home UI).
+   */
+  async getDriversForSite(callerOrgId: number, siteId: number) {
+    const site = await this.prisma.site.findFirst({
+      where: { id: siteId, organisationId: callerOrgId },
+      select: { id: true },
+    });
+    if (!site) {
+      throw new ForbiddenException('You do not have access to this site');
+    }
+
+    const accesses = await this.prisma.siteAccess.findMany({
+      where: { siteId, siteRole: SiteRole.DRIVER, organisationId: callerOrgId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    const liveDrivers = await this.getLiveDriversForSite(siteId);
+    const liveByUserId = new Map(liveDrivers.map((d) => [d.userId, d]));
+
+    return {
+      drivers: accesses
+        .filter((a) => a.user.isActive)
+        .map((a) => {
+          const live = liveByUserId.get(a.user.id);
+          return {
+            id: a.user.id,
+            name: `${a.user.firstName} ${a.user.lastName}`,
+            phone: a.user.phoneNumber,
+            online: !!live,
+            vehicleType: live?.vehicleType ?? null,
+            lat: live?.lat ?? null,
+            lng: live?.lng ?? null,
+          };
+        }),
+    };
+  }
+
+  /**
+   * Claims owned by the org that still need a driver (no ASSIGNED/active trip).
+   */
+  async getUnclaimedClaims(callerOrgId: number) {
+    const claims = await this.prisma.foodClaim.findMany({
+      where: {
+        claimantOrgId: callerOrgId,
+        status: { notIn: [ClaimStatus.COLLECTED, ClaimStatus.CANCELLED] },
+        driverPickups: {
+          none: {
+            status: { in: CURRENT_STATUSES },
+          },
+        },
+      },
+      include: {
+        claimItems: { select: { qtyKg: true } },
+        listing: {
+          select: {
+            id: true,
+            pickupAddress: true,
+            pickupByTime: true,
+            pickupFromTime: true,
+            totalQtyKg: true,
+            remainingQtyKg: true,
+            organisation: { select: { id: true, name: true, logoUrl: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      claims: claims.map((c) => ({
+        claimId: c.id,
+        listingId: c.listingId,
+        status: c.status,
+        claimMode: c.claimMode,
+        qtyKg: c.claimItems.reduce((sum, i) => sum + i.qtyKg, 0),
+        createdAt: c.createdAt,
+        listing: {
+          id: c.listing.id,
+          pickupAddress: c.listing.pickupAddress,
+          pickupFromTime: c.listing.pickupFromTime,
+          pickupByTime: c.listing.pickupByTime,
+          totalQtyKg: c.listing.totalQtyKg,
+          remainingQtyKg: c.listing.remainingQtyKg,
+          organisation: c.listing.organisation,
+        },
+      })),
+    };
   }
 
   private async getOrgUserIds(orgId: number): Promise<number[]> {

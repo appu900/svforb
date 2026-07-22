@@ -70,6 +70,27 @@ export class DriverController {
     };
   }
 
+  /** All drivers for a site with online/offline status. */
+  @Get('site/:siteId/drivers')
+  async getDriversForSite(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('siteId', ParseIntPipe) siteId: number,
+  ) {
+    if (!req.user.orgId) {
+      return { drivers: [] };
+    }
+    return this.driverService.getDriversForSite(req.user.orgId, siteId);
+  }
+
+  /** Claims owned by the org that still need a driver (assign dropdown). */
+  @Get('unclaimed-claims')
+  async getUnclaimedClaims(@Req() req: Request & { user: Jwtpayload }) {
+    if (!req.user.orgId) {
+      return { claims: [] };
+    }
+    return this.driverService.getUnclaimedClaims(req.user.orgId);
+  }
+
   // ─── Accept Pickup (driver self-selects) ──────────────────────────────────
 
   @Post('pickup/accept')
