@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import {
+  ClaimStatus,
   FoodListingType,
   ListingStatus,
   OrgType,
@@ -177,7 +178,24 @@ export class FoodListingService {
     const [listings, total] = await Promise.all([
       this.prisma.foodListing.findMany({
         where: { organisationId: orgId, ...(status ? { status } : {}) },
-        include: { foodItems: true, _count: { select: { foodClaims: true } } },
+        include: {
+          foodItems: true,
+          _count: { select: { foodClaims: true } },
+          foodClaims: {
+            where: { status: { not: ClaimStatus.CANCELLED } },
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              status: true,
+              claimMode: true,
+              createdAt: true,
+              collectedAt: true,
+              claimantOrg: {
+                select: { id: true, name: true, organizationType: true, logoUrl: true },
+              },
+            },
+          },
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -226,6 +244,10 @@ export class FoodListingService {
             status: true,
             claimMode: true,
             createdAt: true,
+            collectedAt: true,
+            claimantOrg: {
+              select: { id: true, name: true, organizationType: true, logoUrl: true },
+            },
           },
         },
       },

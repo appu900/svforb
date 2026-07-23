@@ -150,16 +150,26 @@ export class FirebaseGateway implements OnModuleInit {
       android: {
         priority: payload.android?.priority === 'normal' ? 'normal' : 'high',
         notification: {
-          channelId: payload.android?.channelId ?? 'default',
-          sound: 'default',
+          // Driver app listens on pickup_alarm_v3 with custom pickup_alert sound.
+          channelId:
+            payload.android?.channelId ??
+            (target === 'driver' ? 'pickup_alarm_v3' : 'default'),
+          sound:
+            payload.android?.sound ??
+            (target === 'driver' ? 'pickup_alert' : 'default'),
           icon: 'notification_icon',
           color: target === 'driver' ? '#1B5E20' : '#4B2176',
+          ...(target === 'driver'
+            ? { defaultVibrateTimings: true, priority: 'high' as const }
+            : {}),
         },
       },
       apns: {
         payload: {
           aps: {
-            sound: payload.apns?.sound ?? 'default',
+            sound:
+              payload.apns?.sound ??
+              (target === 'driver' ? 'pickup_alert.wav' : 'default'),
             ...(payload.apns?.badge !== undefined ? { badge: payload.apns.badge } : {}),
             ...(payload.apns?.category ? { category: payload.apns.category } : {}),
           },

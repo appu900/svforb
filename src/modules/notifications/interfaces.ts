@@ -16,6 +16,7 @@ export interface FirebaseMessagePayload {
   };
   android?: {
     channelId?: string;
+    sound?: string;
     priority?: 'high' | 'normal';
   };
 }
