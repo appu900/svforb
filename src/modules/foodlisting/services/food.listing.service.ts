@@ -190,6 +190,7 @@ export class FoodListingService {
               claimMode: true,
               createdAt: true,
               collectedAt: true,
+              claimItems: { select: { qtyKg: true } },
               claimantOrg: {
                 select: { id: true, name: true, organizationType: true, logoUrl: true },
               },

@@ -164,29 +164,52 @@ export class ImpactService {
     end: Date,
   ): Promise<ClaimRow[]> {
     const collectedAtFilter = start ? { gte: start, lte: end } : { lte: end };
-    // Count food actually collected: claim marked COLLECTED, or any completed driver pickup
-    // (covers PENDING→COLLECTED via driver without restaurant confirm, plus legacy rows).
-    const collectedClaimWhere = {
-      status: { not: ClaimStatus.CANCELLED },
-      OR: [
-        { status: ClaimStatus.COLLECTED, collectedAt: collectedAtFilter },
-        {
-          driverPickups: {
-            some: {
-              status: DriverPickupStatus.COLLECTED,
-              collectedAt: collectedAtFilter,
+
+    // Lifetime: any COLLECTED claim / driver pickup (do not require collectedAt —
+    // older rows may have status COLLECTED with a null timestamp).
+    // Range: prefer collectedAt in window; fall back to updatedAt when collectedAt is null.
+    const collectedClaimWhere = start
+      ? {
+          status: { not: ClaimStatus.CANCELLED },
+          OR: [
+            { status: ClaimStatus.COLLECTED, collectedAt: collectedAtFilter },
+            {
+              status: ClaimStatus.COLLECTED,
+              collectedAt: null,
+              updatedAt: collectedAtFilter,
             },
-          },
-        },
-      ],
-    };
+            {
+              driverPickups: {
+                some: {
+                  status: DriverPickupStatus.COLLECTED,
+                  OR: [
+                    { collectedAt: collectedAtFilter },
+                    { collectedAt: null, updatedAt: collectedAtFilter },
+                  ],
+                },
+              },
+            },
+          ],
+        }
+      : {
+          status: { not: ClaimStatus.CANCELLED },
+          OR: [
+            { status: ClaimStatus.COLLECTED },
+            {
+              driverPickups: {
+                some: { status: DriverPickupStatus.COLLECTED },
+              },
+            },
+          ],
+        };
+
     const claimInclude = {
       claimItems: { select: { qtyKg: true } },
       driverPickups: {
         where: { status: DriverPickupStatus.COLLECTED },
         orderBy: { collectedAt: 'desc' as const },
         take: 1,
-        select: { collectedAt: true },
+        select: { collectedAt: true, updatedAt: true },
       },
     };
 
@@ -200,7 +223,11 @@ export class ImpactService {
       });
 
       return claims.map((c) => ({
-        collectedAt: c.collectedAt ?? c.driverPickups[0]!.collectedAt!,
+        collectedAt:
+          c.collectedAt ??
+          c.driverPickups[0]?.collectedAt ??
+          c.driverPickups[0]?.updatedAt ??
+          c.updatedAt,
         rating: c.rating,
         qtyKg: c.claimItems.reduce((sum, ci) => sum + ci.qtyKg, 0),
         partnerOrgId: c.claimantOrg.id,
@@ -221,7 +248,11 @@ export class ImpactService {
     });
 
     return claims.map((c) => ({
-      collectedAt: c.collectedAt ?? c.driverPickups[0]!.collectedAt!,
+      collectedAt:
+        c.collectedAt ??
+        c.driverPickups[0]?.collectedAt ??
+        c.driverPickups[0]?.updatedAt ??
+        c.updatedAt,
       rating: c.rating,
       qtyKg: c.claimItems.reduce((sum, ci) => sum + ci.qtyKg, 0),
       partnerOrgId: c.listing.organisationId,
