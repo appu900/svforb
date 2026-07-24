@@ -274,25 +274,25 @@ export class ImpactService {
     });
     if (!membership) throw new ForbiddenException('You do not have access to this organisation');
 
+    const organisation = await this.prisma.organisation.findUnique({
+      where: { id: orgId },
+      select: { organizationType: true },
+    });
+    if (!organisation) throw new NotFoundException('Organisation not found');
+
+    const mode: ImpactMode = RECEIVER_ORG_TYPES.includes(organisation.organizationType)
+      ? 'RECEIVER'
+      : 'DONOR';
+
     const start = startDate ? new Date(startDate) : null;
     const end = endDate ? new Date(endDate) : new Date();
+    const collectedFilter = this.buildTopFoodsCollectedFilter(start, end);
 
-    const collectedFilter = start
-      ? Prisma.sql`AND (
-          (fc.status = 'COLLECTED' AND fc."collectedAt" >= ${start} AND fc."collectedAt" <= ${end})
-          OR EXISTS (
-            SELECT 1 FROM driver_pickups dp
-            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
-            AND dp."collectedAt" >= ${start} AND dp."collectedAt" <= ${end}
-          )
-        )`
-      : Prisma.sql`AND (
-          fc.status = 'COLLECTED'
-          OR EXISTS (
-            SELECT 1 FROM driver_pickups dp
-            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
-          )
-        )`;
+    // Donors own listings; receivers claim other orgs' listings.
+    const scopeFilter =
+      mode === 'RECEIVER'
+        ? Prisma.sql`fc."claimantOrgId" = ${orgId}`
+        : Prisma.sql`fl."organisationId" = ${orgId}`;
 
     const rows = await this.prisma.$queryRaw<{
       foodName: string;
@@ -310,7 +310,7 @@ export class ImpactService {
       JOIN food_claims   fc ON fc.id   = ci."claimId"
       JOIN food_listings fl ON fl.id   = fc."listingId"
       WHERE
-        fl."organisationId" = ${orgId}
+        ${scopeFilter}
         AND fc.status != 'CANCELLED'
         ${collectedFilter}
       GROUP BY fi.name, fi.unit, fi.category
@@ -332,25 +332,31 @@ export class ImpactService {
     });
     if (!hasAccess) throw new ForbiddenException('You do not have access to this site');
 
+    const site = await this.prisma.site.findUnique({
+      where: { id: siteId },
+      select: { organisationId: true },
+    });
+    if (!site) throw new NotFoundException('Site not found');
+
+    const organisation = await this.prisma.organisation.findUnique({
+      where: { id: site.organisationId },
+      select: { id: true, organizationType: true },
+    });
+    if (!organisation) throw new NotFoundException('Organisation not found');
+
+    const mode: ImpactMode = RECEIVER_ORG_TYPES.includes(organisation.organizationType)
+      ? 'RECEIVER'
+      : 'DONOR';
+
     const start = startDate ? new Date(startDate) : null;
     const end = endDate ? new Date(endDate) : new Date();
+    const collectedFilter = this.buildTopFoodsCollectedFilter(start, end);
 
-    const collectedFilter = start
-      ? Prisma.sql`AND (
-          (fc.status = 'COLLECTED' AND fc."collectedAt" >= ${start} AND fc."collectedAt" <= ${end})
-          OR EXISTS (
-            SELECT 1 FROM driver_pickups dp
-            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
-            AND dp."collectedAt" >= ${start} AND dp."collectedAt" <= ${end}
-          )
-        )`
-      : Prisma.sql`AND (
-          fc.status = 'COLLECTED'
-          OR EXISTS (
-            SELECT 1 FROM driver_pickups dp
-            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
-          )
-        )`;
+    // Receiver claims are org-scoped (no claimant site on the claim).
+    const scopeFilter =
+      mode === 'RECEIVER'
+        ? Prisma.sql`fc."claimantOrgId" = ${organisation.id}`
+        : Prisma.sql`fl."siteId" = ${siteId}`;
 
     const rows = await this.prisma.$queryRaw<{
       foodName: string;
@@ -368,7 +374,7 @@ export class ImpactService {
       JOIN food_claims   fc ON fc.id = ci."claimId"
       JOIN food_listings fl ON fl.id = fc."listingId"
       WHERE
-        fl."siteId" = ${siteId}
+        ${scopeFilter}
         AND fc.status != 'CANCELLED'
         ${collectedFilter}
       GROUP BY fi.name, fi.unit, fi.category
@@ -377,6 +383,25 @@ export class ImpactService {
     `;
 
     return this.buildTopFoodsResponse(siteId, null, start, end, rows);
+  }
+
+  private buildTopFoodsCollectedFilter(start: Date | null, end: Date) {
+    return start
+      ? Prisma.sql`AND (
+          (fc.status = 'COLLECTED' AND fc."collectedAt" >= ${start} AND fc."collectedAt" <= ${end})
+          OR EXISTS (
+            SELECT 1 FROM driver_pickups dp
+            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
+            AND dp."collectedAt" >= ${start} AND dp."collectedAt" <= ${end}
+          )
+        )`
+      : Prisma.sql`AND (
+          fc.status = 'COLLECTED'
+          OR EXISTS (
+            SELECT 1 FROM driver_pickups dp
+            WHERE dp."claimId" = fc.id AND dp.status = 'COLLECTED'
+          )
+        )`;
   }
 
   private buildTopFoodsResponse(

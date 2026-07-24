@@ -67,6 +67,14 @@ export class ClaimsService {
         throw new BadRequestException(`Listing is ${listing.status.toLowerCase()}, cannot claim`);
       }
 
+      const now = new Date();
+      if (listing.bestBefore && listing.bestBefore <= now) {
+        throw new BadRequestException('This listing has expired');
+      }
+      if (listing.pickupByTime && listing.pickupByTime <= now) {
+        throw new BadRequestException('The pickup window for this listing has ended');
+      }
+
       if (listing.organisationId === caller.orgId) {
         throw new ForbiddenException('Cannot claim your own listing');
       }

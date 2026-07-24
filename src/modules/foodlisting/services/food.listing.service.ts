@@ -16,7 +16,7 @@ import {
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { S3Service } from '../../../uploads/s3/s3.service';
-import { ListingQueueService } from '../queues/listing.queue.service';
+import { ListingQueueService, resolveListingExpiryAt } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 
@@ -139,7 +139,10 @@ export class FoodListingService {
         totalQtyKg,
         bestBefore: dto.bestBefore,
       }),
-      this.listingQueue.enqueueListingExpiry(listing!.id),
+      this.listingQueue.enqueueListingExpiry(
+        listing!.id,
+        resolveListingExpiryAt(listing!.pickupByTime, listing!.bestBefore),
+      ),
     ]);
 
     this.logger.log(

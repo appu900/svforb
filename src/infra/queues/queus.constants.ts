@@ -38,6 +38,7 @@ export const LISTINGS_JOBS = {
   NEW_LISTING:               'listing.new',
   EXPIRE_LISTING:            'listing.expire',
   EXPIRE_SITE_NOTIFICATIONS: 'listing.expire_site_notifications',
+  SWEEP_EXPIRED_LISTINGS:    'listing.sweep_expired',
   PROXIMITY_REQUERY:         'listing.proximity_requery',
   IMPACT_AGGREGATE:          'listing.impact_aggregate',
 } as const;

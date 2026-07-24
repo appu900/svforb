@@ -6,7 +6,7 @@ import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { RedisGeoSearchService } from '../../redis-geo-search/redis.geosearch.service';
 import { NotificationService } from '../../notifications/services/notification.service';
 import { LISTINGS_JOBS } from '../../../infra/queues/queus.constants';
-import { LISTINGS_QUEUE, ListingQueueService, NewListingJobPayload } from '../queues/listing.queue.service';
+import { LISTINGS_QUEUE, ListingQueueService, NewListingJobPayload, resolveListingExpiryAt } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 
 const DEFAULT_RADIUS_KM = 50;
@@ -35,6 +35,9 @@ export class ListingWorker extends WorkerHost {
         break;
       case LISTINGS_JOBS.EXPIRE_LISTING:
         await this.handleListingExpiry(job.data as { listingId: number });
+        break;
+      case LISTINGS_JOBS.SWEEP_EXPIRED_LISTINGS:
+        await this.handleSweepExpiredListings();
         break;
       case LISTINGS_JOBS.EXPIRE_SITE_NOTIFICATIONS:
         await this.handleExpireSiteNotifications(job.data as { siteId: number });
@@ -160,21 +163,91 @@ export class ListingWorker extends WorkerHost {
 
   private async handleListingExpiry(payload: { listingId: number }): Promise<void> {
     const { listingId } = payload;
+    await this.expireListingIfDue(listingId);
+  }
 
+  private async handleSweepExpiredListings(): Promise<void> {
+    const now = new Date();
+
+    // Same availability rules as nearby browse: expire once pickup or best-before has passed.
+    const overdue = await this.prisma.foodListing.findMany({
+      where: {
+        status: { in: [ListingStatus.ACTIVE, ListingStatus.PARTIAL] },
+        OR: [{ pickupByTime: { lte: now } }, { bestBefore: { lte: now } }],
+      },
+      select: { id: true },
+      take: 200,
+      orderBy: { id: 'asc' },
+    });
+
+    if (!overdue.length) {
+      this.logger.debug('Sweep expired listings: none overdue');
+      return;
+    }
+
+    let expiredCount = 0;
+    for (const row of overdue) {
+      const didExpire = await this.expireListingIfDue(row.id, { forceIfPastDeadline: true });
+      if (didExpire) expiredCount += 1;
+    }
+
+    this.logger.log(
+      `Sweep expired listings: checked=${overdue.length} expired=${expiredCount}`,
+    );
+  }
+
+  /**
+   * Expire ACTIVE / PARTIAL listings once their pickup/best-before window ends.
+   * Returns true when the listing was marked EXPIRED.
+   */
+  private async expireListingIfDue(
+    listingId: number,
+    opts: { forceIfPastDeadline?: boolean } = {},
+  ): Promise<boolean> {
     const listing = await this.prisma.foodListing.findUnique({
       where: { id: listingId },
-      select: { status: true, organisationId: true },
+      select: {
+        status: true,
+        organisationId: true,
+        remainingQtyKg: true,
+        pickupByTime: true,
+        bestBefore: true,
+      },
     });
 
     if (!listing) {
       this.logger.warn(`Expiry job: listing ${listingId} not found`);
-      return;
+      return false;
     }
 
-    if (listing.status !== ListingStatus.ACTIVE) {
+    const isExpirable =
+      listing.status === ListingStatus.ACTIVE || listing.status === ListingStatus.PARTIAL;
+
+    if (!isExpirable) {
       this.logger.log(`Expiry job: listing ${listingId} is ${listing.status} — no action needed`);
-      return;
+      return false;
     }
+
+    const deadline = resolveListingExpiryAt(listing.pickupByTime, listing.bestBefore);
+    const now = new Date();
+
+    if (!opts.forceIfPastDeadline && deadline.getTime() > now.getTime()) {
+      // Job fired early (or times were updated) — reschedule to the real deadline.
+      await this.listingQueue.enqueueListingExpiry(listingId, deadline);
+      this.logger.log(
+        `Expiry job: listing ${listingId} not due until ${deadline.toISOString()} — rescheduled`,
+      );
+      return false;
+    }
+
+    if (deadline.getTime() > now.getTime()) {
+      return false;
+    }
+
+    const remainingNote =
+      listing.status === ListingStatus.PARTIAL
+        ? ` with ${listing.remainingQtyKg}kg remaining`
+        : '';
 
     await this.prisma.$transaction(async (tx) => {
       await tx.foodListing.update({
@@ -187,7 +260,7 @@ export class ListingWorker extends WorkerHost {
           listingId,
           actorOrgId: listing.organisationId,
           eventType: 'LISTING_EXPIRED',
-          message: 'Listing expired — no claims received within 30 minutes',
+          message: `Listing expired after pickup/best-before window${remainingNote}`,
         },
       });
     });
@@ -199,7 +272,8 @@ export class ListingWorker extends WorkerHost {
       this.cache.invalidateAllNearby(),
     ]);
 
-    this.logger.log(`Listing ${listingId} expired after 30 minutes with no claims`);
+    this.logger.log(`Listing ${listingId} expired${remainingNote}`);
+    return true;
   }
 
   private async handleExpireSiteNotifications(payload: { siteId: number }): Promise<void> {

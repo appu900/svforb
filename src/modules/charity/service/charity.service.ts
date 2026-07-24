@@ -191,6 +191,8 @@ export class CharityService {
     }
 
     await this.cache.invalidateLocations(caller.orgId!);
+    await this.cache.invalidateUsers(caller.orgId!);
+    await this.cache.invalidateLocation(result.site.id);
 
     this.logger.log(
       `Charity location added: siteId=${result.site.id} org=${caller.orgId} by=${caller.sub}`,
