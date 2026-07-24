@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ClaimStatus, DriverPickupStatus, OrgType, Prisma } from '@prisma/client';
+import { ClaimStatus, DriverPickupStatus, OrgRole, OrgType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import {
@@ -40,11 +40,47 @@ function round2(n: number): number {
 export class ImpactService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSiteImpact(caller: Jwtpayload, siteId: number, period: ImpactPeriod = 'week') {
-    const hasAccess = await this.prisma.siteAccess.findFirst({
+  /**
+   * Site staff need siteAccess. Org SUPER_ADMIN (multi-charity / multi-business head office)
+   * often has no siteAccess rows but must still view impact for every org site.
+   */
+  private async assertCanAccessSite(caller: Jwtpayload, siteId: number) {
+    const siteAccess = await this.prisma.siteAccess.findFirst({
       where: { siteId, userId: caller.sub },
+      select: { id: true },
     });
-    if (!hasAccess) throw new ForbiddenException('You do not have access to this site');
+    if (siteAccess) return;
+
+    const site = await this.prisma.site.findUnique({
+      where: { id: siteId },
+      select: { organisationId: true },
+    });
+    if (!site) throw new NotFoundException('Site not found');
+
+    const membership = await this.prisma.orgMemeberShip.findFirst({
+      where: {
+        userId: caller.sub,
+        organisationId: site.organisationId,
+        orgRole: OrgRole.SUPER_ADMIN,
+      },
+      select: { id: true },
+    });
+    if (membership) return;
+
+    // JWT may already carry SUPER_ADMIN for this org (avoids extra round-trip mismatches).
+    if (
+      caller.orgRole === OrgRole.SUPER_ADMIN &&
+      caller.orgId != null &&
+      caller.orgId === site.organisationId
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException('You do not have access to this site');
+  }
+
+  async getSiteImpact(caller: Jwtpayload, siteId: number, period: ImpactPeriod = 'week') {
+    await this.assertCanAccessSite(caller, siteId);
 
     const site = await this.prisma.site.findUnique({ where: { id: siteId } });
     if (!site) throw new NotFoundException('Site not found');
@@ -72,10 +108,7 @@ export class ImpactService {
     startDate: string,
     endDate?: string,
   ) {
-    const hasAccess = await this.prisma.siteAccess.findFirst({
-      where: { siteId, userId: caller.sub },
-    });
-    if (!hasAccess) throw new ForbiddenException('You do not have access to this site');
+    await this.assertCanAccessSite(caller, siteId);
 
     const site = await this.prisma.site.findUnique({ where: { id: siteId } });
     if (!site) throw new NotFoundException('Site not found');
@@ -294,31 +327,16 @@ export class ImpactService {
         ? Prisma.sql`fc."claimantOrgId" = ${orgId}`
         : Prisma.sql`fl."organisationId" = ${orgId}`;
 
-    const rows = await this.prisma.$queryRaw<{
-      foodName: string;
-      unit: string | null;
-      category: string | null;
-      totalKg: number;
-    }[]>`
-      SELECT
-        fi.name            AS "foodName",
-        fi.unit            AS "unit",
-        fi.category        AS "category",
-        CAST(SUM(ci."qtyKg") AS FLOAT) AS "totalKg"
-      FROM claim_items ci
-      JOIN food_items    fi ON fi.id   = ci."foodItemId"
-      JOIN food_claims   fc ON fc.id   = ci."claimId"
-      JOIN food_listings fl ON fl.id   = fc."listingId"
-      WHERE
-        ${scopeFilter}
-        AND fc.status != 'CANCELLED'
-        ${collectedFilter}
-      GROUP BY fi.name, fi.unit, fi.category
-      ORDER BY "totalKg" DESC
-      LIMIT 10
-    `;
-
-    return this.buildTopFoodsResponse(null, orgId, start, end, rows);
+    const rows = await this.queryTopFoodRows(scopeFilter, collectedFilter);
+    return this.buildTopFoodsResponse(
+      null,
+      orgId,
+      start,
+      end,
+      rows,
+      mode,
+      organisation.organizationType,
+    );
   }
 
   async getTopFoodsBySite(
@@ -327,10 +345,7 @@ export class ImpactService {
     startDate?: string,
     endDate?: string,
   ) {
-    const hasAccess = await this.prisma.siteAccess.findFirst({
-      where: { siteId, userId: caller.sub },
-    });
-    if (!hasAccess) throw new ForbiddenException('You do not have access to this site');
+    await this.assertCanAccessSite(caller, siteId);
 
     const site = await this.prisma.site.findUnique({
       where: { id: siteId },
@@ -358,21 +373,60 @@ export class ImpactService {
         ? Prisma.sql`fc."claimantOrgId" = ${organisation.id}`
         : Prisma.sql`fl."siteId" = ${siteId}`;
 
-    const rows = await this.prisma.$queryRaw<{
-      foodName: string;
-      unit: string | null;
-      category: string | null;
-      totalKg: number;
-    }[]>`
+    const rows = await this.queryTopFoodRows(scopeFilter, collectedFilter);
+    return this.buildTopFoodsResponse(
+      siteId,
+      null,
+      start,
+      end,
+      rows,
+      mode,
+      organisation.organizationType,
+    );
+  }
+
+  private async queryTopFoodRows(
+    scopeFilter: Prisma.Sql,
+    collectedFilter: Prisma.Sql,
+  ) {
+    return this.prisma.$queryRaw<
+      {
+        foodName: string;
+        unit: string | null;
+        category: string | null;
+        totalKg: number;
+        peopleKg: number;
+        animalKg: number;
+      }[]
+    >`
       SELECT
         fi.name            AS "foodName",
         fi.unit            AS "unit",
         fi.category        AS "category",
-        CAST(SUM(ci."qtyKg") AS FLOAT) AS "totalKg"
+        CAST(SUM(ci."qtyKg") AS FLOAT) AS "totalKg",
+        CAST(SUM(
+          CASE
+            WHEN fl."listingType" = 'HUMAN' THEN ci."qtyKg"
+            WHEN fl."listingType" = 'BOTH'
+              AND o."organizationType" IN ('CHARITY', 'CHARITY_SINGLE', 'CHARITY_MULTI')
+              THEN ci."qtyKg"
+            ELSE 0
+          END
+        ) AS FLOAT) AS "peopleKg",
+        CAST(SUM(
+          CASE
+            WHEN fl."listingType" = 'ANIMAL' THEN ci."qtyKg"
+            WHEN fl."listingType" = 'BOTH'
+              AND o."organizationType" = 'FARMER_CONSUMER'
+              THEN ci."qtyKg"
+            ELSE 0
+          END
+        ) AS FLOAT) AS "animalKg"
       FROM claim_items ci
-      JOIN food_items    fi ON fi.id = ci."foodItemId"
-      JOIN food_claims   fc ON fc.id = ci."claimId"
-      JOIN food_listings fl ON fl.id = fc."listingId"
+      JOIN food_items      fi ON fi.id = ci."foodItemId"
+      JOIN food_claims     fc ON fc.id = ci."claimId"
+      JOIN food_listings   fl ON fl.id = fc."listingId"
+      JOIN organisations   o  ON o.id  = fc."claimantOrgId"
       WHERE
         ${scopeFilter}
         AND fc.status != 'CANCELLED'
@@ -381,8 +435,6 @@ export class ImpactService {
       ORDER BY "totalKg" DESC
       LIMIT 10
     `;
-
-    return this.buildTopFoodsResponse(siteId, null, start, end, rows);
   }
 
   private buildTopFoodsCollectedFilter(start: Date | null, end: Date) {
@@ -409,24 +461,61 @@ export class ImpactService {
     organisationId: number | null,
     start: Date | null,
     end: Date,
-    rows: { foodName: string; unit: string | null; category: string | null; totalKg: number }[],
+    rows: {
+      foodName: string;
+      unit: string | null;
+      category: string | null;
+      totalKg: number;
+      peopleKg: number;
+      animalKg: number;
+    }[],
+    mode: ImpactMode,
+    organizationType: OrgType,
   ) {
     return {
       siteId,
       organisationId,
+      mode,
       rangeStart: start?.toISOString() ?? null,
       rangeEnd: end.toISOString(),
       topFoods: rows.map((row, i) => {
-        const kg = round2(row.totalKg);
+        const totalKg = round2(Number(row.totalKg) || 0);
+        let peopleKg = round2(Number(row.peopleKg) || 0);
+        let animalKg = round2(Number(row.animalKg) || 0);
+
+        if (mode === 'RECEIVER') {
+          if (CHARITY_ORG_TYPES.includes(organizationType)) {
+            peopleKg = totalKg;
+            animalKg = 0;
+          } else {
+            animalKg = totalKg;
+            peopleKg = 0;
+          }
+        } else if (peopleKg + animalKg <= 0 && totalKg > 0) {
+          peopleKg = totalKg;
+          animalKg = 0;
+        } else if (peopleKg + animalKg > 0 && Math.abs(peopleKg + animalKg - totalKg) > 0.05) {
+          const scale = totalKg / (peopleKg + animalKg);
+          peopleKg = round2(peopleKg * scale);
+          animalKg = round2(totalKg - peopleKg);
+        }
+
+        const peoplePercent = totalKg > 0 ? round1((peopleKg / totalKg) * 100) : 0;
+        const animalPercent = totalKg > 0 ? round1((animalKg / totalKg) * 100) : 0;
+
         return {
           rank: i + 1,
           foodName: row.foodName,
           unit: row.unit ?? 'kg',
           category: row.category ?? null,
-          totalKg: kg,
-          co2AvoidedKg: round2(kg * CO2_PER_KG),
-          mealsCreated: Math.round(kg / MEAL_WEIGHT_KG),
-          totalFoodSavedUsd: round2(kg * FOOD_VALUE_PER_KG_USD),
+          totalKg,
+          peopleKg,
+          animalKg,
+          peoplePercent,
+          animalPercent,
+          co2AvoidedKg: round2(totalKg * CO2_PER_KG),
+          mealsCreated: Math.round(peopleKg / MEAL_WEIGHT_KG),
+          totalFoodSavedUsd: round2(totalKg * FOOD_VALUE_PER_KG_USD),
         };
       }),
     };
