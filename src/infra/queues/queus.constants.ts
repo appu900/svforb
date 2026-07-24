@@ -1,4 +1,4 @@
-// 
+
 
 export const QUEUE_NAMES = {
   NOTIFICATION_EMAIL: 'queue.notification.email',
@@ -10,7 +10,7 @@ export const QUEUE_NAMES = {
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
-// ── Notification email job names ──────────────────────────────────────────────
+
 
 export const NOTIFICATION_EMAIL_JOBS = {
   VERIFY_EMAIL:         'email.verify_email',
