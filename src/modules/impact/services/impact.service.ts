@@ -132,6 +132,92 @@ export class ImpactService {
     return this.buildResponse(site, organisation, mode, 'range' as any, start, end, claims, buckets);
   }
 
+  /** Org-wide impact (All sites) — includes claims not tagged to a specific site. */
+  async getOrgImpact(caller: Jwtpayload, orgId: number, period: ImpactPeriod = 'week') {
+    await this.assertCanAccessOrg(caller, orgId);
+
+    const organisation = await this.prisma.organisation.findUnique({
+      where: { id: orgId },
+      select: { id: true, name: true, organizationType: true },
+    });
+    if (!organisation) throw new NotFoundException('Organisation not found');
+
+    const mode: ImpactMode = RECEIVER_ORG_TYPES.includes(organisation.organizationType)
+      ? 'RECEIVER'
+      : 'DONOR';
+
+    const site = await this.prisma.site.findFirst({
+      where: { organisationId: orgId },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!site) throw new NotFoundException('No sites found for this organisation');
+
+    const { start, end } = this.getPeriodRange(period);
+    const buckets = this.buildBuckets(period, start);
+
+    // DONOR org aggregate: all sites' listings. RECEIVER: all claims for the org.
+    const claims =
+      mode === 'DONOR'
+        ? await this.fetchDonorOrgClaims(orgId, start, end)
+        : await this.fetchClaims(mode, null, organisation, start, end);
+
+    return this.buildResponse(site, organisation, mode, period, start, end, claims, buckets);
+  }
+
+  async getOrgImpactByRange(
+    caller: Jwtpayload,
+    orgId: number,
+    startDate: string,
+    endDate?: string,
+  ) {
+    await this.assertCanAccessOrg(caller, orgId);
+
+    const organisation = await this.prisma.organisation.findUnique({
+      where: { id: orgId },
+      select: { id: true, name: true, organizationType: true },
+    });
+    if (!organisation) throw new NotFoundException('Organisation not found');
+
+    const mode: ImpactMode = RECEIVER_ORG_TYPES.includes(organisation.organizationType)
+      ? 'RECEIVER'
+      : 'DONOR';
+
+    const site = await this.prisma.site.findFirst({
+      where: { organisationId: orgId },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!site) throw new NotFoundException('No sites found for this organisation');
+
+    const start = new Date(startDate);
+    const end = endDate ? new Date(endDate) : new Date();
+    const buckets = this.buildBucketsForRange(start, end);
+
+    const claims =
+      mode === 'DONOR'
+        ? await this.fetchDonorOrgClaims(orgId, start, end)
+        : await this.fetchClaims(mode, null, organisation, start, end);
+
+    return this.buildResponse(site, organisation, mode, 'range' as any, start, end, claims, buckets);
+  }
+
+  private async assertCanAccessOrg(caller: Jwtpayload, orgId: number) {
+    const membership = await this.prisma.orgMemeberShip.findFirst({
+      where: { userId: caller.sub, organisationId: orgId },
+      select: { id: true, orgRole: true },
+    });
+    if (membership) return;
+
+    const siteAccess = await this.prisma.siteAccess.findFirst({
+      where: { userId: caller.sub, organisationId: orgId },
+      select: { id: true },
+    });
+    if (siteAccess) return;
+
+    if (caller.orgId === orgId) return;
+
+    throw new ForbiddenException('You do not have access to this organisation');
+  }
+
   private buildBucketsForRange(start: Date, end: Date): ChartBucket[] {
     const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -191,7 +277,7 @@ export class ImpactService {
 
   private async fetchClaims(
     mode: ImpactMode,
-    siteId: number,
+    siteId: number | null,
     organisation: { id: number; organizationType: OrgType },
     start: Date | null,
     end: Date,
@@ -247,6 +333,10 @@ export class ImpactService {
     };
 
     if (mode === 'DONOR') {
+      if (siteId == null) {
+        return this.fetchDonorOrgClaims(organisation.id, start, end);
+      }
+
       const claims = await this.prisma.foodClaim.findMany({
         where: { ...collectedClaimWhere, listing: { siteId } },
         include: {
@@ -273,7 +363,12 @@ export class ImpactService {
     const isPeopleOrg = CHARITY_ORG_TYPES.includes(organisation.organizationType);
 
     const claims = await this.prisma.foodClaim.findMany({
-      where: { ...collectedClaimWhere, claimantOrgId: organisation.id },
+      where: {
+        ...collectedClaimWhere,
+        claimantOrgId: organisation.id,
+        // null siteId = All sites (org-wide). Otherwise only this charity/farmer site's claims.
+        ...(siteId != null ? { claimantSiteId: siteId } : {}),
+      },
       include: {
         ...claimInclude,
         listing: { select: { organisationId: true } },
@@ -291,6 +386,75 @@ export class ImpactService {
       partnerOrgId: c.listing.organisationId,
       isPeople: isPeopleOrg,
       isAnimal: !isPeopleOrg,
+    }));
+  }
+
+  private async fetchDonorOrgClaims(
+    organisationId: number,
+    start: Date | null,
+    end: Date,
+  ): Promise<ClaimRow[]> {
+    const collectedAtFilter = start ? { gte: start, lte: end } : { lte: end };
+    const collectedClaimWhere = start
+      ? {
+          status: { not: ClaimStatus.CANCELLED },
+          OR: [
+            { status: ClaimStatus.COLLECTED, collectedAt: collectedAtFilter },
+            {
+              status: ClaimStatus.COLLECTED,
+              collectedAt: null,
+              updatedAt: collectedAtFilter,
+            },
+            {
+              driverPickups: {
+                some: {
+                  status: DriverPickupStatus.COLLECTED,
+                  OR: [
+                    { collectedAt: collectedAtFilter },
+                    { collectedAt: null, updatedAt: collectedAtFilter },
+                  ],
+                },
+              },
+            },
+          ],
+        }
+      : {
+          status: { not: ClaimStatus.CANCELLED },
+          OR: [
+            { status: ClaimStatus.COLLECTED },
+            {
+              driverPickups: {
+                some: { status: DriverPickupStatus.COLLECTED },
+              },
+            },
+          ],
+        };
+
+    const claims = await this.prisma.foodClaim.findMany({
+      where: { ...collectedClaimWhere, listing: { organisationId } },
+      include: {
+        claimItems: { select: { qtyKg: true } },
+        driverPickups: {
+          where: { status: DriverPickupStatus.COLLECTED },
+          orderBy: { collectedAt: 'desc' as const },
+          take: 1,
+          select: { collectedAt: true, updatedAt: true },
+        },
+        claimantOrg: { select: { id: true, organizationType: true } },
+      },
+    });
+
+    return claims.map((c) => ({
+      collectedAt:
+        c.collectedAt ??
+        c.driverPickups[0]?.collectedAt ??
+        c.driverPickups[0]?.updatedAt ??
+        c.updatedAt,
+      rating: c.rating,
+      qtyKg: c.claimItems.reduce((sum, ci) => sum + ci.qtyKg, 0),
+      partnerOrgId: c.claimantOrg.id,
+      isPeople: CHARITY_ORG_TYPES.includes(c.claimantOrg.organizationType),
+      isAnimal: ANIMAL_ORG_TYPES.includes(c.claimantOrg.organizationType),
     }));
   }
 
@@ -367,10 +531,12 @@ export class ImpactService {
     const end = endDate ? new Date(endDate) : new Date();
     const collectedFilter = this.buildTopFoodsCollectedFilter(start, end);
 
-    // Receiver claims are org-scoped (no claimant site on the claim).
+    // Receiver claims: org-wide for All sites; site-tagged for a specific site.
     const scopeFilter =
       mode === 'RECEIVER'
-        ? Prisma.sql`fc."claimantOrgId" = ${organisation.id}`
+        ? siteId != null
+          ? Prisma.sql`fc."claimantOrgId" = ${organisation.id} AND fc."claimantSiteId" = ${siteId}`
+          : Prisma.sql`fc."claimantOrgId" = ${organisation.id}`
         : Prisma.sql`fl."siteId" = ${siteId}`;
 
     const rows = await this.queryTopFoodRows(scopeFilter, collectedFilter);

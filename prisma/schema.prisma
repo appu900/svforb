@@ -262,6 +262,7 @@ model Site {
   updatedAt         DateTime           @updatedAt
   siteAccesses      siteAccess[]
   foodListings      FoodListing[]
+  foodClaims        FoodClaim[]        @relation("ClaimantSiteClaims")
   siteNotifications SiteNotification[]
 
   @@index([organisationId])
@@ -383,13 +384,16 @@ model FoodItem {
 }
 
 model FoodClaim {
-  id           Int          @id @default(autoincrement())
-  listingId    Int
-  listing      FoodListing  @relation(fields: [listingId], references: [id])
+  id            Int          @id @default(autoincrement())
+  listingId     Int
+  listing       FoodListing  @relation(fields: [listingId], references: [id])
   claimantOrgId Int
   claimantOrg   Organisation @relation("CharityClaims", fields: [claimantOrgId], references: [id])
-  claimMode     ClaimMode   @default(PARTIAL)
-  status        ClaimStatus @default(PENDING)
+  /** Charity/farmer site that made the claim (location admin). Null for legacy / head-office claims. */
+  claimantSiteId Int?
+  claimantSite   Site?       @relation("ClaimantSiteClaims", fields: [claimantSiteId], references: [id])
+  claimMode     ClaimMode    @default(PARTIAL)
+  status        ClaimStatus  @default(PENDING)
 
   rating     Int?
   ratingNote String?
@@ -403,6 +407,7 @@ model FoodClaim {
 
   @@index([listingId])
   @@index([claimantOrgId])
+  @@index([claimantSiteId])
   @@index([status])
   @@map("food_claims")
 }

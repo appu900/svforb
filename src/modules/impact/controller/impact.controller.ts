@@ -10,6 +10,24 @@ import { ImpactQueryDto, ImpactRangeQueryDto, TopFoodsQueryDto } from '../dto/im
 export class ImpactController {
   constructor(private readonly service: ImpactService) {}
 
+  @Get('organisations/:orgId')
+  getOrgImpact(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('orgId', ParseIntPipe) orgId: number,
+    @Query() query: ImpactQueryDto,
+  ) {
+    return this.service.getOrgImpact(req.user, orgId, query.period);
+  }
+
+  @Get('organisations/:orgId/range')
+  getOrgImpactByRange(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('orgId', ParseIntPipe) orgId: number,
+    @Query() query: ImpactRangeQueryDto,
+  ) {
+    return this.service.getOrgImpactByRange(req.user, orgId, query.startDate, query.endDate);
+  }
+
   @Get('sites/:siteId')
   getSiteImpact(
     @Req() req: Request & { user: Jwtpayload },

@@ -136,6 +136,7 @@ export class ClaimsService {
         data: {
           listingId: dto.listingId,
           claimantOrgId: caller.orgId!,
+          claimantSiteId: caller.siteId ?? null,
           claimMode: dto.claimMode,
           status: ClaimStatus.PENDING,
           claimItems: { create: claimItemsData },
