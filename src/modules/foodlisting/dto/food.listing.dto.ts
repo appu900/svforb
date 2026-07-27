@@ -46,6 +46,7 @@ export class CreateFoodListingDto {
   @IsBoolean() @IsOptional() needsRefrigeration?: boolean;
   @IsBoolean() @IsOptional() needsAmbient?: boolean;
   @IsBoolean() @IsOptional() needsFreezer?: boolean;
+  @IsBoolean() @IsOptional() needsHot?: boolean;
   @IsBoolean() @IsOptional() needsReheating?: boolean;
   @IsBoolean() @IsOptional() isSafeForDonation?: boolean;
 

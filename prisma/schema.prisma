@@ -338,6 +338,7 @@ model FoodListing {
   needsRefrigeration Boolean  @default(false)
   needsAmbient       Boolean  @default(false)
   needsFreezer       Boolean  @default(false)
+  needsHot           Boolean  @default(false)
   needsReheating     Boolean  @default(false)
   isSafeForDonation  Boolean  @default(true)
   allergens          String[] @default([])

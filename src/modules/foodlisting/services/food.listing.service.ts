@@ -91,6 +91,7 @@ export class FoodListingService {
           needsRefrigeration: dto.needsRefrigeration ?? false,
           needsAmbient: dto.needsAmbient ?? false,
           needsFreezer: dto.needsFreezer ?? false,
+          needsHot: dto.needsHot ?? false,
           needsReheating: dto.needsReheating ?? false,
           isSafeForDonation: dto.isSafeForDonation ?? true,
           allergens: dto.allergens ?? [],
