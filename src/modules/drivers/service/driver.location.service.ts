@@ -233,6 +233,8 @@ export class DriverLocationService {
             pickupAddress: true,
             pickupLat: true,
             pickupLng: true,
+            pickupFromTime: true,
+            pickupByTime: true,
             bestBefore: true,
             totalQtyKg: true,
             organisation: { select: { name: true, logoUrl: true } },
