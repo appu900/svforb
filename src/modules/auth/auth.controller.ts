@@ -27,8 +27,11 @@ import { Request } from 'express';
 import { ResendVerficationOtpDto } from './dto/resend-verification';
 import { RegisterFarmerProducerDto } from './dto/register.farmer.producer.dto';
 import { RegisterFarmerConsumerDto } from './dto/register.farmer.consumer.dto';
+import { SkipSubscriptionCheck } from '../subscriptions/decorators/skip-subscription-check.decorator';
 
+/** Account management stays reachable regardless of billing state. */
 @Controller('auth')
+@SkipSubscriptionCheck()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

@@ -19,6 +19,7 @@ import { DriversModule } from './modules/drivers/drivers.module';
 import { ClaimsModule } from './modules/claims/claims.module';
 import { ImpactModule } from './modules/impact/impact.module';
 import { FarmerConsumerModule } from './modules/farmer-consumer/farmer-consumer.module';
+import { BillingModule } from './modules/billing/billing.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { FarmerConsumerModule } from './modules/farmer-consumer/farmer-consumer.
     FoodListingModule,
     ImpactModule,
     FarmerConsumerModule,
+    BillingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

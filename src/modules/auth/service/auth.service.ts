@@ -6,7 +6,6 @@ import {
   BadRequestException,
   UnauthorizedException,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { AuthCacheManager } from '../cache/auth.cache.manager';
@@ -27,7 +26,6 @@ import {
   PlatformRole,
   Prisma,
   SiteRole,
-  SubscriptionStatus,
   User,
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
@@ -81,10 +79,7 @@ export class AuthService {
   async registerBusiness(dto: RegisterBusinessDto, logo?: Express.Multer.File) {
     const email = normalizeEmail(dto.email);
     await this.assertEmailUnique(email);
-    const trialPlan = await this.prisma.subscriptionPlan.findFirst({
-      where: { name: 'FREE_TRIAL', isActive: true },
-    });
-    console.log('this is the trial plan', trialPlan);
+    // No subscription at signup — businesses pick a plan afterwards.
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const verifyToken = randomBytes(32).toString('hex');
     const verifyExpiery = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -135,15 +130,6 @@ export class AuthService {
             longitude: dto.longitude,
             region: dto.region,
             logoUrl: uploadLogoUrl,
-          },
-        });
-
-        await tx.orgSubscription.create({
-          data: {
-            organisationId: org.id,
-            planId: trialPlan!.id,
-            status: SubscriptionStatus.TRIALING,
-            trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           },
         });
 
@@ -228,9 +214,7 @@ export class AuthService {
 
     const email = normalizeEmail(dto.email);
     await this.assertEmailUnique(email);
-    const trialPlan = await this.prisma.subscriptionPlan.findFirst({
-      where: { name: 'FREE_TRIAL', isActive: true },
-    });
+    // Charities are free for life — no subscription record is ever created.
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const otp = GenerateOtp();
 
@@ -265,15 +249,6 @@ export class AuthService {
           longitude: dto.longitude,
           logoUrl: uploadedLogoUrl,
           region: dto.region,
-        },
-      });
-
-      await tx.orgSubscription.create({
-        data: {
-          organisationId: org.id,
-          planId: trialPlan!.id,
-          status: SubscriptionStatus.ACTIVE,
-          trialEndsAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
         },
       });
 
@@ -366,39 +341,25 @@ export class AuthService {
   ): Promise<{
     email: string;
     passwordHash: string;
-    trialPlanId: number;
     otp: string;
     logoUrl: string;
   }> {
     const email = normalizeEmail(dto.email);
     await this.assertEmailUnique(email);
-    const [passwordHash, subscription] = await Promise.all([
-      bcrypt.hash(dto.password, 10),
-      this.prisma.subscriptionPlan.findFirst({
-        where: { name: 'FREE_TRIAL', isActive: true },
-      }),
-    ]);
-    if (!subscription) {
-      throw new ServiceUnavailableException('no active trial plan found');
-    }
+    // Farmer consumers receive food — free for life, no subscription record.
+    const passwordHash = await bcrypt.hash(dto.password, 10);
     const logoUrl = logo
       ? await this.s3.uploadFile(logo, this.IMAGE_UPLOAD_FILE_NAME)
       : '';
     const otp = GenerateOtp();
-    return {
-      email,
-      passwordHash,
-      trialPlanId: subscription.id,
-      otp,
-      logoUrl,
-    };
+    return { email, passwordHash, otp, logoUrl };
   }
 
   async registerFarmerConsumer(
     dto: RegisterFarmerConsumerDto,
     logo?: Express.Multer.File,
   ) {
-    const { email, passwordHash, trialPlanId, otp, logoUrl } =
+    const { email, passwordHash, otp, logoUrl } =
       await this.prepareFarmerConsumerRegistration(dto, logo);
     const verifyToken = randomBytes(32).toString('hex');
     const verifyExpiery = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -426,13 +387,6 @@ export class AuthService {
           longitude: dto.longitude,
           region: dto.region,
           logoUrl: logoUrl,
-        },
-      });
-      const subscriptionPlan = await tx.orgSubscription.create({
-        data: {
-          organisationId: org.id,
-          planId: trialPlanId,
-          trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
       });
       await tx.orgMemeberShip.create({
@@ -498,13 +452,7 @@ export class AuthService {
   ) {
     const email = normalizeEmail(dto.email);
     await this.assertEmailUnique(email);
-    const subscription = await this.prisma.subscriptionPlan.findFirst({
-      where: { name: 'FREE_TRIAL', isActive: true },
-    });
-    if (!subscription) {
-      this.logger.debug('free trial plan not found here...');
-      throw new ServiceUnavailableException();
-    }
+    // No subscription at signup — farmer producers pick a plan afterwards.
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const verifyToken = randomBytes(32).toString('hex');
     const verifyExpiery = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -543,14 +491,6 @@ export class AuthService {
           longitude: dto.longitude,
           region: dto.region,
           logoUrl: uploadLogoUrl,
-        },
-      });
-      const subscriptionPlan = await tx.orgSubscription.create({
-        data: {
-          organisationId: org.id,
-          planId: subscription.id,
-          status: SubscriptionStatus.TRIALING,
-          trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
       });
       await tx.orgMemeberShip.create({

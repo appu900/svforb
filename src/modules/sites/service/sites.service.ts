@@ -6,11 +6,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { OrgRole, OrgType, PlatformRole, SiteRole, SubscriptionStatus } from '@prisma/client';
+import { OrgRole, OrgType, PlatformRole, SiteRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
 import { EmailQueueService } from '../../../modules/notifications/queues/email.queue.service';
+import { SubscriptionAccessService } from '../../subscriptions/services/subscription-access.service';
 import { AddStaffDto, AssignSiteManagerDto, CreateSiteDto, UpdateSiteDto } from '../dto/sites.dto';
 
 /**
@@ -32,6 +33,7 @@ export class SitesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailQueueService,
+    private readonly access: SubscriptionAccessService,
   ) {}
 
   // ─── Create Site ──────────────────────────────────────────────────────────────
@@ -44,23 +46,16 @@ export class SitesService {
 
     const org = await this.prisma.organisation.findUnique({
       where: { id: caller.orgId },
-      include: { subscription: { include: { plan: true } } },
     });
     if (!org) throw new NotFoundException('Organisation not found');
 
-    this.assertActiveSubscription(org.subscription?.status);
+    // Asserts an active plan, then that the plan's site allowance has room.
+    await this.access.assertCanAddSite(caller);
+    const entitlements = await this.access.getEntitlements(caller);
 
     const existingSiteCount = await this.prisma.site.count({
       where: { organisationId: org.id },
     });
-
-    const maxSites = org.subscription?.plan.maxSites ?? 0;
-    if (existingSiteCount >= maxSites) {
-      throw new ForbiddenException(
-        `Your subscription plan allows a maximum of ${maxSites} site(s). ` +
-          `You currently have ${existingSiteCount}. Upgrade your plan to add more sites.`,
-      );
-    }
 
     const site = await this.prisma.site.create({
       data: {
@@ -82,7 +77,7 @@ export class SitesService {
       message: 'Site created successfully',
       site: this.formatSite(site),
       sitesUsed: existingSiteCount + 1,
-      sitesAllowed: maxSites,
+      sitesAllowed: entitlements.maxSites, // null means unlimited
     };
   }
 
@@ -308,12 +303,11 @@ export class SitesService {
 
     const org = await this.prisma.organisation.findUnique({
       where: { id: caller.orgId },
-      include: { subscription: { include: { plan: true } } },
     });
     if (!org) throw new NotFoundException('Organisation not found');
 
-    this.assertActiveSubscription(org.subscription?.status);
-    await this.assertUserLimitNotExceeded(siteId, org.subscription?.plan.maxUserPerSite ?? 0);
+    // Asserts an active plan, then that the plan's seat allowance has room.
+    await this.access.assertCanAddUserToSite(caller, siteId);
 
     const { user, isNewUser } = await this.findOrCreateOrgUser(dto, caller.orgId!);
 
@@ -387,12 +381,11 @@ export class SitesService {
 
     const org = await this.prisma.organisation.findUnique({
       where: { id: caller.orgId },
-      include: { subscription: { include: { plan: true } } },
     });
     if (!org) throw new NotFoundException('Organisation not found');
 
-    this.assertActiveSubscription(org.subscription?.status);
-    await this.assertUserLimitNotExceeded(siteId, org.subscription?.plan.maxUserPerSite ?? 0);
+    // Asserts an active plan, then that the plan's seat allowance has room.
+    await this.access.assertCanAddUserToSite(caller, siteId);
 
     const { user, isNewUser } = await this.findOrCreateOrgUser(dto, caller.orgId!);
 
@@ -701,19 +694,6 @@ export class SitesService {
     }
   }
 
-  /** Throws 403 if the subscription is cancelled or expired. */
-  private assertActiveSubscription(status: SubscriptionStatus | null | undefined) {
-    if (
-      !status ||
-      status === SubscriptionStatus.CANCELLED ||
-      status === SubscriptionStatus.EXPIRED
-    ) {
-      throw new ForbiddenException(
-        'Your subscription is no longer active. Please renew to manage sites.',
-      );
-    }
-  }
-
   /**
    * Throws 403 if the caller does not have access to the given site.
    * SUPER_ADMIN bypasses this check — they can access any site in their org.
@@ -737,13 +717,4 @@ export class SitesService {
     return site;
   }
 
-  /** Throws 403 if the site has already hit the plan's user cap. */
-  private async assertUserLimitNotExceeded(siteId: number, maxUsersPerSite: number) {
-    const currentCount = await this.prisma.siteAccess.count({ where: { siteId } });
-    if (currentCount >= maxUsersPerSite) {
-      throw new ForbiddenException(
-        `This site has reached the maximum of ${maxUsersPerSite} user(s) allowed by your subscription plan.`,
-      );
-    }
-  }
 }

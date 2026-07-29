@@ -17,8 +17,11 @@ import { NotificationService } from '../services/notification.service';
 import { NotificationProducer } from '../producers/notification.producer';
 import { RegisterTokenDto, UnregisterTokenDto } from '../dto/register-token.dto';
 import { SendNotificationDto } from '../dto/send-notification.dto';
+import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 
+/** Device-token registration must work before a plan is chosen. */
 @Controller('notifications')
+@SkipSubscriptionCheck()
 export class NotificationController {
   constructor(
     private readonly notificationService: NotificationService,

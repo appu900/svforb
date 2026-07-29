@@ -5,7 +5,9 @@ import { ValidationPipe } from '@nestjs/common';
 
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody is required by the Stripe webhook — signature verification runs
+  // against the exact bytes Stripe sent, not the re-serialised JSON.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.setGlobalPrefix('/api/v1');
   app.useGlobalPipes(
     new ValidationPipe({

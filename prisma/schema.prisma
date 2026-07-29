@@ -73,6 +73,33 @@ enum SubscriptionStatus {
   EXPIRED
 }
 
+enum EnterpriseLocationBand {
+  BAND_10_25
+  BAND_26_50
+  BAND_51_100
+  BAND_100_PLUS
+}
+
+enum EnterpriseContactWindow {
+  ASAP
+  MORNING
+  AFTERNOON
+  ANY_TIME
+}
+
+enum EnterpriseEnquiryStatus {
+  NEW
+  CONTACTED
+  CLOSED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
 enum StorageType {
   NON_REFRIGERATED
   REFRIGERATED
@@ -170,20 +197,81 @@ model TeamMember {
 }
 
 model SubscriptionPlan {
-  id               Int               @id @default(autoincrement())
-  name             String            @unique
-  displayName      String
-  maxSites         Int
-  maxUserPerSite   Int
-  priceMonthly     Float
-  priceAnnual      Float
-  features         String[]
-  isActive         Boolean           @default(true)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  displayName String
+  description String?
+
+  /// null means unlimited (Enterprise)
+  maxSites Int?
+  /// null means unlimited (Multi Site, Enterprise)
+  maxUserPerSite Int?
+
+  /// null when pricing is bespoke — see contactSalesOnly
+  priceMonthly Float?
+  priceAnnual  Float?
+  /// Base/default currency, used for any region without its own pricing
+  currency String @default("AUD")
+
+  /// India (region = IN) is billed in INR. Held on the same Stripe Price via
+  /// currency_options, so there is still only one price id per billing cycle.
+  priceMonthlyInr Float?
+  priceAnnualInr  Float?
+
+  /// Multi Site bills per location; the Stripe subscription quantity tracks site count
+  isPerSite Boolean @default(false)
+
+  /// Enterprise is not purchasable — the client routes to an enquiry form instead
+  contactSalesOnly Boolean @default(false)
+
+  stripeProductId      String?
+  stripePriceIdMonthly String?
+  stripePriceIdAnnual  String?
+
+  /// Org types this plan is offered to
+  applicableOrgTypes OrgType[]
+
+  /// Bullet list rendered on the plan card
+  features String[]
+
+  /// Backs the "Includes everything in <plan>, plus:" line
+  inheritsFromId Int?
+  inheritsFrom   SubscriptionPlan?  @relation("PlanInheritance", fields: [inheritsFromId], references: [id])
+  inheritedBy    SubscriptionPlan[] @relation("PlanInheritance")
+
+  isMostPopular Boolean @default(false)
+  sortOrder     Int     @default(0)
+  isActive      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planFeatures     PlanFeature[]
   orgSubscriptions OrgSubscription[]
 
+  @@index([isActive, sortOrder])
   @@map("subscription_plans")
+}
+
+/// Rows of the "Compare plans" grid. One row per plan per feature.
+model PlanFeature {
+  id     Int              @id @default(autoincrement())
+  planId Int
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  /// Stable slug for code-level entitlement checks — `label` is display text and may change
+  key      String
+  category String
+  label    String
+  /// false renders as an em dash in the grid
+  included Boolean @default(true)
+  /// Replaces the tick with text, e.g. "Up to 6" on the Users row
+  value     String?
+  sortOrder Int     @default(0)
+
+  @@unique([planId, key])
+  @@index([planId, sortOrder])
+  @@map("plan_features")
 }
 
 model Organisation {
@@ -204,9 +292,14 @@ model Organisation {
   ratingAvg   Float @default(0)
   ratingCount Int   @default(0)
 
+  /// Stamped the first time this org starts the 30-day trial — enforces once per organisation
+  freeTrialUsedAt DateTime?
+
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
   subscription         OrgSubscription?
+  enterpriseEnquiries  EnterpriseEnquiry[]
+  payments             Payment[]
   orgMemeberShips      OrgMemeberShip[]
   siteAccesses         siteAccess[]
   charityPickupPrefs   CharityPickupPrefs?
@@ -228,19 +321,100 @@ model OrgSubscription {
   planId         Int
   plan           SubscriptionPlan @relation(fields: [planId], references: [id])
 
-  status               SubscriptionStatus @default(TRIALING)
-  billingCycle         BillingCycle       @default(MONTHLY)
-  trialEndsAt          DateTime?
-  currentPeriodEnd     DateTime?
+  status             SubscriptionStatus @default(TRIALING)
+  billingCycle       BillingCycle       @default(MONTHLY)
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+
+  /// Billed site count for per-site plans (Multi Site); always 1 otherwise
+  quantity Int @default(1)
+
+  /// Set when the user cancels but keeps access until the period ends
+  cancelAtPeriodEnd Boolean   @default(false)
+  cancelledAt       DateTime?
+
   stripeCustomerId     String?
   stripeSubscriptionId String?
+  stripePriceId        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([organisationId])
   @@index([status])
+  @@index([stripeSubscriptionId])
   @@map("org_subscriptions")
+}
+
+/// Lead capture from the Enterprise flow.
+model EnterpriseEnquiry {
+  id             Int           @id @default(autoincrement())
+  organisationId Int?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id], onDelete: SetNull)
+
+  firstName    String
+  lastName     String
+  businessName String
+  businessType String
+  mobile       String
+
+  locationBand  EnterpriseLocationBand
+  contactWindow EnterpriseContactWindow
+  message       String?
+
+  status EnterpriseEnquiryStatus @default(NEW)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([organisationId])
+  @@map("enterprise_enquiries")
+}
+
+/// Billing history, written from Stripe invoice webhooks.
+model Payment {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  stripeInvoiceId       String  @unique
+  stripePaymentIntentId String?
+  stripeSubscriptionId  String?
+
+  /// Smallest currency unit (cents) — Stripe's native representation
+  amountCents Int
+  currency    String        @default("AUD")
+  status      PaymentStatus @default(PENDING)
+
+  description    String?
+  hostedInvoiceUrl String?
+  invoicePdfUrl    String?
+  failureMessage   String?
+
+  periodStart DateTime?
+  periodEnd   DateTime?
+  paidAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organisationId, createdAt])
+  @@index([status])
+  @@map("payments")
+}
+
+/// Processed Stripe event IDs. Stripe retries aggressively, so every handler
+/// checks this table first to stay idempotent.
+model StripeWebhookEvent {
+  id            Int      @id @default(autoincrement())
+  stripeEventId String   @unique
+  type          String
+  processedAt   DateTime @default(now())
+
+  @@index([type, processedAt])
+  @@map("stripe_webhook_events")
 }
 
 model Site {
