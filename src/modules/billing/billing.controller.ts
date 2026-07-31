@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { Jwtpayload } from '../auth/interface/jwt.interface';
 import { SkipSubscriptionCheck } from '../subscriptions/decorators/skip-subscription-check.decorator';
 import {
@@ -10,7 +9,6 @@ import {
   StartTrialDto,
 } from './dto/billing.dto';
 import { BillingService } from './services/billing.service';
-import { StripeCatalogueService } from './services/stripe-catalogue.service';
 
 /**
  * Exempt from the subscription gate by definition — every route here exists to
@@ -20,10 +18,7 @@ import { StripeCatalogueService } from './services/stripe-catalogue.service';
 @UseGuards(JwtAuthGuard)
 @SkipSubscriptionCheck()
 export class BillingController {
-  constructor(
-    private readonly billing: BillingService,
-    private readonly catalogue: StripeCatalogueService,
-  ) {}
+  constructor(private readonly billing: BillingService) {}
 
   /** Starts the 30-day trial. No card, once per organisation. */
   @Post('trial')
@@ -65,12 +60,5 @@ export class BillingController {
     @Body() dto: EnterpriseEnquiryDto,
   ) {
     return this.billing.submitEnterpriseEnquiry(req.user, dto);
-  }
-
-  /** Creates Stripe products and prices from the local plan catalogue. */
-  @Post('admin/sync-stripe-catalogue')
-  @UseGuards(PlatformAdminGuard)
-  syncCatalogue() {
-    return this.catalogue.syncPlans();
   }
 }

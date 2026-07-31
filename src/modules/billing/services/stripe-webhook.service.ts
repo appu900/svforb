@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PaymentStatus, SubscriptionStatus } from '@prisma/client';
-import Stripe from 'stripe';
+import Stripe = require('stripe');
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 
 /** Stripe subscription status -> our SubscriptionStatus. */

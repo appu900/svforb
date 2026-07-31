@@ -16,7 +16,7 @@ import {
   EnterpriseEnquiryDto,
   StartTrialDto,
 } from '../dto/billing.dto';
-import { currencyForRegion, StripeService } from './stripe.service';
+import { currencyForRegion, STRIPE_CURRENCY_INR, StripeService } from './stripe.service';
 
 const TRIAL_DAYS = 30;
 
@@ -95,18 +95,6 @@ export class BillingService {
     const org = await this.assertBillableOrgAdmin(caller);
     const plan = await this.assertPurchasablePlan(dto.planId, caller);
 
-    const priceId =
-      dto.billingCycle === BillingCycle.ANNUAL
-        ? plan.stripePriceIdAnnual
-        : plan.stripePriceIdMonthly;
-
-    if (!priceId) {
-      throw new BadRequestException(
-        `The ${plan.displayName} plan is not yet available for purchase. ` +
-          'Run the Stripe catalogue sync first.',
-      );
-    }
-
     const subscription = await this.prisma.orgSubscription.findUnique({
       where: { organisationId: org.id },
     });
@@ -126,22 +114,42 @@ export class BillingService {
     const quantity = await this.resolveQuantity(org.id, plan.isPerSite);
     const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
 
-    // India bills in INR, every other region in AUD. Both amounts live on the
-    // same Stripe Price as currency_options, so the price id does not change.
+    // India bills in INR, every other region in AUD.
     const currency = currencyForRegion(org.region);
-    const inrConfigured = plan.priceMonthlyInr !== null || plan.priceAnnualInr !== null;
-    if (currency !== 'aud' && !inrConfigured) {
+    const isInr = currency === STRIPE_CURRENCY_INR;
+    const isAnnual = dto.billingCycle === BillingCycle.ANNUAL;
+
+    const amount = isAnnual
+      ? (isInr ? plan.priceAnnualInr : plan.priceAnnual)
+      : (isInr ? plan.priceMonthlyInr : plan.priceMonthly);
+
+    if (amount === null) {
       throw new BadRequestException(
-        `The ${plan.displayName} plan has no ${currency.toUpperCase()} pricing configured.`,
+        `The ${plan.displayName} plan has no ${currency.toUpperCase()} ` +
+          `${dto.billingCycle.toLowerCase()} price configured.`,
       );
     }
 
+    // Price is sent inline rather than referencing a pre-created Stripe Price,
+    // so plans are purchasable the moment they exist locally — no sync step.
     const session = await this.stripeService.stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
       client_reference_id: String(org.id),
-      currency,
-      line_items: [{ price: priceId, quantity }],
+      line_items: [
+        {
+          quantity,
+          price_data: {
+            currency,
+            unit_amount: Math.round(amount * 100),
+            recurring: { interval: isAnnual ? 'year' : 'month' },
+            product_data: {
+              name: `Saveful — ${plan.displayName}`,
+              metadata: { planId: String(plan.id), planName: plan.name },
+            },
+          },
+        },
+      ],
       success_url: `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/billing/cancelled`,
       allow_promotion_codes: true,
@@ -232,7 +240,6 @@ export class BillingService {
   }
 
   // ─── Billing history ───────────────────────────────────────────────────────
-
   async listPayments(caller: Jwtpayload) {
     if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
 

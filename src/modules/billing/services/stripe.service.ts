@@ -1,7 +1,11 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Region } from '@prisma/client';
-import Stripe from 'stripe';
+// The Stripe SDK uses `export =`, and this project sets
+// allowSyntheticDefaultImports without esModuleInterop — so a default import
+// compiles to `stripe_1.default`, which is undefined at runtime. Import the
+// CommonJS export directly instead.
+import Stripe = require('stripe');
 
 /** Base currency — used for every region without its own pricing. */
 export const STRIPE_CURRENCY = 'aud';

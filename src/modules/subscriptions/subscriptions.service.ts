@@ -25,6 +25,8 @@ export class SubscriptionsService {
     });
     if (existing) throw new ConflictException('Plan name already exists');
 
+    // Purchasable immediately — checkout sends the price inline, so there is
+    // nothing to create in Stripe ahead of time.
     const plan = await this.prisma.subscriptionPlan.create({ data: dto });
     this.logger.log(`Subscription plan created: ${plan.name}`);
     return plan;
@@ -111,12 +113,35 @@ export class SubscriptionsService {
   }
 
   async update(id: number, dto: UpdateSubscriptionPlanDto) {
-    await this.findOne(id);
+    const before = await this.findOne(id);
+
     const plan = await this.prisma.subscriptionPlan.update({
       where: { id },
       data: dto,
     });
     this.logger.log(`Subscription plan updated: ${plan.name}`);
+
+    // New checkouts pick the new amount up immediately. Organisations already
+    // subscribed keep paying their original amount — Stripe pins a subscription
+    // to the price it was created with, so changing a plan never reprices them.
+    const amountChanged =
+      before.priceMonthly !== plan.priceMonthly ||
+      before.priceAnnual !== plan.priceAnnual ||
+      before.priceMonthlyInr !== plan.priceMonthlyInr ||
+      before.priceAnnualInr !== plan.priceAnnualInr;
+
+    if (amountChanged) {
+      const inUse = await this.prisma.orgSubscription.count({
+        where: { planId: id, stripeSubscriptionId: { not: null } },
+      });
+      if (inUse > 0) {
+        this.logger.warn(
+          `Pricing changed for ${plan.name}; ${inUse} existing subscriber(s) ` +
+            'stay on their original amount until migrated in Stripe.',
+        );
+      }
+    }
+
     return plan;
   }
 
