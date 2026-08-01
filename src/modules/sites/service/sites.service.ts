@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
 import { EmailQueueService } from '../../../modules/notifications/queues/email.queue.service';
+import { BillingService } from '../../billing/services/billing.service';
 import { SubscriptionAccessService } from '../../subscriptions/services/subscription-access.service';
 import { AddStaffDto, AssignSiteManagerDto, CreateSiteDto, UpdateSiteDto } from '../dto/sites.dto';
 
@@ -34,6 +35,7 @@ export class SitesService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailQueueService,
     private readonly access: SubscriptionAccessService,
+    private readonly billing: BillingService,
   ) {}
 
   // ─── Create Site ──────────────────────────────────────────────────────────────
@@ -72,6 +74,9 @@ export class SitesService {
     });
 
     this.logger.log(`Site created: id=${site.id} org=${org.id} by user=${caller.sub}`);
+
+    // Per-site plans bill on location count, so Stripe has to hear about this.
+    await this.billing.syncSiteQuantity(org.id);
 
     return {
       message: 'Site created successfully',

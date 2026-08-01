@@ -25,3 +25,13 @@ export class TopFoodsQueryDto {
   @IsDateString()
   endDate?: string;
 }
+
+export class RecipientsQueryDto {
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}

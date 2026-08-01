@@ -29,8 +29,9 @@ export class BillingWorker extends WorkerHost {
   }
 
   /**
-   * Trials carry no payment method, so nothing auto-converts. Once the window
-   * closes the subscription expires and the org is blocked until it checks out.
+   * Trials started through Checkout hold a card and convert on their own. This
+   * only catches rows from the earlier card-free flow, which have no Stripe
+   * object to convert — they expire and the org is blocked until it checks out.
    */
   private async expireLapsedTrials() {
     const now = new Date();

@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -246,8 +247,9 @@ model SubscriptionPlan {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  planFeatures     PlanFeature[]
-  orgSubscriptions OrgSubscription[]
+  planFeatures         PlanFeature[]
+  orgSubscriptions     OrgSubscription[]
+  pendingSubscriptions OrgSubscription[] @relation("PendingPlanChange")
 
   @@index([isActive, sortOrder])
   @@map("subscription_plans")
@@ -337,6 +339,15 @@ model OrgSubscription {
   stripeCustomerId     String?
   stripeSubscriptionId String?
   stripePriceId        String?
+
+  /// A downgrade waits for the current period to close. These mirror the Stripe
+  /// Subscription Schedule so the client can show what is coming without a
+  /// round trip to Stripe.
+  pendingPlanId            Int?
+  pendingPlan              SubscriptionPlan? @relation("PendingPlanChange", fields: [pendingPlanId], references: [id])
+  pendingBillingCycle      BillingCycle?
+  pendingChangeEffectiveAt DateTime?
+  stripeScheduleId         String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -539,6 +550,7 @@ model FoodListing {
   @@index([status])
   @@index([bestBefore])
   @@index([pickupPostcode])
+  @@index([status], map: "food_listings_active_idx", where: raw("(status = ANY (ARRAY['ACTIVE'::\"ListingStatus\", 'PARTIAL'::\"ListingStatus\"]))"))
   @@map("food_listings")
 }
 

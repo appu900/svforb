@@ -27,6 +27,17 @@ export const ENTITLING_STATUSES: readonly SubscriptionStatus[] = [
   SubscriptionStatus.ACTIVE,
 ];
 
+/**
+ * Statuses that mean a billing relationship is still live. A second Checkout in
+ * any of these would create a duplicate Stripe subscription, so they route to
+ * the change-plan flow instead.
+ */
+export const LIVE_STATUSES: readonly SubscriptionStatus[] = [
+  SubscriptionStatus.TRIALING,
+  SubscriptionStatus.ACTIVE,
+  SubscriptionStatus.PAST_DUE,
+];
+
 export function requiresBilling(orgType?: OrgType | null): boolean {
   return !!orgType && BILLABLE_ORG_TYPES.includes(orgType);
 }
@@ -53,6 +64,11 @@ export type FeatureKey = (typeof FEATURE)[keyof typeof FEATURE];
 export const BILLING_ERROR = {
   SUBSCRIPTION_REQUIRED: 'SUBSCRIPTION_REQUIRED',
   SUBSCRIPTION_INACTIVE: 'SUBSCRIPTION_INACTIVE',
+  /// Checkout was called by an org that already has a live plan — use change-plan
+  PLAN_CHANGE_REQUIRED: 'PLAN_CHANGE_REQUIRED',
+  /// change-plan was called by an org with nothing to change from — use checkout
+  NO_ACTIVE_SUBSCRIPTION: 'NO_ACTIVE_SUBSCRIPTION',
+  ALREADY_ON_PLAN: 'ALREADY_ON_PLAN',
   SITE_LIMIT_REACHED: 'SITE_LIMIT_REACHED',
   USER_LIMIT_REACHED: 'USER_LIMIT_REACHED',
   FEATURE_NOT_IN_PLAN: 'FEATURE_NOT_IN_PLAN',

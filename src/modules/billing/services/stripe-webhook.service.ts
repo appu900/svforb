@@ -105,6 +105,12 @@ export class StripeWebhookService {
           await this.onInvoiceFailed(event.data.object);
           break;
 
+        case 'subscription_schedule.released':
+        case 'subscription_schedule.completed':
+        case 'subscription_schedule.canceled':
+          await this.onScheduleFinished(event.data.object);
+          break;
+
         default:
           this.logger.debug(`Unhandled Stripe event type: ${event.type}`);
       }
@@ -139,47 +145,67 @@ export class StripeWebhookService {
       typeof session.customer === 'string' ? session.customer : session.customer?.id;
 
     const billingCycle = session.metadata?.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
+    const isTrial = session.metadata?.isTrial === 'true';
+
+    // A trial subscription is TRIALING until Stripe charges it; the follow-up
+    // customer.subscription.* event confirms whichever it ends up being.
+    const status = isTrial ? SubscriptionStatus.TRIALING : SubscriptionStatus.ACTIVE;
 
     await this.prisma.orgSubscription.upsert({
       where: { organisationId: orgId },
       create: {
         organisationId: orgId,
         planId,
-        status: SubscriptionStatus.ACTIVE,
+        status,
         billingCycle,
         stripeCustomerId: customerId ?? null,
         stripeSubscriptionId: subscriptionId ?? null,
       },
       update: {
         planId,
-        status: SubscriptionStatus.ACTIVE,
+        status,
         billingCycle,
         stripeCustomerId: customerId ?? null,
         stripeSubscriptionId: subscriptionId ?? null,
         cancelAtPeriodEnd: false,
         cancelledAt: null,
+        pendingPlanId: null,
+        pendingBillingCycle: null,
+        pendingChangeEffectiveAt: null,
+        stripeScheduleId: null,
       },
     });
 
-    this.logger.log(`Checkout completed: org=${orgId} plan=${planId} sub=${subscriptionId}`);
+    // Stamped here rather than when the session was created, so abandoning
+    // Checkout does not consume the organisation's one trial.
+    if (isTrial) {
+      await this.prisma.organisation.update({
+        where: { id: orgId },
+        data: { freeTrialUsedAt: new Date() },
+      });
+    }
+
+    this.logger.log(
+      `Checkout completed: org=${orgId} plan=${planId} sub=${subscriptionId} trial=${isTrial}`,
+    );
   }
 
   private async onSubscriptionChanged(sub: Stripe.Subscription) {
-    const existing = await this.prisma.orgSubscription.findFirst({
-      where: { stripeSubscriptionId: sub.id },
-    });
-
-    const orgId = existing?.organisationId ?? Number(sub.metadata?.orgId);
-    if (!orgId) {
-      this.logger.warn(`subscription ${sub.id} has no resolvable organisation — skipping`);
-      return;
-    }
+    const row = await this.resolveSubscriptionRow(sub);
+    if (!row) return;
 
     const { start, end } = readPeriod(sub);
     const quantity = sub.items?.data?.[0]?.quantity ?? 1;
 
-    await this.prisma.orgSubscription.updateMany({
-      where: { organisationId: orgId },
+    // A scheduled downgrade lands as an ordinary subscription update, so the
+    // pending plan is promoted once its effective date has passed.
+    const pendingLanded =
+      row.pendingPlanId !== null &&
+      row.pendingChangeEffectiveAt !== null &&
+      row.pendingChangeEffectiveAt.getTime() <= Date.now();
+
+    await this.prisma.orgSubscription.update({
+      where: { organisationId: row.organisationId },
       data: {
         status: mapStatus(sub.status),
         currentPeriodStart: start,
@@ -189,11 +215,69 @@ export class StripeWebhookService {
         trialEndsAt: toDate(sub.trial_end),
         stripeSubscriptionId: sub.id,
         stripePriceId: sub.items?.data?.[0]?.price?.id ?? null,
+        ...(pendingLanded
+          ? {
+              planId: row.pendingPlanId!,
+              billingCycle: row.pendingBillingCycle ?? row.billingCycle,
+              pendingPlanId: null,
+              pendingBillingCycle: null,
+              pendingChangeEffectiveAt: null,
+              stripeScheduleId: null,
+            }
+          : {}),
       },
     });
 
     this.logger.log(
-      `Subscription ${sub.id} -> ${sub.status} (org=${orgId}, qty=${quantity}, ends=${end?.toISOString() ?? 'n/a'})`,
+      `Subscription ${sub.id} -> ${sub.status} (org=${row.organisationId}, qty=${quantity}, ` +
+        `ends=${end?.toISOString() ?? 'n/a'}${pendingLanded ? ', pending change applied' : ''})`,
+    );
+  }
+
+  /**
+   * Resolves the row this event belongs to. Matching on the subscription id
+   * first matters: if an organisation ever ends up with two Stripe
+   * subscriptions, events from the stale one must not overwrite the live row.
+   */
+  private async resolveSubscriptionRow(sub: Stripe.Subscription) {
+    const byId = await this.prisma.orgSubscription.findFirst({
+      where: { stripeSubscriptionId: sub.id },
+    });
+    if (byId) return byId;
+
+    const orgId = Number(sub.metadata?.orgId);
+    if (!orgId) {
+      this.logger.warn(`Subscription ${sub.id} has no resolvable organisation — skipping`);
+      return null;
+    }
+
+    const byOrg = await this.prisma.orgSubscription.findUnique({
+      where: { organisationId: orgId },
+    });
+    if (!byOrg) {
+      this.logger.warn(`Subscription ${sub.id} references unknown org ${orgId} — skipping`);
+      return null;
+    }
+
+    if (byOrg.stripeSubscriptionId && byOrg.stripeSubscriptionId !== sub.id) {
+      this.logger.warn(
+        `Ignoring event for subscription ${sub.id}: org ${orgId} is on ` +
+          `${byOrg.stripeSubscriptionId}. The stale subscription should be cancelled in Stripe.`,
+      );
+      return null;
+    }
+
+    return byOrg;
+  }
+
+  /** The deferred change has run its course — drop the local schedule handle. */
+  private async onScheduleFinished(schedule: Stripe.SubscriptionSchedule) {
+    const result = await this.prisma.orgSubscription.updateMany({
+      where: { stripeScheduleId: schedule.id },
+      data: { stripeScheduleId: null },
+    });
+    this.logger.log(
+      `Schedule ${schedule.id} ${schedule.status} (${result.count} row(s) cleared)`,
     );
   }
 

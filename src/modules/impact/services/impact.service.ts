@@ -687,6 +687,294 @@ export class ImpactService {
     };
   }
 
+  // ─── Partner organisations (donated to / collected from) ──────────────────────
+
+  /**
+   * Partner organisations for a whole organisation.
+   *
+   * For a donor this answers "who collected our food"; for a charity or farmer
+   * consumer the same query answers "who did we collect from", because the scope
+   * filter simply pins the other side of the claim.
+   */
+  async getRecipients(
+    caller: Jwtpayload,
+    orgId: number,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    await this.assertCanAccessOrg(caller, orgId);
+
+    const organisation = await this.prisma.organisation.findUnique({
+      where: { id: orgId },
+      select: { organizationType: true },
+    });
+    if (!organisation) throw new NotFoundException('Organisation not found');
+
+    const mode: ImpactMode = RECEIVER_ORG_TYPES.includes(organisation.organizationType)
+      ? 'RECEIVER'
+      : 'DONOR';
+
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(endDate) : new Date();
+
+    // Donors own the listing; receivers own the claim.
+    const scopeFilter =
+      mode === 'RECEIVER'
+        ? Prisma.sql`fc."claimantOrgId" = ${orgId}`
+        : Prisma.sql`fl."organisationId" = ${orgId}`;
+
+    const [rows, foodRows] = await Promise.all([
+      this.queryRecipientRows(scopeFilter, start, end, mode),
+      this.queryRecipientFoodRows(scopeFilter, start, end, mode),
+    ]);
+
+    return this.buildRecipientsResponse(null, orgId, start, end, mode, rows, foodRows);
+  }
+
+  /** Same report scoped to a single location. */
+  async getRecipientsBySite(
+    caller: Jwtpayload,
+    siteId: number,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    await this.assertCanAccessSite(caller, siteId);
+
+    const site = await this.prisma.site.findUnique({
+      where: { id: siteId },
+      select: { organisationId: true },
+    });
+    if (!site) throw new NotFoundException('Site not found');
+
+    const organisation = await this.prisma.organisation.findUnique({
+      where: { id: site.organisationId },
+      select: { id: true, organizationType: true },
+    });
+    if (!organisation) throw new NotFoundException('Organisation not found');
+
+    const mode: ImpactMode = RECEIVER_ORG_TYPES.includes(organisation.organizationType)
+      ? 'RECEIVER'
+      : 'DONOR';
+
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const scopeFilter =
+      mode === 'RECEIVER'
+        ? Prisma.sql`fc."claimantOrgId" = ${organisation.id} AND fc."claimantSiteId" = ${siteId}`
+        : Prisma.sql`fl."siteId" = ${siteId}`;
+
+    const [rows, foodRows] = await Promise.all([
+      this.queryRecipientRows(scopeFilter, start, end, mode),
+      this.queryRecipientFoodRows(scopeFilter, start, end, mode),
+    ]);
+
+    return this.buildRecipientsResponse(siteId, null, start, end, mode, rows, foodRows);
+  }
+
+  /**
+   * One row per partner organisation. `collections` counts distinct claims
+   * rather than claim items, so a single pickup of six items stays one
+   * collection.
+   */
+  private async queryRecipientRows(
+    scopeFilter: Prisma.Sql,
+    start: Date | null,
+    end: Date,
+    mode: ImpactMode,
+  ) {
+    const collectedFilter = this.buildTopFoodsCollectedFilter(start, end);
+    const partner = this.partnerColumn(mode);
+
+    return this.prisma.$queryRaw<
+      {
+        partnerOrgId: number;
+        name: string;
+        organizationType: OrgType;
+        logoUrl: string | null;
+        collections: number;
+        totalKg: number;
+        peopleKg: number;
+        animalKg: number;
+        firstCollectionAt: Date | null;
+        lastCollectionAt: Date | null;
+      }[]
+    >`
+      SELECT
+        po.id                              AS "partnerOrgId",
+        po.name                            AS "name",
+        po."organizationType"              AS "organizationType",
+        po."logoUrl"                       AS "logoUrl",
+        CAST(COUNT(DISTINCT fc.id) AS INT) AS "collections",
+        CAST(SUM(ci."qtyKg") AS FLOAT)     AS "totalKg",
+        CAST(SUM(
+          CASE
+            WHEN fl."listingType" = 'HUMAN' THEN ci."qtyKg"
+            WHEN fl."listingType" = 'BOTH'
+              AND co."organizationType" IN ('CHARITY', 'CHARITY_SINGLE', 'CHARITY_MULTI')
+              THEN ci."qtyKg"
+            ELSE 0
+          END
+        ) AS FLOAT) AS "peopleKg",
+        CAST(SUM(
+          CASE
+            WHEN fl."listingType" = 'ANIMAL' THEN ci."qtyKg"
+            WHEN fl."listingType" = 'BOTH'
+              AND co."organizationType" = 'FARMER_CONSUMER'
+              THEN ci."qtyKg"
+            ELSE 0
+          END
+        ) AS FLOAT) AS "animalKg",
+        MIN(COALESCE(fc."collectedAt", fc."updatedAt")) AS "firstCollectionAt",
+        MAX(COALESCE(fc."collectedAt", fc."updatedAt")) AS "lastCollectionAt"
+      FROM claim_items ci
+      JOIN food_claims   fc ON fc.id = ci."claimId"
+      JOIN food_listings fl ON fl.id = fc."listingId"
+      JOIN organisations co ON co.id = fc."claimantOrgId"
+      JOIN organisations po ON po.id = ${partner}
+      WHERE
+        ${scopeFilter}
+        AND fc.status != 'CANCELLED'
+        ${collectedFilter}
+      GROUP BY po.id, po.name, po."organizationType", po."logoUrl"
+      ORDER BY "totalKg" DESC
+      LIMIT 50
+    `;
+  }
+
+  /** Food breakdown per partner — the top slice is taken in JS to keep the SQL flat. */
+  private async queryRecipientFoodRows(
+    scopeFilter: Prisma.Sql,
+    start: Date | null,
+    end: Date,
+    mode: ImpactMode,
+  ) {
+    const collectedFilter = this.buildTopFoodsCollectedFilter(start, end);
+    const partner = this.partnerColumn(mode);
+
+    return this.prisma.$queryRaw<
+      {
+        partnerOrgId: number;
+        foodName: string;
+        category: string | null;
+        unit: string | null;
+        totalKg: number;
+      }[]
+    >`
+      SELECT
+        ${partner}                     AS "partnerOrgId",
+        fi.name                        AS "foodName",
+        fi.category                    AS "category",
+        fi.unit                        AS "unit",
+        CAST(SUM(ci."qtyKg") AS FLOAT) AS "totalKg"
+      FROM claim_items ci
+      JOIN food_items    fi ON fi.id = ci."foodItemId"
+      JOIN food_claims   fc ON fc.id = ci."claimId"
+      JOIN food_listings fl ON fl.id = fc."listingId"
+      WHERE
+        ${scopeFilter}
+        AND fc.status != 'CANCELLED'
+        ${collectedFilter}
+      GROUP BY ${partner}, fi.name, fi.category, fi.unit
+      ORDER BY "totalKg" DESC
+    `;
+  }
+
+  /** The org on the other side of the claim from the caller. */
+  private partnerColumn(mode: ImpactMode): Prisma.Sql {
+    return mode === 'RECEIVER'
+      ? Prisma.sql`fl."organisationId"`
+      : Prisma.sql`fc."claimantOrgId"`;
+  }
+
+  private buildRecipientsResponse(
+    siteId: number | null,
+    organisationId: number | null,
+    start: Date | null,
+    end: Date,
+    mode: ImpactMode,
+    rows: {
+      partnerOrgId: number;
+      name: string;
+      organizationType: OrgType;
+      logoUrl: string | null;
+      collections: number;
+      totalKg: number;
+      peopleKg: number;
+      animalKg: number;
+      firstCollectionAt: Date | null;
+      lastCollectionAt: Date | null;
+    }[],
+    foodRows: {
+      partnerOrgId: number;
+      foodName: string;
+      category: string | null;
+      unit: string | null;
+      totalKg: number;
+    }[],
+  ) {
+    const foodsByPartner = new Map<number, typeof foodRows>();
+    for (const row of foodRows) {
+      const list = foodsByPartner.get(row.partnerOrgId) ?? [];
+      list.push(row);
+      foodsByPartner.set(row.partnerOrgId, list);
+    }
+
+    const totalKgAll = rows.reduce((sum, row) => sum + (Number(row.totalKg) || 0), 0);
+
+    return {
+      siteId,
+      organisationId,
+      mode,
+      rangeStart: start?.toISOString() ?? null,
+      rangeEnd: end.toISOString(),
+      totalRecipients: rows.length,
+      totalKg: round2(totalKgAll),
+      recipients: rows.map((row, i) => {
+        const totalKg = round2(Number(row.totalKg) || 0);
+        let peopleKg = round2(Number(row.peopleKg) || 0);
+        let animalKg = round2(Number(row.animalKg) || 0);
+
+        // Who the partner is decides the split, so an unsplit total is
+        // attributed whole rather than guessed.
+        if (CHARITY_ORG_TYPES.includes(row.organizationType)) {
+          peopleKg = totalKg;
+          animalKg = 0;
+        } else if (ANIMAL_ORG_TYPES.includes(row.organizationType)) {
+          animalKg = totalKg;
+          peopleKg = 0;
+        } else if (peopleKg + animalKg <= 0 && totalKg > 0) {
+          peopleKg = totalKg;
+          animalKg = 0;
+        }
+
+        return {
+          rank: i + 1,
+          organisationId: row.partnerOrgId,
+          name: row.name,
+          organizationType: row.organizationType,
+          logoUrl: row.logoUrl,
+          collections: Number(row.collections) || 0,
+          totalKg,
+          peopleKg,
+          animalKg,
+          sharePercent: totalKgAll > 0 ? round1((totalKg / totalKgAll) * 100) : 0,
+          mealsCreated: Math.round(peopleKg / MEAL_WEIGHT_KG),
+          co2AvoidedKg: round2(totalKg * CO2_PER_KG),
+          totalFoodSavedUsd: round2(totalKg * FOOD_VALUE_PER_KG_USD),
+          firstCollectionAt: row.firstCollectionAt?.toISOString() ?? null,
+          lastCollectionAt: row.lastCollectionAt?.toISOString() ?? null,
+          foods: (foodsByPartner.get(row.partnerOrgId) ?? []).slice(0, 10).map((food) => ({
+            foodName: food.foodName,
+            category: food.category ?? null,
+            unit: food.unit ?? 'kg',
+            totalKg: round2(Number(food.totalKg) || 0),
+          })),
+        };
+      }),
+    };
+  }
+
   // ─── Period / bucket math ─────────────────────────────────────────────────────
 
   private getPeriodRange(period: ImpactPeriod): { start: Date | null; end: Date } {

@@ -13,6 +13,11 @@ export class StartTrialDto {
   @Type(() => Number)
   @IsInt()
   planId!: number;
+
+  /** Which cycle to charge once the trial converts. Defaults to monthly. */
+  @IsOptional()
+  @IsEnum(BillingCycle)
+  billingCycle?: BillingCycle;
 }
 
 export class CreateCheckoutSessionDto {
@@ -22,6 +27,17 @@ export class CreateCheckoutSessionDto {
 
   @IsEnum(BillingCycle)
   billingCycle!: BillingCycle;
+}
+
+export class ChangePlanDto {
+  @Type(() => Number)
+  @IsInt()
+  planId!: number;
+
+  /** Omit to keep the current cycle. */
+  @IsOptional()
+  @IsEnum(BillingCycle)
+  billingCycle?: BillingCycle;
 }
 
 export class EnterpriseEnquiryDto {

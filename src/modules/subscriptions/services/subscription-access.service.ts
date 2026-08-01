@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { SubscriptionStatus } from '@prisma/client';
+import { BillingCycle, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import {
@@ -19,6 +19,9 @@ export interface Entitlements {
   planId: number | null;
   planName: string | null;
   planDisplayName: string | null;
+  billingCycle: BillingCycle | null;
+  /** Billed site count for per-site plans */
+  quantity: number | null;
   /** null means unlimited */
   maxSites: number | null;
   /** null means unlimited */
@@ -28,6 +31,13 @@ export interface Entitlements {
   trialEndsAt: Date | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** false once the org has consumed its one trial */
+  freeTrialAvailable: boolean;
+  /** Set while a downgrade is waiting for the period to close */
+  pendingPlanId: number | null;
+  pendingPlanDisplayName: string | null;
+  pendingBillingCycle: BillingCycle | null;
+  pendingChangeEffectiveAt: Date | null;
 }
 
 const UNLIMITED_FREE: Omit<Entitlements, 'billingRequired' | 'entitled'> = {
@@ -35,12 +45,19 @@ const UNLIMITED_FREE: Omit<Entitlements, 'billingRequired' | 'entitled'> = {
   planId: null,
   planName: null,
   planDisplayName: null,
+  billingCycle: null,
+  quantity: null,
   maxSites: null,
   maxUserPerSite: null,
   features: [],
   trialEndsAt: null,
   currentPeriodEnd: null,
   cancelAtPeriodEnd: false,
+  freeTrialAvailable: false,
+  pendingPlanId: null,
+  pendingPlanDisplayName: null,
+  pendingBillingCycle: null,
+  pendingChangeEffectiveAt: null,
 };
 
 /**
@@ -64,24 +81,40 @@ export class SubscriptionAccessService {
       return { billingRequired: false, entitled: true, ...UNLIMITED_FREE };
     }
 
-    const sub = await this.prisma.orgSubscription.findUnique({
-      where: { organisationId: caller.orgId },
-      include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-            displayName: true,
-            maxSites: true,
-            maxUserPerSite: true,
-            planFeatures: { where: { included: true }, select: { key: true } },
+    const [sub, org] = await Promise.all([
+      this.prisma.orgSubscription.findUnique({
+        where: { organisationId: caller.orgId },
+        include: {
+          plan: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+              maxSites: true,
+              maxUserPerSite: true,
+              planFeatures: { where: { included: true }, select: { key: true } },
+            },
           },
+          pendingPlan: { select: { displayName: true } },
         },
-      },
-    });
+      }),
+      this.prisma.organisation.findUnique({
+        where: { id: caller.orgId },
+        select: { freeTrialUsedAt: true },
+      }),
+    ]);
+
+    const freeTrialAvailable = !org?.freeTrialUsedAt;
 
     if (!sub) {
-      return { billingRequired: true, entitled: false, ...UNLIMITED_FREE, maxSites: 0, maxUserPerSite: 0 };
+      return {
+        billingRequired: true,
+        entitled: false,
+        ...UNLIMITED_FREE,
+        maxSites: 0,
+        maxUserPerSite: 0,
+        freeTrialAvailable,
+      };
     }
 
     return {
@@ -91,12 +124,19 @@ export class SubscriptionAccessService {
       planId: sub.plan.id,
       planName: sub.plan.name,
       planDisplayName: sub.plan.displayName,
+      billingCycle: sub.billingCycle,
+      quantity: sub.quantity,
       maxSites: sub.plan.maxSites,
       maxUserPerSite: sub.plan.maxUserPerSite,
       features: sub.plan.planFeatures.map((f) => f.key),
       trialEndsAt: sub.trialEndsAt,
       currentPeriodEnd: sub.currentPeriodEnd,
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+      freeTrialAvailable,
+      pendingPlanId: sub.pendingPlanId,
+      pendingPlanDisplayName: sub.pendingPlan?.displayName ?? null,
+      pendingBillingCycle: sub.pendingBillingCycle,
+      pendingChangeEffectiveAt: sub.pendingChangeEffectiveAt,
     };
   }
 
