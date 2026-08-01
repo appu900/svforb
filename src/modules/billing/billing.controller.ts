@@ -74,9 +74,16 @@ export class BillingController {
     return this.billing.createPortalSession(req.user);
   }
 
+  /** Ends the plan at the close of the paid period — access continues until then. */
   @Post('cancel')
   cancel(@Req() req: Request & { user: Jwtpayload }) {
     return this.billing.cancelSubscription(req.user);
+  }
+
+  /** Undoes a scheduled cancellation before the period closes. */
+  @Post('resume')
+  resume(@Req() req: Request & { user: Jwtpayload }) {
+    return this.billing.resumeSubscription(req.user);
   }
 
   @Get('payments')

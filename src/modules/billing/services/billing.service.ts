@@ -517,6 +517,51 @@ export class BillingService {
     };
   }
 
+  /**
+   * Undoes a scheduled cancellation while the paid period is still running.
+   * Cancelling only flags the subscription, so nothing has to be rebuilt — the
+   * flag is simply cleared and billing resumes on its original date.
+   */
+  async resumeSubscription(caller: Jwtpayload) {
+    const org = await this.assertBillableOrgAdmin(caller);
+
+    const subscription = await this.prisma.orgSubscription.findUnique({
+      where: { organisationId: org.id },
+      include: { plan: { select: { displayName: true } } },
+    });
+    if (!subscription) {
+      throw new NotFoundException('No subscription to resume.');
+    }
+    if (!subscription.cancelAtPeriodEnd) {
+      throw new ConflictException('Your subscription is not scheduled to cancel.');
+    }
+
+    // A cancelled local trial has no Stripe object to revive; it must be
+    // repurchased through Checkout.
+    if (!subscription.stripeSubscriptionId) {
+      throw new ConflictException(
+        'This subscription cannot be resumed. Please choose a plan to start again.',
+      );
+    }
+
+    await this.stripeService.stripe.subscriptions.update(
+      subscription.stripeSubscriptionId,
+      { cancel_at_period_end: false },
+    );
+
+    await this.prisma.orgSubscription.update({
+      where: { organisationId: org.id },
+      data: { cancelAtPeriodEnd: false, cancelledAt: null },
+    });
+
+    this.logger.log(`Subscription resumed: org=${org.id}`);
+
+    return {
+      message: `Your ${subscription.plan.displayName} plan will continue as normal.`,
+      nextBillingDate: subscription.currentPeriodEnd,
+    };
+  }
+
   // ─── Billing history ───────────────────────────────────────────────────────
   async listPayments(caller: Jwtpayload) {
     if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
