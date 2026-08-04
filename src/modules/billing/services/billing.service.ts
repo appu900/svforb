@@ -265,16 +265,41 @@ export class BillingService {
       };
     }
 
-    const itemId = await this.currentItemId(sub.stripeSubscriptionId);
-    const preview = await this.stripeService.stripe.invoices.createPreview({
-      customer: sub.stripeCustomerId ?? undefined,
-      subscription: sub.stripeSubscriptionId,
-      subscription_details: {
-        items: [{ id: itemId, price_data: priceData, quantity }],
-        proration_behavior: 'create_prorations',
-        billing_cycle_anchor: 'now',
-      },
-    });
+    const stripeSub = await this.stripeService.stripe.subscriptions.retrieve(
+      sub.stripeSubscriptionId,
+    );
+    const itemId = stripeSub.items?.data?.[0]?.id;
+    if (!itemId) {
+      throw new BadRequestException('Your subscription has no billable item.');
+    }
+
+    // Same timing rules as applyImmediateChange: ending a trial already
+    // anchors the first paid period to today, so billing_cycle_anchor would
+    // conflict with the still-open trial_end.
+    const isTrialing = stripeSub.status === 'trialing';
+    const subscriptionDetails: Stripe.InvoiceCreatePreviewParams.SubscriptionDetails =
+      isTrialing
+        ? {
+            items: [{ id: itemId, price_data: priceData, quantity }],
+            trial_end: 'now',
+            proration_behavior: 'none',
+          }
+        : {
+            items: [{ id: itemId, price_data: priceData, quantity }],
+            billing_cycle_anchor: 'now',
+            proration_behavior: 'create_prorations',
+          };
+
+    let preview: Stripe.Invoice;
+    try {
+      preview = await this.stripeService.stripe.invoices.createPreview({
+        customer: sub.stripeCustomerId ?? undefined,
+        subscription: sub.stripeSubscriptionId,
+        subscription_details: subscriptionDetails,
+      });
+    } catch (err) {
+      this.throwFriendlyStripeError(err, 'Could not preview this plan change.');
+    }
 
     return {
       direction,
@@ -329,18 +354,23 @@ export class BillingService {
         ? { trial_end: 'now', proration_behavior: 'none' }
         : { billing_cycle_anchor: 'now', proration_behavior: 'always_invoice' };
 
-    const updated = await this.stripeService.stripe.subscriptions.update(
-      sub.stripeSubscriptionId,
-      {
-        items: [{ id: itemId, price_data: priceData, quantity }],
-        ...timing,
-        metadata: {
-          orgId: String(sub.organisationId),
-          planId: String(newPlan.id),
-          billingCycle,
+    let updated: Stripe.Subscription;
+    try {
+      updated = await this.stripeService.stripe.subscriptions.update(
+        sub.stripeSubscriptionId,
+        {
+          items: [{ id: itemId, price_data: priceData, quantity }],
+          ...timing,
+          metadata: {
+            orgId: String(sub.organisationId),
+            planId: String(newPlan.id),
+            billingCycle,
+          },
         },
-      },
-    );
+      );
+    } catch (err) {
+      this.throwFriendlyStripeError(err, 'Could not upgrade your plan right now.');
+    }
 
     // Written now rather than waiting on the webhook so the client can render
     // the new plan the moment it refetches.
@@ -382,9 +412,14 @@ export class BillingService {
   ) {
     const stripe = this.stripeService.stripe;
 
-    const schedule = await stripe.subscriptionSchedules.create({
-      from_subscription: sub.stripeSubscriptionId,
-    });
+    let schedule: Stripe.SubscriptionSchedule;
+    try {
+      schedule = await stripe.subscriptionSchedules.create({
+        from_subscription: sub.stripeSubscriptionId,
+      });
+    } catch (err) {
+      this.throwFriendlyStripeError(err, 'Could not schedule this plan change.');
+    }
 
     const currentPhase = schedule.phases?.[0];
     if (!currentPhase?.end_date) {
@@ -396,32 +431,37 @@ export class BillingService {
     // Phase one replays what the org already paid for; phase two swaps the
     // price in the moment that period closes. `release` hands the subscription
     // back to normal renewal afterwards.
-    const updated = await stripe.subscriptionSchedules.update(schedule.id, {
-      end_behavior: 'release',
-      phases: [
-        {
-          items: currentPhase.items.map((item) => ({
-            price: typeof item.price === 'string' ? item.price : item.price.id,
-            quantity: item.quantity ?? 1,
-          })),
-          start_date: currentPhase.start_date,
-          end_date: currentPhase.end_date,
-          proration_behavior: 'none',
-        },
-        {
-          items: [{ price_data: priceData, quantity }],
-          // One period on the new price, after which the schedule releases and
-          // the subscription renews normally.
-          duration: { interval: priceData.recurring.interval, interval_count: 1 },
-          proration_behavior: 'none',
-          metadata: {
-            orgId: String(sub.organisationId),
-            planId: String(newPlan.id),
-            billingCycle,
+    let updated: Stripe.SubscriptionSchedule;
+    try {
+      updated = await stripe.subscriptionSchedules.update(schedule.id, {
+        end_behavior: 'release',
+        phases: [
+          {
+            items: currentPhase.items.map((item) => ({
+              price: typeof item.price === 'string' ? item.price : item.price.id,
+              quantity: item.quantity ?? 1,
+            })),
+            start_date: currentPhase.start_date,
+            end_date: currentPhase.end_date,
+            proration_behavior: 'none',
           },
-        },
-      ],
-    });
+          {
+            items: [{ price_data: priceData, quantity }],
+            // One period on the new price, after which the schedule releases and
+            // the subscription renews normally.
+            duration: { interval: priceData.recurring.interval, interval_count: 1 },
+            proration_behavior: 'none',
+            metadata: {
+              orgId: String(sub.organisationId),
+              planId: String(newPlan.id),
+              billingCycle,
+            },
+          },
+        ],
+      });
+    } catch (err) {
+      this.throwFriendlyStripeError(err, 'Could not schedule this plan change.');
+    }
 
     const effectiveAt = new Date(currentPhase.end_date * 1000);
 
@@ -501,10 +541,14 @@ export class BillingService {
       return { message: 'Your trial has been cancelled.' };
     }
 
-    await this.stripeService.stripe.subscriptions.update(
-      subscription.stripeSubscriptionId,
-      { cancel_at_period_end: true },
-    );
+    try {
+      await this.stripeService.stripe.subscriptions.update(
+        subscription.stripeSubscriptionId,
+        { cancel_at_period_end: true },
+      );
+    } catch (err) {
+      this.throwFriendlyStripeError(err, 'Could not cancel your plan right now.');
+    }
 
     await this.prisma.orgSubscription.update({
       where: { organisationId: org.id },
@@ -544,10 +588,14 @@ export class BillingService {
       );
     }
 
-    await this.stripeService.stripe.subscriptions.update(
-      subscription.stripeSubscriptionId,
-      { cancel_at_period_end: false },
-    );
+    try {
+      await this.stripeService.stripe.subscriptions.update(
+        subscription.stripeSubscriptionId,
+        { cancel_at_period_end: false },
+      );
+    } catch (err) {
+      this.throwFriendlyStripeError(err, 'Could not resume your plan right now.');
+    }
 
     await this.prisma.orgSubscription.update({
       where: { organisationId: org.id },
@@ -754,6 +802,38 @@ export class BillingService {
       throw new BadRequestException('Your subscription has no billable item.');
     }
     return itemId;
+  }
+
+  /**
+   * Stripe's own error copy is full of parameter names and unix timestamps —
+   * never safe to show a business owner. Log the raw message, then surface a
+   * short sentence they can act on.
+   */
+  private throwFriendlyStripeError(err: unknown, fallback: string): never {
+    const stripeMessage =
+      err && typeof err === 'object' && 'message' in err
+        ? String((err as { message?: unknown }).message ?? '')
+        : '';
+    this.logger.error(`Stripe billing failure: ${stripeMessage || String(err)}`);
+
+    const lower = stripeMessage.toLowerCase();
+    if (lower.includes('trial') && lower.includes('billing_cycle_anchor')) {
+      throw new BadRequestException(
+        'We could not change your plan while your free trial is still active. Please try again, or contact support if this keeps happening.',
+      );
+    }
+    if (lower.includes('card') || lower.includes('payment') || lower.includes('insufficient')) {
+      throw new BadRequestException(
+        'Your card could not be charged. Please update your payment method and try again.',
+      );
+    }
+    if (lower.includes('no such subscription') || lower.includes('resource_missing')) {
+      throw new BadRequestException(
+        'We could not find your subscription. Please contact support or choose a plan again.',
+      );
+    }
+
+    throw new BadRequestException(fallback);
   }
 
   /** Releases a Stripe schedule (if any) and clears the local pending change. */
