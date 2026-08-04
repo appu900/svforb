@@ -194,9 +194,48 @@ export class FoodListingService {
               claimMode: true,
               createdAt: true,
               collectedAt: true,
-              claimItems: { select: { qtyKg: true } },
+              confirmedAt: true,
+              claimItems: {
+                select: {
+                  qtyKg: true,
+                  foodItem: { select: { id: true, name: true, unit: true, category: true } },
+                },
+              },
               claimantOrg: {
-                select: { id: true, name: true, organizationType: true, logoUrl: true },
+                select: {
+                  id: true,
+                  name: true,
+                  organizationType: true,
+                  logoUrl: true,
+                  address: true,
+                },
+              },
+              claimantSite: {
+                select: {
+                  id: true,
+                  organisationName: true,
+                  address: true,
+                  postcode: true,
+                  contactMobile: true,
+                  contactName: true,
+                },
+              },
+              driverPickups: {
+                where: { status: { not: 'CANCELLED' } },
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+                select: {
+                  id: true,
+                  status: true,
+                  driver: {
+                    select: {
+                      id: true,
+                      firstName: true,
+                      lastName: true,
+                      phoneNumber: true,
+                    },
+                  },
+                },
               },
             },
           },
