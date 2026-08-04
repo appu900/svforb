@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -18,7 +19,7 @@ import { NotificationService } from '../../notifications/services/notification.s
 import { ListingGateway } from '../../../gateway/listing.gateway';
 import { DriverLocationService } from '../../drivers/service/driver.location.service';
 import { ClaimsCacheManager } from '../cache/claims.cachemanager';
-import { CreateClaimDto, MarkCollectedDto } from '../dto/claims.dto';
+import { CreateClaimDto, MarkCollectedDto, RateClaimDto } from '../dto/claims.dto';
 
 const DEFAULT_LIMIT = 20;
 
@@ -577,6 +578,71 @@ export class ClaimsService {
     return { message: 'Marked as collected' };
   }
 
+  /**
+   * Lets the claimant rate a collection after the fact. markCollected already
+   * accepts a rating at collection time; this covers the Updates feedback card
+   * which appears once the claim is already COLLECTED.
+   */
+  async rateClaim(caller: Jwtpayload, claimId: number, dto: RateClaimDto) {
+    if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
+
+    const claim = await this.prisma.foodClaim.findUnique({
+      where: { id: claimId },
+      include: { listing: { select: { organisationId: true, id: true } } },
+    });
+
+    if (!claim) throw new NotFoundException('Claim not found');
+    if (claim.claimantOrgId !== caller.orgId) {
+      throw new ForbiddenException('Only the claimant can rate this collection');
+    }
+    if (claim.status !== ClaimStatus.COLLECTED) {
+      throw new BadRequestException('You can only rate a completed collection');
+    }
+    if (claim.rating != null) {
+      throw new ConflictException('This collection has already been rated');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.foodClaim.update({
+        where: { id: claimId },
+        data: {
+          rating: dto.rating,
+          ratingNote: dto.ratingNote ?? null,
+        },
+      });
+
+      const org = await tx.organisation.findUnique({
+        where: { id: claim.listing.organisationId },
+        select: { ratingAvg: true, ratingCount: true },
+      });
+      const newAvg = org
+        ? (org.ratingAvg * org.ratingCount + dto.rating) / (org.ratingCount + 1)
+        : dto.rating;
+
+      await tx.organisation.update({
+        where: { id: claim.listing.organisationId },
+        data: { ratingAvg: newAvg, ratingCount: { increment: 1 } },
+      });
+
+      await tx.listingActivity.create({
+        data: {
+          listingId: claim.listingId,
+          actorOrgId: caller.orgId!,
+          eventType: 'CLAIM_RATED',
+          message: `Collection rated ${dto.rating}/5`,
+        },
+      });
+    });
+
+    await Promise.all([
+      this.cache.delListingClaims(claim.listingId),
+      this.cache.invalidateMyClaims(caller.orgId!),
+      this.cache.invalidateListing(claim.listingId),
+    ]);
+
+    return { message: 'Thanks for your feedback', rating: dto.rating };
+  }
+
   async getMyClaims(caller: Jwtpayload, page = 1, limit = DEFAULT_LIMIT, status?: ClaimStatus) {
     if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
 
@@ -594,16 +660,72 @@ export class ClaimsService {
         where,
         include: {
           claimItems: {
-            include: { foodItem: { select: { name: true, unit: true } } },
+            include: { foodItem: { select: { id: true, name: true, unit: true, totalQtyKg: true } } },
+          },
+          claimantSite: {
+            select: {
+              id: true,
+              organisationName: true,
+              address: true,
+              postcode: true,
+              contactMobile: true,
+              contactName: true,
+            },
+          },
+          driverPickups: {
+            orderBy: [{ collectedAt: 'desc' }, { createdAt: 'desc' }],
+            take: 3,
+            select: {
+              id: true,
+              status: true,
+              collectedAt: true,
+              driver: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phoneNumber: true,
+                },
+              },
+            },
           },
           listing: {
             select: {
               id: true,
+              listingType: true,
               pickupAddress: true,
+              pickupPostcode: true,
+              pickupLat: true,
+              pickupLng: true,
+              pickupFromTime: true,
               pickupByTime: true,
               bestBefore: true,
               status: true,
-              organisation: { select: { id: true, name: true, logoUrl: true } },
+              totalQtyKg: true,
+              remainingQtyKg: true,
+              needsRefrigeration: true,
+              needsHot: true,
+              needsReheating: true,
+              foodItems: {
+                select: {
+                  id: true,
+                  name: true,
+                  totalQtyKg: true,
+                  remainingQtyKg: true,
+                  unit: true,
+                },
+              },
+              site: {
+                select: {
+                  id: true,
+                  organisationName: true,
+                  address: true,
+                  postcode: true,
+                  contactMobile: true,
+                  contactName: true,
+                },
+              },
+              organisation: { select: { id: true, name: true, logoUrl: true, address: true } },
             },
           },
         },

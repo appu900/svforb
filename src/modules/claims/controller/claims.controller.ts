@@ -16,7 +16,7 @@ import { ClaimStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { ClaimsService } from '../services/claims.service';
-import { CreateClaimDto, MarkCollectedDto } from '../dto/claims.dto';
+import { CreateClaimDto, MarkCollectedDto, RateClaimDto } from '../dto/claims.dto';
 
 @Controller('claims')
 @UseGuards(JwtAuthGuard)
@@ -72,6 +72,16 @@ export class ClaimsController {
     @Body() dto: MarkCollectedDto,
   ) {
     return this.service.markCollected(req.user, id, dto);
+  }
+
+  /** Submit / update feedback for a collected claim. */
+  @Patch(':id/rating')
+  rateClaim(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RateClaimDto,
+  ) {
+    return this.service.rateClaim(req.user, id, dto);
   }
 
   @Delete(':id')

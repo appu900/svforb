@@ -3,7 +3,7 @@ import { RedisService } from '../../../infra/redis/redis.service';
 
 const K = {
   LISTING:     (id: number) => `listing:single:${id}`,
-  ORG_PAGE:    (orgId: number, page: number) => `listing:org:v2:${orgId}:p${page}`,
+  ORG_PAGE:    (orgId: number, page: number) => `listing:org:v3:${orgId}:p${page}`,
   RECENT_PAGE: (page: number) => `listing:recent:p${page}`,
   NEARBY:      (siteId: number, radiusKm: number, page: number, limit: number) =>
     `listing:nearby:${siteId}:r${radiusKm}:p${page}:l${limit}`,

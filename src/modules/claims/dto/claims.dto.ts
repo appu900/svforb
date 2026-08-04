@@ -48,3 +48,15 @@ export class MarkCollectedDto {
   @IsString()
   ratingNote?: string;
 }
+
+/** Rate a claim after collection (or while confirming collection). */
+export class RateClaimDto {
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @IsOptional()
+  @IsString()
+  ratingNote?: string;
+}

@@ -3,7 +3,7 @@ import { RedisService } from '../../../infra/redis/redis.service';
 
 const K = {
   LISTING_CLAIMS: (listingId: number) => `claims:listing:${listingId}`,
-  MY_CLAIMS:      (orgId: number, page: number) => `claims:org:${orgId}:p${page}`,
+  MY_CLAIMS:      (orgId: number, page: number) => `claims:org:v3:${orgId}:p${page}`,
   // mirror keys from FoodListingCacheManager so claims can bust them
   LISTING_DETAIL: (id: number) => `listing:single:${id}`,
   RECENT_PAGE1:   () => `listing:recent:p1`,

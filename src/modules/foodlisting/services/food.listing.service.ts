@@ -227,6 +227,7 @@ export class FoodListingService {
                 select: {
                   id: true,
                   status: true,
+                  collectedAt: true,
                   driver: {
                     select: {
                       id: true,
