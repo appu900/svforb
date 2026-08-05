@@ -97,23 +97,82 @@ export class MailerService {
     email: string,
     password: string,
     siteName: string,
-    role: string,
+    _role: string,
   ): Promise<void> {
+    const appStoreUrl = 'https://apps.apple.com/us/app/saveful/id6460647948';
+    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.saveful.app';
+    const businessUrl = 'https://www.saveful.com/business';
+    const appStoreBadge =
+      'https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83';
+    const playStoreBadge =
+      'https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png';
+
     await this.sendMail({
       to,
-      subject: `You've been added to ${siteName}`,
+      subject: 'Welcome to Saveful for Business - Your account is ready',
       html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          <h2 style="color:#333;">You've been added to ${siteName}</h2>
-          <p>Hello <strong>${name}</strong>,</p>
-          <p>You have been added to <strong>${siteName}</strong> as a <strong>${role}</strong>.</p>
-          <p>Use the credentials below to log in:</p>
-          <div style="background:#f4f4f4;padding:24px;border-radius:8px;margin:24px 0;">
-            <p style="margin:0 0 8px;"><strong>Email:</strong> ${email}</p>
-            <p style="margin:0;"><strong>Password:</strong> ${password}</p>
+        <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#333;line-height:1.5;">
+          ${
+            this.logoDataUri
+              ? `<div style="text-align:center;margin:0 0 28px;">
+                  <img src="${this.logoDataUri}" alt="Saveful for Business" style="max-width:200px;height:auto;" />
+                </div>`
+              : ''
+          }
+
+          <p style="margin:0 0 16px;">Hello ${name},</p>
+
+          <h2 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#1a1a1a;">
+            Welcome to Saveful for Business
+          </h2>
+
+          <p style="margin:0 0 16px;">
+            You've been invited to join the <strong>${siteName}</strong> team on Saveful for Business.
+          </p>
+
+          <p style="margin:0 0 20px;">
+            Saveful for Business helps organisations recover more surplus food,
+            connect with recovery partners and measure their environmental and social impact.
+          </p>
+
+          <p style="margin:0 0 12px;">
+            To get started, download the Saveful for Business app and sign in using the login details below:
+          </p>
+
+          <div style="text-align:center;margin:0 0 28px;">
+            <a href="${appStoreUrl}" style="display:inline-block;margin:0 6px 8px;text-decoration:none;">
+              <img src="${appStoreBadge}" alt="Download on the App Store" style="height:40px;width:auto;" />
+            </a>
+            <a href="${playStoreUrl}" style="display:inline-block;margin:0 6px 8px;text-decoration:none;">
+              <img src="${playStoreBadge}" alt="Get it on Google Play" style="height:58px;width:auto;" />
+            </a>
           </div>
-          <p style="color:#e53e3e;font-size:13px;">For your security, please change your password after logging in for the first time.</p>
-          <p style="color:#888;font-size:13px;">If you did not expect this invitation, please contact your organisation admin.</p>
+
+          <p style="margin:0 0 8px;font-weight:700;">Your login details</p>
+          <div style="background:#f4f4f4;padding:20px 24px;border-radius:8px;margin:0 0 28px;">
+            <p style="margin:0 0 8px;"><strong>Email:</strong> ${email}</p>
+            <p style="margin:0;"><strong>Temporary Password:</strong> ${password}</p>
+          </div>
+
+          <div style="text-align:center;margin:0 0 28px;">
+            <a href="${businessUrl}"
+               style="display:inline-block;background:#1a1a1a;color:#ffffff;text-decoration:none;
+                      padding:12px 22px;border-radius:6px;font-size:14px;font-weight:600;">
+              Learn more about Saveful for Business &nbsp;&rsaquo;
+            </a>
+          </div>
+
+          <p style="margin:0 0 16px;font-weight:700;">
+            Together, we're helping good food go further.
+          </p>
+
+          <p style="margin:0 0 12px;font-size:13px;color:#555;">
+            For your security, please change your password after logging in for the first time.
+          </p>
+
+          <p style="margin:0;font-size:13px;color:#888;">
+            If you did not expect this invitation, please contact your organisation administrator.
+          </p>
         </div>
       `,
     });
