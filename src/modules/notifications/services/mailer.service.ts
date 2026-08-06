@@ -139,14 +139,20 @@ export class MailerService {
             To get started, download the Saveful for Business app and sign in using the login details below:
           </p>
 
-          <div style="text-align:center;margin:0 0 28px;">
-            <a href="${appStoreUrl}" style="display:inline-block;margin:0 6px 8px;text-decoration:none;">
-              <img src="${appStoreBadge}" alt="Download on the App Store" style="height:40px;width:auto;" />
-            </a>
-            <a href="${playStoreUrl}" style="display:inline-block;margin:0 6px 8px;text-decoration:none;">
-              <img src="${playStoreBadge}" alt="Get it on Google Play" style="height:58px;width:auto;" />
-            </a>
-          </div>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px;">
+            <tr>
+              <td valign="middle" style="padding:0 6px;">
+                <a href="${appStoreUrl}" style="display:inline-block;line-height:0;text-decoration:none;">
+                  <img src="${appStoreBadge}" alt="Download on the App Store" width="135" height="40" style="display:block;height:40px;width:auto;border:0;" />
+                </a>
+              </td>
+              <td valign="middle" style="padding:0 6px;">
+                <a href="${playStoreUrl}" style="display:inline-block;line-height:0;text-decoration:none;">
+                  <img src="${playStoreBadge}" alt="Get it on Google Play" width="135" height="40" style="display:block;height:40px;width:auto;border:0;" />
+                </a>
+              </td>
+            </tr>
+          </table>
 
           <p style="margin:0 0 8px;font-weight:700;">Your login details</p>
           <div style="background:#f4f4f4;padding:20px 24px;border-radius:8px;margin:0 0 28px;">
