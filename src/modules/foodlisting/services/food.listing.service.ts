@@ -402,11 +402,14 @@ export class FoodListingService {
     const radiusM = resolvedRadius * 1000;
     const skip = (page - 1) * limit;
     const claimantOrgId = caller.orgId;
+    const claimantSiteId = site.id;
 
     const typeFilter = Prisma.join(
       listingTypes.map((t) => Prisma.sql`${t}::"FoodListingType"`),
     );
 
+    // Exclude only listings THIS site already claimed. Sibling sites in a
+    // multi-charity org must still see PARTIAL leftovers with remaining qty.
     const [rows, countRows] = await Promise.all([
       this.prisma.$queryRaw<NearbyDistanceRow[]>`
         SELECT
@@ -435,6 +438,7 @@ export class FoodListingService {
             SELECT 1 FROM food_claims fc
             WHERE fc."listingId" = fl.id
               AND fc."claimantOrgId" = ${claimantOrgId}
+              AND fc."claimantSiteId" = ${claimantSiteId}
               AND fc.status <> 'CANCELLED'
           )
           AND ST_DWithin(
@@ -462,6 +466,7 @@ export class FoodListingService {
             SELECT 1 FROM food_claims fc
             WHERE fc."listingId" = fl.id
               AND fc."claimantOrgId" = ${claimantOrgId}
+              AND fc."claimantSiteId" = ${claimantSiteId}
               AND fc.status <> 'CANCELLED'
           )
           AND ST_DWithin(

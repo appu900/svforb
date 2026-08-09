@@ -21,6 +21,7 @@ import { ListingGateway } from '../../../gateway/listing.gateway';
 import { DriverLocationService } from '../../drivers/service/driver.location.service';
 import { ClaimsCacheManager } from '../cache/claims.cachemanager';
 import { CreateClaimDto, MarkCollectedDto, RateClaimDto } from '../dto/claims.dto';
+import { resolveCallerSiteId } from '../../foodlisting/utils/resolve-caller-site';
 
 const DEFAULT_LIMIT = 20;
 
@@ -51,6 +52,7 @@ export class ClaimsService {
       where: { id: caller.orgId },
       select: { name: true },
     });
+    const claimantSiteId = await resolveCallerSiteId(this.prisma, caller);
 
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT id FROM food_listings WHERE id = ${dto.listingId} FOR UPDATE`;
@@ -122,11 +124,17 @@ export class ClaimsService {
       const newRemainingQtyKg = listing.remainingQtyKg - totalClaimedKg;
       const newStatus = newRemainingQtyKg <= 0 ? ListingStatus.CLAIMED : ListingStatus.PARTIAL;
 
+      // One active claim per site (not whole org) so Site B can claim PARTIAL leftovers.
+      // Legacy claims with null claimantSiteId still block the whole org.
       const existingActiveClaim = await tx.foodClaim.findFirst({
         where: {
           listingId: dto.listingId,
           claimantOrgId: caller.orgId,
           status: { not: ClaimStatus.CANCELLED },
+          OR: [
+            ...(claimantSiteId != null ? [{ claimantSiteId }] : []),
+            { claimantSiteId: null },
+          ],
         },
       });
 
@@ -138,7 +146,7 @@ export class ClaimsService {
         data: {
           listingId: dto.listingId,
           claimantOrgId: caller.orgId!,
-          claimantSiteId: caller.siteId ?? null,
+          claimantSiteId,
           claimMode: dto.claimMode,
           status: ClaimStatus.PENDING,
           claimItems: { create: claimItemsData },
