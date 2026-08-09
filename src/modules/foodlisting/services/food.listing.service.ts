@@ -19,6 +19,7 @@ import { S3Service } from '../../../uploads/s3/s3.service';
 import { ListingQueueService, resolveListingExpiryAt } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
+import { resolveCallerSiteId } from '../utils/resolve-caller-site';
 
 const PHOTO_FOLDER = 'food-listing-photos';
 const DEFAULT_LIMIT = 20;
@@ -340,7 +341,12 @@ export class FoodListingService {
     limit = DEFAULT_LIMIT,
     radiusKm?: number,
   ) {
-    if (!caller.siteId || !caller.orgId || !caller.orgType) {
+    if (!caller.orgId || !caller.orgType) {
+      throw new ForbiddenException('Site and organisation context required');
+    }
+
+    const siteId = await resolveCallerSiteId(this.prisma, caller);
+    if (!siteId) {
       throw new ForbiddenException('Site and organisation context required');
     }
 
@@ -352,7 +358,7 @@ export class FoodListingService {
     }
 
     const site = await this.prisma.site.findUnique({
-      where: { id: caller.siteId },
+      where: { id: siteId },
       select: {
         id: true,
         latitude: true,
@@ -383,7 +389,7 @@ export class FoodListingService {
     const resolvedRadius = this.resolveNearbyRadiusKm(radiusKm, site.pickupRadiusKm);
 
     const cached = await this.cache.getNearbyPage<unknown>(
-      caller.siteId,
+      site.id,
       resolvedRadius,
       page,
       limit,
@@ -521,9 +527,9 @@ export class FoodListingService {
       region,
     };
 
-    await this.cache.setNearbyPage(caller.siteId, resolvedRadius, page, limit, result);
+    await this.cache.setNearbyPage(site.id, resolvedRadius, page, limit, result);
     this.logger.log(
-      `Nearby listings site=${caller.siteId} radius=${resolvedRadius}km page=${page} total=${total}`,
+      `Nearby listings site=${site.id} radius=${resolvedRadius}km page=${page} total=${total}`,
     );
     return result;
   }

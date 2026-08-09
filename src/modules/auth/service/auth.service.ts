@@ -846,6 +846,8 @@ export class AuthService {
             contactMobile: true,
             pickupRadiusKm: true,
             isActive: true,
+            latitude: true,
+            longitude: true,
           },
         },
       },
@@ -1009,6 +1011,8 @@ export class AuthService {
       contactMobile: string;
       pickupRadiusKm: number | null;
       isActive: boolean;
+      latitude?: number | null;
+      longitude?: number | null;
     },
     siteRole?: string,
     grantedAt?: Date,
@@ -1022,6 +1026,8 @@ export class AuthService {
       contactMobile: site.contactMobile,
       pickupRadiusKm: site.pickupRadiusKm,
       isActive: site.isActive,
+      latitude: site.latitude ?? null,
+      longitude: site.longitude ?? null,
       ...(siteRole !== undefined && { siteRole }),
       ...(grantedAt !== undefined && { grantedAt }),
     };
