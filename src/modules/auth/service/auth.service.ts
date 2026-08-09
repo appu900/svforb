@@ -260,37 +260,38 @@ export class AuthService {
         },
       });
 
-      let site: { id: number } | null = null;
-      if (dto.charityType === OrgType.CHARITY_SINGLE) {
-        site = await tx.site.create({
-          data: {
-            organisationId: org.id,
-            organisationName: dto.charityName,
-            address: dto.charityAddress,
-            postcode: dto.pickupPostCode ?? '',
-            contactName: `${dto.firstName} ${dto.lastName}`,
-            contactEmail: email,
-            contactMobile: dto.mobile ?? '',
-            latitude: dto.latitude,
-            longitude: dto.longitude,
-            pickupRadiusKm: dto.pickupRadiusKm ?? 5,
-          },
-        });
+      // Both single and multi create a first site from the signup address so
+      // nearby/claim works immediately (multi HQ is also a real site).
+      const site = await tx.site.create({
+        data: {
+          organisationId: org.id,
+          organisationName: dto.charityName,
+          address: dto.charityAddress,
+          postcode: dto.pickupPostCode ?? '',
+          contactName: `${dto.firstName} ${dto.lastName}`,
+          contactEmail: email,
+          contactMobile: dto.mobile ?? '',
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          pickupRadiusKm: dto.pickupRadiusKm ?? 5,
+        },
+      });
 
-        await tx.siteAccess.create({
-          data: {
-            userId: user.id,
-            siteId: site!.id,
-            organisationId: org.id,
-            siteRole: SiteRole.SITE_ADMIN,
-            grantedBy: user.id,
-          },
-        });
+      await tx.siteAccess.create({
+        data: {
+          userId: user.id,
+          siteId: site.id,
+          organisationId: org.id,
+          siteRole: SiteRole.SITE_ADMIN,
+          grantedBy: user.id,
+        },
+      });
 
+      if (dto.pickupPostCode) {
         await tx.charityPickupPrefs.create({
           data: {
             organisationId: org.id,
-            postCode: dto.pickupPostCode!,
+            postCode: dto.pickupPostCode,
             radiusKm: dto.pickupRadiusKm ?? 5,
           },
         });
@@ -299,7 +300,7 @@ export class AuthService {
       return {
         user,
         org,
-        site: dto.charityType === OrgType.CHARITY_SINGLE ? site : null,
+        site,
       };
     });
 
@@ -316,6 +317,25 @@ export class AuthService {
           dto.latitude!,
           dto.longitude!,
           dto.region,
+        );
+      }
+    }
+
+    if (
+      result.site &&
+      dto.latitude != null &&
+      dto.longitude != null
+    ) {
+      try {
+        await this.proximityService.syncSiteLocation(
+          result.site.id,
+          dto.latitude,
+          dto.longitude,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to sync PostGIS location for charity site=${result.site.id}`,
+          error instanceof Error ? error.stack : undefined,
         );
       }
     }

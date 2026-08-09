@@ -51,7 +51,7 @@ export class RegisterCharityDto {
   // CHARITY_SINGLE or CHARITY_MULTI
   @IsEnum(OrgType) charityType!: OrgType;
 
-  // Pickup preferences (required for CHARITY_SINGLE, ignored for CHARITY_MULTI)
+  // Pickup preferences: required for CHARITY_SINGLE; used for default HQ site on CHARITY_MULTI
   @IsString() @IsOptional() pickupPostCode?: string;
 
   @IsOptional()
