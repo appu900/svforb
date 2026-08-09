@@ -9,6 +9,7 @@ import {
 import {
   ClaimMode,
   ClaimStatus,
+  DriverPickupStatus,
   FoodListingType,
   ListingStatus,
   OrgType,
@@ -506,15 +507,40 @@ export class ClaimsService {
     if (claim.status === ClaimStatus.COLLECTED) {
       return { message: 'Already marked as collected' };
     }
-    if (claim.status !== ClaimStatus.CONFIRMED) {
-      throw new BadRequestException('Claim must be confirmed before marking collected');
+    if (claim.status !== ClaimStatus.CONFIRMED && claim.status !== ClaimStatus.PENDING) {
+      throw new BadRequestException('Claim cannot be marked collected in its current status');
+    }
+
+    // Self-pickup: PENDING (or CONFIRMED) with no live driver assignment.
+    // Once a driver pickup is active, collection must go through the driver path.
+    const activeDriverPickup = await this.prisma.driverPickup.findFirst({
+      where: {
+        claimId,
+        status: {
+          in: [
+            DriverPickupStatus.ASSIGNED,
+            DriverPickupStatus.ACCEPTED,
+            DriverPickupStatus.EN_ROUTE,
+            DriverPickupStatus.ARRIVED,
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    if (activeDriverPickup) {
+      throw new BadRequestException(
+        'This claim has an assigned driver. Complete collection via the driver pickup flow.',
+      );
     }
 
     const totalQtyKg = claim.claimItems.reduce((sum, ci) => sum + ci.qtyKg, 0);
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const claimUpdate = await tx.foodClaim.updateMany({
-        where: { id: claimId, status: ClaimStatus.CONFIRMED },
+        where: {
+          id: claimId,
+          status: { in: [ClaimStatus.CONFIRMED, ClaimStatus.PENDING] },
+        },
         data: {
           status: ClaimStatus.COLLECTED,
           collectedAt: new Date(),
