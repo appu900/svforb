@@ -65,6 +65,14 @@ export class CharityController {
     return this.charityService.deactivateLocation(req.user, id);
   }
 
+  @Post('locations/:id/activate')
+  reactivateLocation(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.charityService.reactivateLocation(req.user, id);
+  }
+
   @Post('users')
   addMember(
     @Req() req: Request & { user: Jwtpayload },

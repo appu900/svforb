@@ -384,6 +384,27 @@ export class CharityService {
     });
     if (!site) throw new NotFoundException('Location not found');
 
+    const activeCount = await this.prisma.site.count({
+      where: { organisationId: caller.orgId, isActive: true },
+    });
+    if (site.isActive && activeCount <= 1) {
+      throw new BadRequestException(
+        'Cannot remove your only active site. Add another location first, or restore an inactive one.',
+      );
+    }
+
+    // Never soft-delete the org's original (oldest) HQ site — rename it instead.
+    const oldest = await this.prisma.site.findFirst({
+      where: { organisationId: caller.orgId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (oldest?.id === locationId) {
+      throw new BadRequestException(
+        'Cannot remove the default head-office site. You can rename it, but it must stay in your organisation.',
+      );
+    }
+
     await this.prisma.site.update({
       where: { id: locationId },
       data: { isActive: false },
@@ -401,6 +422,52 @@ export class CharityService {
     await this.cache.invalidateLocations(caller.orgId!);
 
     return { message: 'Location deactivated successfully' };
+  }
+
+  async reactivateLocation(caller: Jwtpayload, locationId: number) {
+    this.assertSuperAdmin(caller);
+    this.assertCharityOrg(caller);
+
+    const site = await this.prisma.site.findFirst({
+      where: { id: locationId, organisationId: caller.orgId },
+    });
+    if (!site) throw new NotFoundException('Location not found');
+    if (site.isActive) {
+      return {
+        message: 'Location is already active',
+        location: this.formatLocation(site),
+      };
+    }
+
+    const updated = await this.prisma.site.update({
+      where: { id: locationId },
+      data: { isActive: true },
+    });
+
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: caller.orgId! },
+      select: { region: true },
+    });
+    if (
+      org?.region &&
+      updated.latitude != null &&
+      updated.longitude != null
+    ) {
+      await this.geoSearch.indexCharitySite(
+        updated.id,
+        updated.latitude,
+        updated.longitude,
+        org.region,
+      );
+    }
+
+    await this.cache.invalidateLocation(locationId);
+    await this.cache.invalidateLocations(caller.orgId!);
+
+    return {
+      message: 'Location restored successfully',
+      location: this.formatLocation(updated),
+    };
   }
 
   async addMember(caller: Jwtpayload, dto: AddCharityMemberDto) {
