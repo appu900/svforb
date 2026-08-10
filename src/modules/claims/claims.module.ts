@@ -9,6 +9,6 @@ import { ClaimsCacheManager } from './cache/claims.cachemanager';
   imports: [GatewayModule, DriversModule],
   controllers: [ClaimsController],
   providers: [ClaimsService, ClaimsCacheManager],
-  exports: [ClaimsService],
+  exports: [ClaimsService, ClaimsCacheManager],
 })
 export class ClaimsModule {}

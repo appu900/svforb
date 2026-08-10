@@ -266,40 +266,130 @@ export class ClaimsService {
       }
     }
 
-    // Notify live drivers on the charity's site as soon as a claim is created
-    const charitySite = await this.prisma.site.findFirst({
-      where: { organisationId: caller.orgId! },
-      select: { id: true },
-    });
-    const liveDrivers = charitySite
-      ? await this.driverService.getLiveDriversForSite(charitySite.id)
-      : [];
-    if (liveDrivers.length) {
-      await this.notificationService.send({
-        title: 'Pickup available!',
-        body: `${result.totalClaimedKg}kg ready for collection from ${result.listing.organisation.name}`,
-        data: {
-          claimId: String(result.claim.id),
-          listingId: String(dto.listingId),
-          type: 'pickup_available',
-          claimMode: dto.claimMode,
-          remainingQtyKg: String(result.newRemainingQtyKg),
-        },
-        targetUserIds: liveDrivers.map((d) => String(d.userId)),
-        targetApp: 'driver',
-        allowEmptyTargets: true,
-        priority: 'high',
-      }).catch((err) =>
-        this.logger.warn(`notifyLiveDriversOnClaim non-critical error: ${err.message}`),
-      );
-      this.logger.log(`Notified ${liveDrivers.length} live driver(s) for claim on listing ${dto.listingId}`);
-    }
+    // Driver notify is deferred until the claimant taps Continue (requestDriverPickup).
+    // Self-pickup should not ping drivers.
 
     this.logger.log(
       `Claim created: id=${result.claim.id} listing=${dto.listingId} org=${caller.orgId} mode=${dto.claimMode} qty=${result.totalClaimedKg}kg`,
     );
 
     return result.claim;
+  }
+
+  /**
+   * Claimant chose driver collection (Continue) — notify online (live) drivers
+   * on the claimant site only. Self-pickup must not call this.
+   */
+  async requestDriverPickup(caller: Jwtpayload, claimId: number) {
+    if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
+
+    const claim = await this.prisma.foodClaim.findUnique({
+      where: { id: claimId },
+      include: {
+        claimItems: { select: { qtyKg: true } },
+        listing: {
+          select: {
+            id: true,
+            organisation: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    if (!claim) throw new NotFoundException('Claim not found');
+    if (claim.claimantOrgId !== caller.orgId) {
+      throw new ForbiddenException('Only the claimant can request a driver for this claim');
+    }
+    if (
+      claim.status === ClaimStatus.COLLECTED ||
+      claim.status === ClaimStatus.CANCELLED
+    ) {
+      throw new BadRequestException(
+        `Cannot request a driver for a ${claim.status.toLowerCase()} claim`,
+      );
+    }
+
+    const activePickup = await this.prisma.driverPickup.findFirst({
+      where: {
+        claimId,
+        status: {
+          in: [
+            DriverPickupStatus.ASSIGNED,
+            DriverPickupStatus.ACCEPTED,
+            DriverPickupStatus.EN_ROUTE,
+            DriverPickupStatus.ARRIVED,
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    if (activePickup) {
+      return {
+        message: 'A driver is already assigned to this claim',
+        claimId,
+        notifiedDrivers: 0,
+        onlineDrivers: 0,
+        alreadyAssigned: true,
+      };
+    }
+
+    const siteId =
+      claim.claimantSiteId ??
+      (await resolveCallerSiteId(this.prisma, caller)) ??
+      null;
+
+    if (!siteId) {
+      throw new BadRequestException(
+        'No site context for this claim. Assign a site before requesting a driver.',
+      );
+    }
+
+    const liveDrivers = (await this.driverService.getLiveDriversForSite(siteId)).filter(
+      (driver) => driver.orgId === caller.orgId && driver.siteId === siteId,
+    );
+    const liveUserIds = [...new Set(liveDrivers.map((d) => d.userId))];
+
+    const totalClaimedKg = claim.claimItems.reduce((sum, item) => sum + item.qtyKg, 0);
+
+    if (liveUserIds.length) {
+      await this.notificationService
+        .send({
+          title: 'Pickup available!',
+          body: `${totalClaimedKg}kg ready for collection from ${claim.listing.organisation.name}`,
+          data: {
+            claimId: String(claim.id),
+            listingId: String(claim.listing.id),
+            type: 'pickup_available',
+            claimMode: claim.claimMode,
+          },
+          targetUserIds: liveUserIds.map(String),
+          targetApp: 'driver',
+          allowEmptyTargets: true,
+          priority: 'high',
+        })
+        .catch((err) =>
+          this.logger.warn(`requestDriverPickup notify non-critical error: ${err.message}`),
+        );
+      this.logger.log(
+        `requestDriverPickup: notified ${liveUserIds.length} online driver(s) claim=${claimId} site=${siteId}`,
+      );
+    } else {
+      this.logger.warn(
+        `requestDriverPickup: no online drivers on site=${siteId} for claim=${claimId}`,
+      );
+    }
+
+    return {
+      message:
+        liveUserIds.length > 0
+          ? `Notified ${liveUserIds.length} online driver(s)`
+          : 'No online drivers right now. They’ll see the pickup when they go live, or assign one from Home → Drivers.',
+      claimId,
+      siteId,
+      notifiedDrivers: liveUserIds.length,
+      onlineDrivers: liveUserIds.length,
+      alreadyAssigned: false,
+    };
   }
 
   async confirmClaim(caller: Jwtpayload, claimId: number) {

@@ -193,6 +193,16 @@ export class DriverLocationService {
       }),
     ]);
 
+    const claim = await this.prisma.foodClaim.findUnique({
+      where: { id: claimId },
+      select: { claimantOrgId: true },
+    });
+    if (claim?.claimantOrgId) {
+      await this.redis
+        .del(`claims:org:v3:${claim.claimantOrgId}:p1`)
+        .catch(() => undefined);
+    }
+
     this.logger.log(`Driver ${driverId} accepted claim=${claimId} listing=${listingId}`);
 
     return {
@@ -468,9 +478,11 @@ export class DriverLocationService {
       throw new ForbiddenException('The specified user is not a driver in your organisation');
     }
 
+    // Prefer live drivers, but still allow assign + push when offline so
+    // Continue → assign works without requiring the driver app to be open.
     const driverInfo = await this.getDriverInfo(driverId);
-    if (!driverInfo || driverInfo.orgId !== assignerOrgId) {
-      throw new BadRequestException('Driver must be live to receive an assignment');
+    if (driverInfo && driverInfo.orgId !== assignerOrgId) {
+      throw new BadRequestException('Driver does not belong to your organisation');
     }
 
     const activePickup = await this.prisma.driverPickup.findFirst({
@@ -482,15 +494,18 @@ export class DriverLocationService {
 
     const driver = await this.prisma.user.findUnique({
       where: { id: driverId },
-      select: { firstName: true, lastName: true },
+      select: { firstName: true, lastName: true, isActive: true },
     });
-    if (!driver) throw new NotFoundException('Driver not found');
+    if (!driver || !driver.isActive) throw new NotFoundException('Driver not found');
 
     const pickup = await this.prisma.driverPickup.create({
       data: { driverId, claimId, listingId, status: DriverPickupStatus.ASSIGNED },
     });
 
     const listing = claim.listing;
+
+    // Bust my-claims cache so Available self-pickup drops this claim immediately.
+    await this.redis.del(`claims:org:v3:${assignerOrgId}:p1`).catch(() => undefined);
 
     await this.notificationService
       .send({
@@ -513,7 +528,7 @@ export class DriverLocationService {
       );
 
     this.logger.log(
-      `Driver ${driverId} assigned (pending accept) to claim=${claimId} listing=${listingId} by org=${assignerOrgId}`,
+      `Driver ${driverId} assigned (pending accept) to claim=${claimId} listing=${listingId} by org=${assignerOrgId}${driverInfo ? '' : ' (offline)'}`,
     );
 
     return {

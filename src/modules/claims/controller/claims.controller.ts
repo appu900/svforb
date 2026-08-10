@@ -57,6 +57,14 @@ export class ClaimsController {
     return this.service.getClaimActivity(req.user, listingId);
   }
 
+  @Post(':id/request-driver')
+  requestDriver(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.requestDriverPickup(req.user, id);
+  }
+
   @Patch(':id/confirm')
   confirm(
     @Req() req: Request & { user: Jwtpayload },
