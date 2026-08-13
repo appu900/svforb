@@ -20,7 +20,7 @@ import { NotificationService } from '../../notifications/services/notification.s
 import { ListingGateway } from '../../../gateway/listing.gateway';
 import { DriverLocationService } from '../../drivers/service/driver.location.service';
 import { ClaimsCacheManager } from '../cache/claims.cachemanager';
-import { CreateClaimDto, MarkCollectedDto, RateClaimDto } from '../dto/claims.dto';
+import { CreateClaimDto, MarkCollectedDto, ProviderFeedbackDto, RateClaimDto } from '../dto/claims.dto';
 import { resolveCallerSiteId } from '../../foodlisting/utils/resolve-caller-site';
 
 const DEFAULT_LIMIT = 20;
@@ -595,7 +595,11 @@ export class ClaimsService {
 
     const claim = await this.prisma.foodClaim.findUnique({
       where: { id: claimId },
-      include: { claimItems: true, listing: true },
+      include: {
+        claimItems: true,
+        listing: true,
+        claimantOrg: { select: { name: true } },
+      },
     });
 
     if (!claim) throw new NotFoundException('Claim not found');
@@ -689,6 +693,7 @@ export class ClaimsService {
       this.cache.invalidateMyClaims(caller.orgId!),
       this.cache.invalidateListing(claim.listingId),
       this.cache.invalidateAllNearby(),
+      this.cache.invalidateOrgListings(claim.listing.organisationId),
     ]);
 
     this.gateway.pushListingEvents(claim.listingId, {
@@ -698,6 +703,15 @@ export class ClaimsService {
       claimId,
       timestamp: new Date().toISOString(),
     });
+
+    if (dto.rating !== undefined) {
+      await this.notifyRestaurantToEvaluate({
+        claimId,
+        listingId: claim.listingId,
+        restaurantOrgId: claim.listing.organisationId,
+        claimantName: claim.claimantOrg?.name,
+      });
+    }
 
     return { message: 'Marked as collected' };
   }
@@ -712,7 +726,10 @@ export class ClaimsService {
 
     const claim = await this.prisma.foodClaim.findUnique({
       where: { id: claimId },
-      include: { listing: { select: { organisationId: true, id: true } } },
+      include: {
+        listing: { select: { organisationId: true, id: true } },
+        claimantOrg: { select: { name: true } },
+      },
     });
 
     if (!claim) throw new NotFoundException('Claim not found');
@@ -762,9 +779,110 @@ export class ClaimsService {
       this.cache.delListingClaims(claim.listingId),
       this.cache.invalidateMyClaims(caller.orgId!),
       this.cache.invalidateListing(claim.listingId),
+      this.cache.invalidateOrgListings(claim.listing.organisationId),
     ]);
 
+    await this.notifyRestaurantToEvaluate({
+      claimId,
+      listingId: claim.listingId,
+      restaurantOrgId: claim.listing.organisationId,
+      claimantName: claim.claimantOrg?.name,
+    });
+
     return { message: 'Thanks for your feedback', rating: dto.rating };
+  }
+
+  /**
+   * Listing provider (restaurant) confirms collection took place and rates the claimant.
+   * Shown after the charity/farmer has collected + evaluated.
+   */
+  async submitProviderFeedback(
+    caller: Jwtpayload,
+    claimId: number,
+    dto: ProviderFeedbackDto,
+  ) {
+    if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
+
+    if (dto.didCollect && (dto.rating == null || dto.rating < 1)) {
+      throw new BadRequestException('Please rate the collection partner');
+    }
+
+    const claim = await this.prisma.foodClaim.findUnique({
+      where: { id: claimId },
+      include: {
+        listing: { select: { id: true, organisationId: true } },
+        claimantOrg: { select: { id: true, name: true, ratingAvg: true, ratingCount: true } },
+      },
+    });
+
+    if (!claim) throw new NotFoundException('Claim not found');
+    if (claim.listing.organisationId !== caller.orgId) {
+      throw new ForbiddenException('Only the listing provider can confirm this collection');
+    }
+    if (claim.status !== ClaimStatus.COLLECTED) {
+      throw new BadRequestException('Wait until the partner has marked this as collected');
+    }
+    if (claim.providerConfirmedAt != null || claim.providerRating != null) {
+      throw new ConflictException('You have already confirmed this collection');
+    }
+
+    const note =
+      dto.ratingNote?.trim() ||
+      (!dto.didCollect ? 'Provider reported collection did not take place' : undefined);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.foodClaim.update({
+        where: { id: claimId },
+        data: {
+          providerConfirmedAt: new Date(),
+          providerDidCollect: dto.didCollect,
+          providerRating: dto.didCollect ? dto.rating! : dto.rating ?? null,
+          providerRatingNote: note ?? null,
+        },
+      });
+
+      if (dto.didCollect && dto.rating != null) {
+        const org = claim.claimantOrg;
+        const newAvg = org
+          ? (org.ratingAvg * org.ratingCount + dto.rating) / (org.ratingCount + 1)
+          : dto.rating;
+
+        await tx.organisation.update({
+          where: { id: claim.claimantOrgId },
+          data: { ratingAvg: newAvg, ratingCount: { increment: 1 } },
+        });
+      }
+
+      await tx.listingActivity.create({
+        data: {
+          listingId: claim.listingId,
+          actorOrgId: caller.orgId!,
+          eventType: dto.didCollect ? 'PROVIDER_CONFIRMED' : 'PROVIDER_DISPUTED',
+          message: dto.didCollect
+            ? `Provider confirmed collection — rated partner ${dto.rating}/5`
+            : `Provider reported collection did not take place${note ? `: ${note}` : ''}`,
+        },
+      });
+    });
+
+    await Promise.all([
+      this.cache.delListingClaims(claim.listingId),
+      this.cache.invalidateListing(claim.listingId),
+      this.cache.invalidateOrgListings(caller.orgId!),
+    ]);
+
+    this.gateway.pushListingEvents(claim.listingId, {
+      listingId: claim.listingId,
+      eventType: dto.didCollect ? 'PROVIDER_CONFIRMED' : 'PROVIDER_DISPUTED',
+      claimId,
+      timestamp: new Date().toISOString(),
+    });
+
+    return {
+      message: dto.didCollect
+        ? 'Thanks — collection confirmed'
+        : 'Thanks — we recorded your feedback',
+    };
   }
 
   async getMyClaims(caller: Jwtpayload, page = 1, limit = DEFAULT_LIMIT, status?: ClaimStatus) {
@@ -924,6 +1042,35 @@ export class ClaimsService {
       select: { id: true },
     });
     return users.map((u) => u.id);
+  }
+
+  /** After claimant collects + rates, ask the restaurant to confirm and evaluate. */
+  private async notifyRestaurantToEvaluate(params: {
+    claimId: number;
+    listingId: number;
+    restaurantOrgId: number;
+    claimantName?: string | null;
+  }) {
+    const userIds = await this.getOrgUserIds(params.restaurantOrgId);
+    if (!userIds.length) return;
+
+    const partner = params.claimantName?.trim() || 'Your collection partner';
+    await this.notificationService
+      .send({
+        title: 'Confirm your collection',
+        body: `${partner} collected and left feedback. Please confirm pickup and rate them.`,
+        data: {
+          claimId: String(params.claimId),
+          listingId: String(params.listingId),
+          type: 'provider_feedback',
+        },
+        targetUserIds: userIds.map(String),
+        priority: 'high',
+        allowEmptyTargets: true,
+      })
+      .catch((err) =>
+        this.logger.warn(`notifyRestaurantToEvaluate non-critical error: ${err.message}`),
+      );
   }
 
   private async getEligibleUserIds(

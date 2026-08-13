@@ -2,6 +2,7 @@ import { ClaimMode } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNumber,
@@ -55,6 +56,22 @@ export class RateClaimDto {
   @Min(1)
   @Max(5)
   rating!: number;
+
+  @IsOptional()
+  @IsString()
+  ratingNote?: string;
+}
+
+/** Listing provider (restaurant) confirms collection and rates the claimant. */
+export class ProviderFeedbackDto {
+  @IsBoolean()
+  didCollect!: boolean;
+
+  @ValidateIf((o) => o.didCollect === true)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating?: number;
 
   @IsOptional()
   @IsString()

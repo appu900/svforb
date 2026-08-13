@@ -6,8 +6,8 @@ export const CO2_PER_KG = 2.1;
 // Average weight of one meal — used to convert kg of human-bound food into meal count
 export const MEAL_WEIGHT_KG = 0.42;
 
-// Estimated market value per kg of rescued food — adjust as real pricing data becomes available
-export const FOOD_VALUE_PER_KG_USD = 2.5;
+// Estimated market value per kg of rescued food (weight × $14.64)
+export const FOOD_VALUE_PER_KG_USD = 14.64;
 
 // Orgs that receive food on behalf of people
 export const CHARITY_ORG_TYPES: OrgType[] = [

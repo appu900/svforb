@@ -11,8 +11,29 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { FoodListingType } from '@prisma/client';
+
+/** Multipart fields arrive as strings — parse JSON / booleans when needed. */
+function ParseJsonIfString() {
+  return Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  });
+}
+
+function ParseOptionalBoolean() {
+  return Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (value === 'true' || value === '1') return true;
+    if (value === 'false' || value === '0' || value === '') return false;
+    return value;
+  });
+}
 
 export class CreateFoodItemDto {
   @IsString() @IsNotEmpty() name!: string;
@@ -43,16 +64,49 @@ export class CreateFoodListingDto {
   @IsDateString() @IsOptional() pickupFromTime?: string;
   @IsDateString() @IsOptional() pickupByTime?: string;
 
-  @IsBoolean() @IsOptional() needsRefrigeration?: boolean;
-  @IsBoolean() @IsOptional() needsAmbient?: boolean;
-  @IsBoolean() @IsOptional() needsFreezer?: boolean;
-  @IsBoolean() @IsOptional() needsHot?: boolean;
-  @IsBoolean() @IsOptional() needsReheating?: boolean;
-  @IsBoolean() @IsOptional() isSafeForDonation?: boolean;
+  @ParseOptionalBoolean()
+  @IsBoolean()
+  @IsOptional()
+  needsRefrigeration?: boolean;
 
-  @IsArray() @IsString({ each: true }) @IsOptional() allergens?: string[];
-  @IsArray() @IsString({ each: true }) @IsOptional() photoUrls?: string[];
+  @ParseOptionalBoolean()
+  @IsBoolean()
+  @IsOptional()
+  needsAmbient?: boolean;
 
+  @ParseOptionalBoolean()
+  @IsBoolean()
+  @IsOptional()
+  needsFreezer?: boolean;
+
+  @ParseOptionalBoolean()
+  @IsBoolean()
+  @IsOptional()
+  needsHot?: boolean;
+
+  @ParseOptionalBoolean()
+  @IsBoolean()
+  @IsOptional()
+  needsReheating?: boolean;
+
+  @ParseOptionalBoolean()
+  @IsBoolean()
+  @IsOptional()
+  isSafeForDonation?: boolean;
+
+  @ParseJsonIfString()
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  allergens?: string[];
+
+  @ParseJsonIfString()
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  photoUrls?: string[];
+
+  @ParseJsonIfString()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateFoodItemDto)

@@ -374,8 +374,8 @@ export class DriverLocationService {
     const totalQtyKg = pickup.claim.claimItems.reduce((sum, ci) => sum + ci.qtyKg, 0);
     const collectedAt = pickup.claim.collectedAt ?? new Date();
 
-    return this.prisma.$transaction(async (tx) => {
-      const updatedPickup = await tx.driverPickup.update({
+    const updatedPickup = await this.prisma.$transaction(async (tx) => {
+      const nextPickup = await tx.driverPickup.update({
         where: { id: pickupId },
         data: {
           status: DriverPickupStatus.COLLECTED,
@@ -387,7 +387,7 @@ export class DriverLocationService {
       });
 
       if (claimAlreadyCollected) {
-        return updatedPickup;
+        return nextPickup;
       }
 
       const claimUpdate = await tx.foodClaim.updateMany({
@@ -403,7 +403,7 @@ export class DriverLocationService {
       });
 
       if (claimUpdate.count === 0) {
-        return updatedPickup;
+        return nextPickup;
       }
 
       if (rating !== undefined) {
@@ -431,8 +431,32 @@ export class DriverLocationService {
         },
       });
 
-      return updatedPickup;
+      return nextPickup;
     });
+
+    if (!claimAlreadyCollected && rating !== undefined) {
+      const restaurantUserIds = await this.getOrgUserIds(pickup.claim.listing.organisationId);
+      if (restaurantUserIds.length > 0) {
+        await this.notificationService
+          .send({
+            title: 'Confirm your collection',
+            body: 'Your listing was collected and rated. Please confirm pickup and rate your partner.',
+            data: {
+              claimId: String(pickup.claimId),
+              listingId: String(pickup.listingId),
+              type: 'provider_feedback',
+            },
+            targetUserIds: restaurantUserIds.map(String),
+            priority: 'high',
+            allowEmptyTargets: true,
+          })
+          .catch((err) =>
+            this.logger.warn(`notifyProviderFeedback non-critical error: ${err.message}`),
+          );
+      }
+    }
+
+    return updatedPickup;
   }
 
   // ─── Charity-initiated Driver Assignment ──────────────────────────────────────

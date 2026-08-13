@@ -50,6 +50,11 @@ export class ClaimsCacheManager {
     await this.redis.del(K.RECENT_PAGE1());
   }
 
+  /** Bust restaurant org listings page 1 (provider feedback / claim changes). */
+  async invalidateOrgListings(orgId: number): Promise<void> {
+    await this.redis.del(`listing:org:v3:${orgId}:p1`);
+  }
+
   /** Bust all nearby Available Food caches after claim mutations. */
   async invalidateAllNearby(): Promise<void> {
     await this.redis.deleteByPattern('listing:nearby:*');

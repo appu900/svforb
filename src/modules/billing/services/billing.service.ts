@@ -59,12 +59,11 @@ export class BillingService {
     private readonly config: ConfigService,
   ) {}
 
-  // ─── Free trial (card collected up front, so it auto-converts) ─────────────
+  // ─── Free trial (no card required up front) ────────────────────────────────
 
   /**
-   * Starts the 30-day trial through Stripe Checkout. The card is captured now
-   * and held by Stripe, which charges automatically the day the trial ends —
-   * the org is never interrupted, and no separate conversion step is needed.
+   * Starts the 30-day trial through Stripe Checkout without collecting a card.
+   * Card details are collected later when the trial ends / when they subscribe.
    *
    * `freeTrialUsedAt` is stamped by the webhook rather than here, so abandoning
    * the Checkout page does not burn the org's one trial.
@@ -93,8 +92,8 @@ export class BillingService {
       ...session,
       trialDays: TRIAL_DAYS,
       message:
-        `Your card will be saved but not charged for ${TRIAL_DAYS} days. ` +
-        'Cancel any time before then and you pay nothing.',
+        `Your free trial lasts ${TRIAL_DAYS} days — no card needed to start. ` +
+        'Add a payment method before the trial ends to keep your plan active.',
     };
   }
 
@@ -160,8 +159,8 @@ export class BillingService {
       success_url: `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/billing/cancelled`,
       allow_promotion_codes: true,
-      // Explicit because a trial would otherwise be allowed to skip the card.
-      payment_method_collection: 'always',
+      // Trials start without a card; paid checkout still requires one.
+      payment_method_collection: trialDays ? 'if_required' : 'always',
       subscription_data: {
         ...(trialDays ? { trial_period_days: trialDays } : {}),
         metadata,

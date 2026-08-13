@@ -65,10 +65,13 @@ export class FoodListingService {
     if (!site)
       throw new NotFoundException('Site not found in your organisation');
 
-    const uploadedUrls =
-      photos?.length
-        ? await Promise.all(photos.map((f) => this.s3.uploadFile(f, PHOTO_FOLDER)))
-        : (dto.photoUrls ?? []);
+    const uploadedFromFiles = photos?.length
+      ? await Promise.all(photos.map((f) => this.s3.uploadFile(f, PHOTO_FOLDER)))
+      : [];
+    const uploadedUrls = [
+      ...uploadedFromFiles,
+      ...(Array.isArray(dto.photoUrls) ? dto.photoUrls : []),
+    ].filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
 
     const totalQtyKg = dto.foodItems.reduce((sum, i) => sum + i.totalQtyKg, 0);
 
@@ -164,7 +167,25 @@ export class FoodListingService {
         siteId:siteId
       },
       include:{
-        foodItems:true
+        foodItems:true,
+        foodClaims: {
+          where: { status: { not: ClaimStatus.CANCELLED } },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            claimMode: true,
+            createdAt: true,
+            collectedAt: true,
+            confirmedAt: true,
+            claimItems: {
+              select: {
+                qtyKg: true,
+                foodItem: { select: { id: true, name: true, unit: true, category: true } },
+              },
+            },
+          },
+        },
       }
     })
     return allFoodListings;
@@ -196,6 +217,10 @@ export class FoodListingService {
               createdAt: true,
               collectedAt: true,
               confirmedAt: true,
+              rating: true,
+              providerConfirmedAt: true,
+              providerRating: true,
+              providerDidCollect: true,
               claimItems: {
                 select: {
                   qtyKg: true,

@@ -585,6 +585,14 @@ model FoodClaim {
   rating     Int?
   ratingNote String?
 
+  /** Listing provider (restaurant) confirmed the collection happened. */
+  providerConfirmedAt  DateTime?
+  /** Restaurant rates the claimant (charity / farmer). */
+  providerRating       Int?
+  providerRatingNote   String?
+  /** true = restaurant says collection happened; false = dispute / no-show. */
+  providerDidCollect   Boolean?
+
   confirmedAt DateTime?
   collectedAt DateTime?
   createdAt   DateTime       @default(now())

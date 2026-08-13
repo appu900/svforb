@@ -22,8 +22,8 @@ export class BillingController {
   constructor(private readonly billing: BillingService) {}
 
   /**
-   * Starts the 30-day trial. Returns a Checkout URL — the card is captured up
-   * front so the trial converts to paid on its own. Once per organisation.
+   * Starts the 30-day trial. Returns a Checkout URL — no card is required up
+   * front. Collect payment details after the trial ends.
    */
   @Post('trial')
   startTrial(
