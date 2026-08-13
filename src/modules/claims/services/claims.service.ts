@@ -874,6 +874,9 @@ export class ClaimsService {
     this.gateway.pushListingEvents(claim.listingId, {
       listingId: claim.listingId,
       eventType: dto.didCollect ? 'PROVIDER_CONFIRMED' : 'PROVIDER_DISPUTED',
+      message: dto.didCollect
+        ? `Provider confirmed collection — rated partner ${dto.rating}/5`
+        : `Provider reported collection did not take place${note ? `: ${note}` : ''}`,
       claimId,
       timestamp: new Date().toISOString(),
     });
