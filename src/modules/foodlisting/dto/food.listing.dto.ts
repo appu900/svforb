@@ -11,18 +11,33 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import { FoodListingType } from '@prisma/client';
+
+function parseJson(value: unknown) {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
 
 /** Multipart fields arrive as strings — parse JSON / booleans when needed. */
 function ParseJsonIfString() {
+  return Transform(({ value }) => parseJson(value));
+}
+
+/**
+ * @Type() runs before @Transform, so a JSON string from multipart is still a
+ * string at that point and the nested items stay plain objects. Plain objects
+ * carry no validation metadata, which makes `forbidNonWhitelisted` reject every
+ * field ("property name should not exist"), so build the instances here.
+ */
+function ParseJsonArrayOf<T>(cls: new () => T) {
   return Transform(({ value }) => {
-    if (typeof value !== 'string') return value;
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value;
-    }
+    const parsed = parseJson(value);
+    return Array.isArray(parsed) ? plainToInstance(cls, parsed) : parsed;
   });
 }
 
@@ -106,7 +121,7 @@ export class CreateFoodListingDto {
   @IsOptional()
   photoUrls?: string[];
 
-  @ParseJsonIfString()
+  @ParseJsonArrayOf(CreateFoodItemDto)
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateFoodItemDto)
