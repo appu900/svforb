@@ -102,10 +102,6 @@ export class MailerService {
     const appStoreUrl = 'https://apps.apple.com/us/app/saveful/id6460647948';
     const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.saveful.app';
     const businessUrl = 'https://www.saveful.com/business';
-    const appStoreBadge =
-      'https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83';
-    const playStoreBadge =
-      'https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png';
 
     await this.sendMail({
       to,
@@ -139,16 +135,22 @@ export class MailerService {
             To get started, download the Saveful for Business app and sign in using the login details below:
           </p>
 
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px;border-collapse:collapse;">
             <tr>
-              <td valign="middle" style="padding:0 6px;">
-                <a href="${appStoreUrl}" style="display:inline-block;line-height:0;text-decoration:none;">
-                  <img src="${appStoreBadge}" alt="Download on the App Store" width="135" height="40" style="display:block;height:40px;width:auto;border:0;" />
+              <td valign="middle" height="48" style="height:48px;padding:0 5px;vertical-align:middle;">
+                <a href="${appStoreUrl}"
+                   style="display:block;box-sizing:border-box;width:156px;height:48px;background:#000000;
+                          color:#ffffff;text-decoration:none;border-radius:8px;text-align:center;">
+                  <span style="display:block;padding:7px 10px 0;font-size:9px;line-height:1;letter-spacing:0.2px;">Download on the</span>
+                  <span style="display:block;padding:3px 10px 0;font-size:16px;line-height:1.1;font-weight:600;">App Store</span>
                 </a>
               </td>
-              <td valign="middle" style="padding:0 6px;">
-                <a href="${playStoreUrl}" style="display:inline-block;line-height:0;text-decoration:none;">
-                  <img src="${playStoreBadge}" alt="Get it on Google Play" width="135" height="40" style="display:block;height:40px;width:auto;border:0;" />
+              <td valign="middle" height="48" style="height:48px;padding:0 5px;vertical-align:middle;">
+                <a href="${playStoreUrl}"
+                   style="display:block;box-sizing:border-box;width:156px;height:48px;background:#000000;
+                          color:#ffffff;text-decoration:none;border-radius:8px;text-align:center;">
+                  <span style="display:block;padding:7px 10px 0;font-size:9px;line-height:1;letter-spacing:0.2px;">GET IT ON</span>
+                  <span style="display:block;padding:3px 10px 0;font-size:16px;line-height:1.1;font-weight:600;">Google Play</span>
                 </a>
               </td>
             </tr>
