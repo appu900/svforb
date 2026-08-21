@@ -194,8 +194,10 @@ export class MailerService {
     await this.sendMail({
       to,
       subject: 'Password Reset Code',
+      text: `Your password reset code is ${otp}. It expires in 1 hour.`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+          ${this.logoDataUri ? `<div style="text-align:center;margin-bottom:24px;"><img src="${this.logoDataUri}" alt="Saveful for Business" style="max-width:180px;height:auto;" /></div>` : ''}
           <h2 style="color:#333;">Password Reset</h2>
           <p>${name ? `Hello <strong>${name}</strong>,` : 'Hello,'}</p>
           <p>Use the code below to reset your password:</p>
@@ -204,6 +206,12 @@ export class MailerService {
           </div>
           <p>This code expires in <strong>1 hour</strong>.</p>
           <p style="color:#888;font-size:13px;">If you did not request a password reset, you can safely ignore this email.</p>
+
+          <hr style="margin:20px 0;border:none;border-top:1px solid #eee;" />
+
+          <p style="font-size:12px;color:#999;">
+            Saveful &bull; Secure Authentication Service
+          </p>
         </div>
       `,
     });
