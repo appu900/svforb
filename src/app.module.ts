@@ -20,6 +20,7 @@ import { ClaimsModule } from './modules/claims/claims.module';
 import { ImpactModule } from './modules/impact/impact.module';
 import { FarmerConsumerModule } from './modules/farmer-consumer/farmer-consumer.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { EnterpriseModule } from './modules/enterprise/enterprise.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { BillingModule } from './modules/billing/billing.module';
     ImpactModule,
     FarmerConsumerModule,
     BillingModule,
+    EnterpriseModule,
   ],
   controllers: [AppController],
   providers: [AppService],

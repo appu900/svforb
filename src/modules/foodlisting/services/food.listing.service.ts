@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { S3Service } from '../../../uploads/s3/s3.service';
+import { EnterpriseScopeService } from '../../enterprise/services/enterprise-scope.service';
 import { ListingQueueService, resolveListingExpiryAt } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
@@ -48,6 +49,7 @@ export class FoodListingService {
     private readonly cache: FoodListingCacheManager,
     private readonly s3: S3Service,
     private readonly listingQueue: ListingQueueService,
+    private readonly enterpriseScope: EnterpriseScopeService,
   ) {}
 
   async createListing(
@@ -75,11 +77,16 @@ export class FoodListingService {
 
     const totalQtyKg = dto.foodItems.reduce((sum, i) => sum + i.totalQtyKg, 0);
 
+    // Classification is captured now so reassigning the site later cannot
+    // rewrite what this listing reported at the time.
+    const snapshot = await this.enterpriseScope.snapshotForSite(dto.siteId);
+
     const listing = await this.prisma.$transaction(async (tx) => {
       const created = await tx.foodListing.create({
         data: {
           siteId: dto.siteId,
           organisationId: caller.orgId!,
+          ...snapshot,
           listingType: dto.listingType,
           totalQtyKg,
           remainingQtyKg: totalQtyKg,

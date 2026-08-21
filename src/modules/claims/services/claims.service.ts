@@ -14,6 +14,7 @@ import {
   ListingStatus,
   OrgType,
 } from '@prisma/client';
+import { EnterpriseScopeService } from '../../enterprise/services/enterprise-scope.service';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { NotificationService } from '../../notifications/services/notification.service';
@@ -39,6 +40,7 @@ export class ClaimsService {
     private readonly prisma: PrismaService,
     private readonly cache: ClaimsCacheManager,
     private readonly notificationService: NotificationService,
+    private readonly enterpriseScope: EnterpriseScopeService,
     private readonly gateway: ListingGateway,
     private readonly driverService: DriverLocationService,
   ) {}
@@ -142,11 +144,17 @@ export class ClaimsService {
         throw new BadRequestException('You already have an active claim on this listing');
       }
 
+      // Snapshot the claimant site's classification for the same reason.
+      const claimSnapshot = claimantSiteId
+        ? await this.enterpriseScope.snapshotForSite(claimantSiteId)
+        : { snapshotGroupId: null, snapshotClusterId: null, snapshotTerritoryId: null };
+
       const claim = await tx.foodClaim.create({
         data: {
           listingId: dto.listingId,
           claimantOrgId: caller.orgId!,
           claimantSiteId,
+          ...claimSnapshot,
           claimMode: dto.claimMode,
           status: ClaimStatus.PENDING,
           claimItems: { create: claimItemsData },

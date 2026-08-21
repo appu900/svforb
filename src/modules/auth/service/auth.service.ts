@@ -679,6 +679,11 @@ export class AuthService {
       siteRole: siteAccess?.siteRole,
       orgType: membership?.organisation?.organizationType,
     };
+    // Distinguishes an unused invite from a user who has actually signed in.
+    await this.prisma.user
+      .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+      .catch(() => undefined);
+
     const accessToken = await this.jwtService.sign(payload);
     return accessToken;
   }

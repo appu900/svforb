@@ -101,6 +101,46 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum BillingFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+/// What an Enterprise user may DO. Orthogonal to their scope, which decides
+/// which slice of the Enterprise they may see.
+enum EnterpriseRole {
+  SUPER_ADMIN
+  REPORTING_USER
+  GROUP_ADMIN
+  CLUSTER_ADMIN
+  SITE_ADMIN
+  SITE_USER
+}
+
+enum ScopeType {
+  ENTERPRISE
+  GROUP
+  CLUSTER
+  TERRITORY
+  SITE
+}
+
 enum StorageType {
   NON_REFRIGERATED
   REFRIGERATED
@@ -177,7 +217,9 @@ model User {
   passwordResetExpiry DateTime?
 
   deviceToken String?
-  isActive    Boolean @default(true)
+  isActive    Boolean   @default(true)
+  /// null means the invite has never been used — surfaces as INVITED
+  lastLoginAt DateTime?
 
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -185,6 +227,7 @@ model User {
   siteAccesses    siteAccess[]
   driverPickups  DriverPickup[] @relation("DriverPickups")
   deviceTokens   DeviceToken[]
+  userScopes     UserScope[]
 
   @@index([email])
   @@index([phoneNumber])
@@ -302,6 +345,12 @@ model Organisation {
   subscription         OrgSubscription?
   enterpriseEnquiries  EnterpriseEnquiry[]
   payments             Payment[]
+  enterpriseGroups     EnterpriseGroup[]
+  clusters             Cluster[]
+  territories          Territory[]
+  enterpriseContract   EnterpriseContract?
+  enterpriseInvoices   EnterpriseInvoice[]
+  userScopes           UserScope[]
   orgMemeberShips      OrgMemeberShip[]
   siteAccesses         siteAccess[]
   charityPickupPrefs   CharityPickupPrefs?
@@ -449,6 +498,8 @@ model Site {
   foodListings      FoodListing[]
   foodClaims        FoodClaim[]        @relation("ClaimantSiteClaims")
   siteNotifications SiteNotification[]
+  clusterSite       ClusterSite?
+  territorySite     TerritorySite?
 
   @@index([organisationId])
   @@map("sites")
@@ -461,6 +512,8 @@ model OrgMemeberShip {
   organisationId Int
   organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   orgRole        OrgRole      @default(ORG_MEMBER)
+  /// Set only for organisations on the Enterprise plan
+  enterpriseRole EnterpriseRole?
   joinedAt       DateTime     @default(now())
 
   @@unique([userId, organisationId])
@@ -545,10 +598,19 @@ model FoodListing {
   driverPickups     DriverPickup[]
   siteNotifications SiteNotification[]
 
+  /// Enterprise classification stamped at creation. Reassigning a site later
+  /// must never rewrite past reporting, so these carry no foreign keys.
+  snapshotGroupId     Int?
+  snapshotClusterId   Int?
+  snapshotTerritoryId Int?
+
   @@index([siteId])
   @@index([organisationId])
   @@index([status])
   @@index([bestBefore])
+  @@index([snapshotGroupId])
+  @@index([snapshotClusterId])
+  @@index([snapshotTerritoryId])
   @@index([pickupPostcode])
   @@index([status], map: "food_listings_active_idx", where: raw("(status = ANY (ARRAY['ACTIVE'::\"ListingStatus\", 'PARTIAL'::\"ListingStatus\"]))"))
   @@map("food_listings")
@@ -600,10 +662,18 @@ model FoodClaim {
   claimItems  ClaimItem[]
   driverPickups DriverPickup[]
 
+  /// Classification at claim time — see FoodListing for rationale.
+  snapshotGroupId     Int?
+  snapshotClusterId   Int?
+  snapshotTerritoryId Int?
+
   @@index([listingId])
   @@index([claimantOrgId])
   @@index([claimantSiteId])
   @@index([status])
+  @@index([snapshotGroupId])
+  @@index([snapshotClusterId])
+  @@index([snapshotTerritoryId])
   @@map("food_claims")
 }
 
@@ -779,3 +849,212 @@ model SiteNotification {
 
 
 
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENTERPRISE
+//
+// An organisation is an Enterprise when its subscription plan is ENTERPRISE.
+// Onboarding is unchanged — the org signs up normally, then a platform admin
+// assigns the plan and records the offline contract.
+//
+// Structure is strictly nested: Group -> Cluster -> Site. Territory is a
+// separate geographic dimension that cuts across the tree.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Top reporting tier within an Enterprise, e.g. "Food & Beverages".
+model EnterpriseGroup {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  name     String
+  code     String?
+  isActive Boolean @default(true)
+
+  clusters Cluster[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organisationId, name])
+  @@index([organisationId, isActive])
+  @@map("enterprise_groups")
+}
+
+/// A chain inside a group, e.g. "Taj Hotels". Always belongs to exactly one group.
+model Cluster {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  groupId Int
+  group   EnterpriseGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  name     String
+  code     String?
+  isActive Boolean @default(true)
+
+  clusterSites ClusterSite[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organisationId, name])
+  @@index([organisationId, isActive])
+  @@index([groupId])
+  @@map("clusters")
+}
+
+/// Site placement in the group tree. `siteId @unique` enforces strict nesting —
+/// one cluster per site — while leaving the shared Site table untouched.
+model ClusterSite {
+  id        Int     @id @default(autoincrement())
+  clusterId Int
+  cluster   Cluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  siteId    Int     @unique
+  site      Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+  assignedBy Int
+
+  @@index([clusterId])
+  @@map("cluster_sites")
+}
+
+/// Geographic dimension, independent of the group tree — a state can span
+/// several clusters, so it cannot hang off Cluster.
+model Territory {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  name     String
+  code     String?
+  isActive Boolean @default(true)
+
+  territorySites TerritorySite[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organisationId, name])
+  @@index([organisationId, isActive])
+  @@map("territories")
+}
+
+model TerritorySite {
+  id          Int       @id @default(autoincrement())
+  territoryId Int
+  territory   Territory @relation(fields: [territoryId], references: [id], onDelete: Cascade)
+  siteId      Int       @unique
+  site        Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+  assignedBy Int
+
+  @@index([territoryId])
+  @@map("territory_sites")
+}
+
+/// Negotiated with the platform admin and paid outside the app.
+/// Invoice total = ratePerSiteCents x live site count at generation time.
+model EnterpriseContract {
+  id             Int          @id @default(autoincrement())
+  organisationId Int          @unique
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  /// 10000 = $100.00 per site
+  ratePerSiteCents Int
+  currency         String           @default("AUD")
+  billingFrequency BillingFrequency @default(MONTHLY)
+
+  /// Site count agreed at signing — reference only; invoices count live sites
+  contractedSiteCount Int?
+
+  /// GST/VAT applied by the invoice cron
+  taxRatePercent Float @default(0)
+
+  startDate        DateTime
+  endDate          DateTime?
+  status           ContractStatus @default(ACTIVE)
+  paymentTermsDays Int            @default(30)
+
+  /// Anchors the billing period; the cron advances it after each run
+  nextInvoiceOn DateTime?
+
+  notes     String?
+  createdBy Int
+
+  invoices EnterpriseInvoice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextInvoiceOn])
+  @@map("enterprise_contracts")
+}
+
+/// Generated on a schedule by the billing cron; marked paid by hand.
+model EnterpriseInvoice {
+  id             Int          @id @default(autoincrement())
+  invoiceNumber  String       @unique
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  contractId     Int
+  contract       EnterpriseContract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  /// Snapshot of what was billed — renegotiating the rate never alters history
+  siteCount        Int
+  ratePerSiteCents Int
+  subtotalCents    Int
+  taxCents         Int    @default(0)
+  totalCents       Int
+  currency         String
+
+  status   InvoiceStatus @default(DRAFT)
+  issuedAt DateTime?
+  dueAt    DateTime?
+  paidAt   DateTime?
+
+  /// Platform admin who recorded the offline payment
+  paidBy           Int?
+  paymentReference String?
+  notes            String?
+  pdfUrl           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Stops the cron double-invoicing if it fires twice
+  @@unique([contractId, periodStart])
+  @@index([organisationId, periodStart])
+  @@index([status, dueAt])
+  @@map("enterprise_invoices")
+}
+
+/// Which slice of the Enterprise a user may see. A user may hold several rows;
+/// their effective reach is the union, resolved down to a set of site ids.
+///
+/// Role says what they can do. This says what they can see.
+model UserScope {
+  id             Int          @id @default(autoincrement())
+  userId         Int
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  scopeType ScopeType
+  /// null when scopeType is ENTERPRISE — the whole organisation
+  scopeId Int?
+
+  grantedAt DateTime @default(now())
+  grantedBy Int
+
+  @@unique([userId, scopeType, scopeId])
+  @@index([userId])
+  @@index([organisationId, scopeType])
+  @@map("user_scopes")
+}

@@ -8,9 +8,10 @@ import { FoodListingCacheManager } from './cache/food.listing.cache';
 import { ListingQueueService, LISTINGS_QUEUE } from './queues/listing.queue.service';
 import { ListingWorker } from './workers/listing.worker';
 import { SiteNotificationService } from './services/site.notification.service';
+import { EnterpriseModule } from '../enterprise/enterprise.module';
 
 @Module({
-  imports: [
+  imports: [EnterpriseModule, 
     S3Module,
     RedisGeoSearchModule,
     BullModule.registerQueue({ name: LISTINGS_QUEUE }),
