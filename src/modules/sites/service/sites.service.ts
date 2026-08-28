@@ -48,6 +48,77 @@ export class SitesService {
   // Only SUPER_ADMINs of BUSINESS_MULTI orgs can add new sites.
   // Enforces the plan's maxSites cap before creation.
 
+  /** Every Enterprise site, for the Saveful Admin directory. */
+  async listAllEnterpriseSites(caller: Jwtpayload) {
+    if (caller.platformRole !== PlatformRole.PLATFORM_ADMIN) {
+      throw new ForbiddenException('Platform admin access required');
+    }
+
+    const enterprises = await this.prisma.enterpriseProfile.findMany({
+      select: { organisationId: true, enterpriseId: true },
+    });
+    const orgIds = enterprises.map((row) => row.organisationId);
+    if (!orgIds.length) return { sites: [] };
+
+    const enterpriseIdByOrg = new Map(
+      enterprises.map((row) => [row.organisationId, row.enterpriseId]),
+    );
+
+    const [sites, organisations] = await Promise.all([
+      this.prisma.site.findMany({
+        where: { organisationId: { in: orgIds } },
+        orderBy: [{ organisationId: 'asc' }, { createdAt: 'desc' }],
+        include: {
+          groupSite: { include: { group: { select: { id: true, name: true } } } },
+          clusterSite: { include: { cluster: { select: { id: true, name: true } } } },
+          territorySite: { include: { territory: { select: { id: true, name: true } } } },
+        },
+      }),
+      this.prisma.organisation.findMany({
+        where: { id: { in: orgIds } },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    const orgNameById = new Map(organisations.map((org) => [org.id, org.name]));
+
+    return {
+      sites: sites.map((site) => ({
+        id: site.id,
+        organisationId: site.organisationId,
+        organisationName: orgNameById.get(site.organisationId) ?? site.organisationName,
+        enterpriseId: enterpriseIdByOrg.get(site.organisationId) ?? null,
+        siteName: site.name || site.organisationName,
+        siteCode: site.siteCode || this.autoSiteCode(site.id),
+        address: site.address,
+        isActive: site.isActive,
+        activatedAt: site.activatedAt,
+        lastActivityAt: site.lastActivityAt,
+        groupId: site.groupSite?.group.id ?? null,
+        groupName: site.groupSite?.group.name ?? null,
+        clusterId: site.clusterSite?.cluster.id ?? null,
+        clusterName: site.clusterSite?.cluster.name ?? null,
+        territoryId: site.territorySite?.territory.id ?? null,
+        territoryName: site.territorySite?.territory.name ?? null,
+      })),
+    };
+  }
+
+  /**
+   * Platform Admin creates a site under a chosen Enterprise. Entitlements and
+   * structure checks run against that organisation, not the admin's own org.
+   */
+  async createSiteForOrganisation(
+    caller: Jwtpayload,
+    organisationId: number,
+    dto: CreateSiteDto,
+  ) {
+    return this.createSite(
+      await this.actingAsOrgAdmin(caller, organisationId),
+      dto,
+    );
+  }
+
   async createSite(caller: Jwtpayload, dto: CreateSiteDto) {
     this.assertCanManageSites(caller);
     this.assertMultiBusiness(caller);
@@ -57,8 +128,10 @@ export class SitesService {
     });
     if (!org) throw new NotFoundException('Organisation not found');
 
-    // Asserts an active plan, then that the plan's site allowance has room.
-    await this.access.assertCanAddSite(caller);
+    // Platform Admin may onboard a site onto a new Enterprise before billing is live.
+    if (caller.platformRole !== PlatformRole.PLATFORM_ADMIN) {
+      await this.access.assertCanAddSite(caller);
+    }
     const entitlements = await this.access.getEntitlements(caller);
 
     const existingSiteCount = await this.prisma.site.count({
@@ -416,6 +489,19 @@ export class SitesService {
    * Grants SITE_ADMIN on an existing org member. No password is created —
    * Super Admin invites new people through /enterprise/users instead.
    */
+  async assignExistingSiteAdminForOrganisation(
+    caller: Jwtpayload,
+    organisationId: number,
+    siteId: number,
+    dto: AssignExistingSiteAdminDto,
+  ) {
+    return this.assignExistingSiteAdmin(
+      await this.actingAsOrgAdmin(caller, organisationId),
+      siteId,
+      dto,
+    );
+  }
+
   async assignExistingSiteAdmin(
     caller: Jwtpayload,
     siteId: number,
@@ -442,7 +528,9 @@ export class SitesService {
       throw new NotFoundException('That user is not a member of your organisation');
     }
 
-    await this.access.assertCanAddUserToSite(caller, siteId);
+    if (caller.platformRole !== PlatformRole.PLATFORM_ADMIN) {
+      await this.access.assertCanAddUserToSite(caller, siteId);
+    }
 
     const access = await this.prisma.siteAccess.upsert({
       where: { userId_siteId: { userId: dto.userId, siteId } },
@@ -960,6 +1048,26 @@ export class SitesService {
     } else if (allowClear && dto.territoryId === null) {
       await this.prisma.territorySite.deleteMany({ where: { siteId } });
     }
+  }
+
+  private async actingAsOrgAdmin(
+    caller: Jwtpayload,
+    organisationId: number,
+  ): Promise<Jwtpayload> {
+    if (caller.platformRole !== PlatformRole.PLATFORM_ADMIN) {
+      throw new ForbiddenException('Platform admin access required');
+    }
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: organisationId },
+    });
+    if (!org) throw new NotFoundException('Organisation not found');
+    return {
+      ...caller,
+      orgId: organisationId,
+      orgType: org.organizationType,
+      orgRole: OrgRole.SUPER_ADMIN,
+      enterpriseRole: EnterpriseRole.SUPER_ADMIN,
+    };
   }
 
   /** Super Admin or Enterprise Admin may add and assign sites. */

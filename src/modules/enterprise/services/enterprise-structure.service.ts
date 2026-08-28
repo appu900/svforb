@@ -388,10 +388,13 @@ export class EnterpriseStructureService {
   /** The whole tree plus anything not yet placed — backs the admin screen. */
   async getStructure(caller: Jwtpayload) {
     const orgId = await this.scope.assertEnterprise(caller);
+    return this.getStructureForOrganisation(orgId);
+  }
 
+  async getStructureForOrganisation(organisationId: number) {
     const [groups, territories, sites] = await Promise.all([
       this.prisma.enterpriseGroup.findMany({
-        where: { organisationId: orgId },
+        where: { organisationId },
         orderBy: { name: 'asc' },
         include: {
           clusters: {
@@ -401,12 +404,12 @@ export class EnterpriseStructureService {
         },
       }),
       this.prisma.territory.findMany({
-        where: { organisationId: orgId },
+        where: { organisationId },
         orderBy: { name: 'asc' },
         include: { territorySites: { select: { siteId: true } } },
       }),
       this.prisma.site.findMany({
-        where: { organisationId: orgId },
+        where: { organisationId },
         select: {
           id: true,
           organisationName: true,

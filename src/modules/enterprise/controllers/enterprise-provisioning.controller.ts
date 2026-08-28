@@ -18,10 +18,13 @@ import { PlatformAdminGuard } from '../../../common/guards/platform-admin.guard'
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import {
+  InviteUserDto,
   ProvisionEnterpriseDto,
   UpdateProvisioningDto,
 } from '../dto/enterprise.dto';
 import { EnterpriseProvisioningService } from '../services/enterprise-provisioning.service';
+import { EnterpriseStructureService } from '../services/enterprise-structure.service';
+import { EnterpriseUserService } from '../services/enterprise-user.service';
 
 /**
  * The Saveful administration environment, scoped separately from the
@@ -32,7 +35,11 @@ import { EnterpriseProvisioningService } from '../services/enterprise-provisioni
 @UseGuards(JwtAuthGuard, PlatformAdminGuard)
 @SkipSubscriptionCheck()
 export class EnterpriseProvisioningController {
-  constructor(private readonly provisioning: EnterpriseProvisioningService) {}
+  constructor(
+    private readonly provisioning: EnterpriseProvisioningService,
+    private readonly structure: EnterpriseStructureService,
+    private readonly users: EnterpriseUserService,
+  ) {}
 
   /** Creates the Enterprise and invites its first Super Admin. */
   @Post('provision')
@@ -54,6 +61,20 @@ export class EnterpriseProvisioningController {
   @Get()
   list() {
     return this.provisioning.list();
+  }
+
+  @Get(':organisationId/structure')
+  getStructure(@Param('organisationId', ParseIntPipe) organisationId: number) {
+    return this.structure.getStructureForOrganisation(organisationId);
+  }
+
+  @Post(':organisationId/users')
+  inviteUser(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('organisationId', ParseIntPipe) organisationId: number,
+    @Body() dto: InviteUserDto,
+  ) {
+    return this.users.inviteUserForOrganisation(req.user, organisationId, dto);
   }
 
   @Get(':organisationId')

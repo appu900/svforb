@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { AdminEnterpriseSitesController } from './admin-enterprise-sites.controller';
+import { AdminSitesController } from './admin-sites.controller';
 import { SitesController } from './sites.controller';
 import { SitesService } from './service/sites.service';
 import { AuthModule } from '../auth/auth.module';
@@ -8,7 +10,8 @@ import { ProximityModule } from '../psearch/psearch.module';
 
 @Module({
   imports: [AuthModule, NotificationModule, ProximityModule, BillingModule],
-  controllers: [SitesController],
+  controllers: [SitesController, AdminEnterpriseSitesController, AdminSitesController],
   providers: [SitesService],
+  exports: [SitesService],
 })
 export class SitesModule {}

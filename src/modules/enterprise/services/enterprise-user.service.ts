@@ -10,6 +10,7 @@ import {
   EnterpriseRole,
   InvitationStatus,
   OrgRole,
+  PlatformRole,
   ScopeType,
 } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
@@ -57,12 +58,38 @@ export class EnterpriseUserService {
    * The role and scope are held on the invitation until it is accepted, so an
    * unopened invite never leaves a half-provisioned user behind.
    */
+  async inviteUserForOrganisation(
+    caller: Jwtpayload,
+    organisationId: number,
+    dto: InviteUserDto,
+  ) {
+    if (caller.platformRole !== PlatformRole.PLATFORM_ADMIN) {
+      throw new ForbiddenException('Platform admin access required');
+    }
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: organisationId },
+      select: { id: true },
+    });
+    if (!org) throw new NotFoundException('Enterprise not found');
+    return this.issueInvite(caller, organisationId, dto);
+  }
+
   async inviteUser(caller: Jwtpayload, dto: InviteUserDto) {
     const orgId = await this.assertUserAdmin(caller);
     await this.assertCanGrantRole(caller, dto.role);
 
     const scopes = this.normaliseScopes(dto.role, dto.scopes);
     await this.assertScopesWithinCallerReach(caller, orgId, scopes);
+    await this.assertScopeTargetsExist(orgId, scopes);
+    return this.issueInvite(caller, orgId, dto);
+  }
+
+  private async issueInvite(
+    caller: Jwtpayload,
+    orgId: number,
+    dto: InviteUserDto,
+  ) {
+    const scopes = this.normaliseScopes(dto.role, dto.scopes);
     await this.assertScopeTargetsExist(orgId, scopes);
 
     const actor = await this.audit.actorFrom(caller);
