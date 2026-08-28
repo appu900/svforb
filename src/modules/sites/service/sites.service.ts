@@ -6,14 +6,20 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { OrgRole, OrgType, PlatformRole, SiteRole } from '@prisma/client';
+import { EnterpriseRole, OrgRole, OrgType, PlatformRole, Prisma, ScopeType, SiteRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
 import { EmailQueueService } from '../../../modules/notifications/queues/email.queue.service';
 import { BillingService } from '../../billing/services/billing.service';
 import { SubscriptionAccessService } from '../../subscriptions/services/subscription-access.service';
-import { AddStaffDto, AssignSiteManagerDto, CreateSiteDto, UpdateSiteDto } from '../dto/sites.dto';
+import {
+  AddStaffDto,
+  AssignExistingSiteAdminDto,
+  AssignSiteManagerDto,
+  CreateSiteDto,
+  UpdateSiteDto,
+} from '../dto/sites.dto';
 
 /**
  * SitesService
@@ -43,7 +49,7 @@ export class SitesService {
   // Enforces the plan's maxSites cap before creation.
 
   async createSite(caller: Jwtpayload, dto: CreateSiteDto) {
-    this.assertSuperAdmin(caller);
+    this.assertCanManageSites(caller);
     this.assertMultiBusiness(caller);
 
     const org = await this.prisma.organisation.findUnique({
@@ -59,19 +65,50 @@ export class SitesService {
       where: { organisationId: org.id },
     });
 
-    const site = await this.prisma.site.create({
-      data: {
-        organisationId: org.id,
-        organisationName: dto.siteName,
-        address: dto.address,
-        postcode: dto.postcode,
-        contactName: 'not provided',
-        contactEmail:'not provided',
-        contactMobile: 'not provided',
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-      },
-    });
+    const requestedCode = dto.siteCode?.trim() || null;
+    if (requestedCode) {
+      await this.assertSiteCodeFree(org.id, requestedCode);
+    }
+    await this.assertStructureTargets(org.id, dto);
+
+    const now = new Date();
+    let site;
+    try {
+      site = await this.prisma.site.create({
+        data: {
+          organisationId: org.id,
+          organisationName: dto.siteName,
+          name: dto.siteName,
+          siteCode: requestedCode,
+          address: dto.address,
+          postcode: dto.postcode?.trim() || null,
+          contactName: dto.contactName?.trim() || '',
+          contactEmail: dto.contactEmail?.trim().toLowerCase() || '',
+          contactMobile: dto.phoneNumber?.trim() || '',
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          collectionDays: dto.collectionDays ?? [],
+          collectionStartTime: dto.collectionStartTime ?? null,
+          collectionEndTime: dto.collectionEndTime ?? null,
+          collectionInstructions: dto.collectionInstructions?.trim() || null,
+          activatedAt: now,
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('That Site ID is already used in your organisation.');
+      }
+      throw err;
+    }
+
+    if (!site.siteCode) {
+      site = await this.prisma.site.update({
+        where: { id: site.id },
+        data: { siteCode: this.autoSiteCode(site.id) },
+      });
+    }
+
+    await this.placeSite(org.id, site.id, caller.sub, dto);
 
     this.logger.log(`Site created: id=${site.id} org=${org.id} by user=${caller.sub}`);
 
@@ -80,7 +117,7 @@ export class SitesService {
 
     return {
       message: 'Site created successfully',
-      site: this.formatSite(site),
+      site: await this.loadFormattedSite(site.id),
       sitesUsed: existingSiteCount + 1,
       sitesAllowed: entitlements.maxSites, // null means unlimited
     };
@@ -140,6 +177,7 @@ export class SitesService {
     const sites = await this.prisma.site.findMany({
       where: { organisationId: org.id },
       orderBy: { createdAt: 'asc' },
+      include: this.sitePlacementInclude(),
     });
 
     const siteIds = sites.map((s) => s.id);
@@ -295,14 +333,13 @@ export class SitesService {
     this.assertSuperAdmin(caller);
 
     const isAlreadyAssigned = await this.prisma.siteAccess.findFirst({
-      where:{
-        user:{
-          email:dto.email
-        }
-      }
-    })
-    if(isAlreadyAssigned){
-      throw new BadRequestException("this user  already has access for this site")
+      where: {
+        siteId,
+        user: { email: dto.email.toLowerCase() },
+      },
+    });
+    if (isAlreadyAssigned) {
+      throw new BadRequestException('This user already has access for this site');
     }
     const site = await this.assertSiteInOrg(siteId, caller.orgId!);
 
@@ -372,6 +409,104 @@ export class SitesService {
         lastName: user.lastName,
         email: user.email,
       },
+    };
+  }
+
+  /**
+   * Grants SITE_ADMIN on an existing org member. No password is created —
+   * Super Admin invites new people through /enterprise/users instead.
+   */
+  async assignExistingSiteAdmin(
+    caller: Jwtpayload,
+    siteId: number,
+    dto: AssignExistingSiteAdminDto,
+  ) {
+    this.assertCanManageSites(caller);
+
+    const site = await this.assertSiteInOrg(siteId, caller.orgId!);
+    const membership = await this.prisma.orgMemeberShip.findFirst({
+      where: { userId: dto.userId, organisationId: caller.orgId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phoneNumber: true,
+          },
+        },
+      },
+    });
+    if (!membership) {
+      throw new NotFoundException('That user is not a member of your organisation');
+    }
+
+    await this.access.assertCanAddUserToSite(caller, siteId);
+
+    const access = await this.prisma.siteAccess.upsert({
+      where: { userId_siteId: { userId: dto.userId, siteId } },
+      create: {
+        userId: dto.userId,
+        siteId,
+        organisationId: caller.orgId!,
+        siteRole: SiteRole.SITE_ADMIN,
+        grantedBy: caller.sub,
+      },
+      update: {
+        siteRole: SiteRole.SITE_ADMIN,
+        grantedBy: caller.sub,
+      },
+    });
+
+    const existingScope = await this.prisma.userScope.findFirst({
+      where: { userId: dto.userId, scopeType: ScopeType.SITE, scopeId: siteId },
+    });
+    if (!existingScope) {
+      await this.prisma.userScope.create({
+        data: {
+          userId: dto.userId,
+          organisationId: caller.orgId!,
+          scopeType: ScopeType.SITE,
+          scopeId: siteId,
+          grantedBy: caller.sub,
+        },
+      });
+    }
+
+    const role = membership.enterpriseRole;
+    if (!role || role === EnterpriseRole.SITE_USER) {
+      await this.prisma.orgMemeberShip.update({
+        where: { id: membership.id },
+        data: { enterpriseRole: EnterpriseRole.SITE_ADMIN },
+      });
+    }
+
+    const contactName = `${membership.user.firstName} ${membership.user.lastName}`.trim();
+    if (!site.contactName?.trim()) {
+      await this.prisma.site.update({
+        where: { id: siteId },
+        data: {
+          contactName,
+          contactEmail: membership.user.email,
+          contactMobile: membership.user.phoneNumber ?? site.contactMobile,
+        },
+      });
+    }
+
+    this.logger.log(
+      `Existing site admin assigned: userId=${dto.userId} siteId=${siteId} by=${caller.sub}`,
+    );
+
+    return {
+      message: 'Existing user assigned as Site Admin.',
+      siteAccess: {
+        userId: access.userId,
+        siteId: access.siteId,
+        siteRole: access.siteRole,
+        grantedAt: access.grantedAt,
+      },
+      user: membership.user,
     };
   }
 
@@ -566,28 +701,54 @@ export class SitesService {
   // SUPER_ADMIN + BUSINESS_MULTI only.
 
   async updateSite(caller: Jwtpayload, siteId: number, dto: UpdateSiteDto) {
-    this.assertSuperAdmin(caller);
+    this.assertCanEditSite(caller, siteId);
     this.assertMultiBusiness(caller);
 
     await this.assertSiteInOrg(siteId, caller.orgId!);
+    if (dto.siteCode?.trim()) {
+      await this.assertSiteCodeFree(caller.orgId!, dto.siteCode.trim(), siteId);
+    }
+    await this.assertStructureTargets(caller.orgId!, dto);
 
-    const updated = await this.prisma.site.update({
-      where: { id: siteId },
-      data: {
-        ...(dto.siteName !== undefined && { organisationName: dto.siteName }),
-        ...(dto.address !== undefined && { address: dto.address }),
-        ...(dto.postcode !== undefined && { postcode: dto.postcode }),
-        ...(dto.contactName !== undefined && { contactName: dto.contactName }),
-        ...(dto.contactEmail !== undefined && { contactEmail: dto.contactEmail }),
-        ...(dto.phoneNumber !== undefined && { contactMobile: dto.phoneNumber }),
-        ...(dto.latitude !== undefined && { latitude: dto.latitude }),
-        ...(dto.longitude !== undefined && { longitude: dto.longitude }),
-      },
-    });
+    let updated;
+    try {
+      updated = await this.prisma.site.update({
+        where: { id: siteId },
+        data: {
+          ...(dto.siteName !== undefined && {
+            organisationName: dto.siteName,
+            name: dto.siteName,
+          }),
+          ...(dto.address !== undefined && { address: dto.address }),
+          ...(dto.postcode !== undefined && { postcode: dto.postcode?.trim() || null }),
+          ...(dto.siteCode !== undefined && { siteCode: dto.siteCode.trim() || null }),
+          ...(dto.contactName !== undefined && { contactName: dto.contactName }),
+          ...(dto.contactEmail !== undefined && { contactEmail: dto.contactEmail }),
+          ...(dto.phoneNumber !== undefined && { contactMobile: dto.phoneNumber }),
+          ...(dto.latitude !== undefined && { latitude: dto.latitude }),
+          ...(dto.longitude !== undefined && { longitude: dto.longitude }),
+          ...(dto.collectionDays !== undefined && { collectionDays: dto.collectionDays }),
+          ...(dto.collectionStartTime !== undefined && {
+            collectionStartTime: dto.collectionStartTime,
+          }),
+          ...(dto.collectionEndTime !== undefined && { collectionEndTime: dto.collectionEndTime }),
+          ...(dto.collectionInstructions !== undefined && {
+            collectionInstructions: dto.collectionInstructions?.trim() || null,
+          }),
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('That Site ID is already used in your organisation.');
+      }
+      throw err;
+    }
+
+    await this.placeSite(caller.orgId!, siteId, caller.sub, dto, true);
 
     this.logger.log(`Site updated: siteId=${siteId} org=${caller.orgId} by=${caller.sub}`);
 
-    return { message: 'Site updated successfully', site: this.formatSite(updated) };
+    return { message: 'Site updated successfully', site: await this.loadFormattedSite(siteId) };
   }
 
   // ─── Private: Find or Create Org User ────────────────────────────────────────
@@ -654,10 +815,28 @@ export class SitesService {
 
   // ─── Private Helpers ──────────────────────────────────────────────────────────
 
+  private sitePlacementInclude() {
+    return {
+      groupSite: { select: { groupId: true } },
+      clusterSite: { select: { clusterId: true } },
+      territorySite: { select: { territoryId: true } },
+    };
+  }
+
+  private async loadFormattedSite(siteId: number) {
+    const site = await this.prisma.site.findUniqueOrThrow({
+      where: { id: siteId },
+      include: this.sitePlacementInclude(),
+    });
+    return this.formatSite(site);
+  }
+
   /** Normalises the DB Site row into the public-facing shape. */
   private formatSite(s: {
     id: number;
     organisationName: string;
+    name?: string | null;
+    siteCode?: string | null;
     address: string;
     postcode: string | null;
     contactName: string;
@@ -667,20 +846,144 @@ export class SitesService {
     longitude: number | null;
     isActive: boolean;
     createdAt: Date;
+    collectionDays?: string[];
+    collectionStartTime?: string | null;
+    collectionEndTime?: string | null;
+    collectionInstructions?: string | null;
+    groupSite?: { groupId: number } | null;
+    clusterSite?: { clusterId: number } | null;
+    territorySite?: { territoryId: number } | null;
   }) {
+    const blank = (value?: string | null) =>
+      !value || value === 'not provided' ? '' : value;
     return {
       id: s.id,
-      siteName: s.organisationName,
+      siteName: s.name || s.organisationName,
+      siteCode: s.siteCode || this.autoSiteCode(s.id),
       address: s.address,
       postcode: s.postcode,
-      contactName: s.contactName,
-      contactEmail: s.contactEmail,
-      phoneNumber: s.contactMobile,
+      contactName: blank(s.contactName),
+      contactEmail: blank(s.contactEmail),
+      phoneNumber: blank(s.contactMobile),
       latitude: s.latitude,
       longitude: s.longitude,
       isActive: s.isActive,
       createdAt: s.createdAt,
+      collectionDays: s.collectionDays ?? [],
+      collectionStartTime: s.collectionStartTime ?? null,
+      collectionEndTime: s.collectionEndTime ?? null,
+      collectionInstructions: s.collectionInstructions ?? null,
+      groupId: s.groupSite?.groupId ?? null,
+      clusterId: s.clusterSite?.clusterId ?? null,
+      territoryId: s.territorySite?.territoryId ?? null,
     };
+  }
+
+  private autoSiteCode(siteId: number) {
+    return `SITE-${String(siteId).padStart(6, '0')}`;
+  }
+
+  private async assertSiteCodeFree(orgId: number, siteCode: string, excludeSiteId?: number) {
+    const taken = await this.prisma.site.findFirst({
+      where: {
+        organisationId: orgId,
+        siteCode,
+        ...(excludeSiteId ? { id: { not: excludeSiteId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new ConflictException('That Site ID is already used in your organisation.');
+    }
+  }
+
+  private async assertStructureTargets(
+    orgId: number,
+    dto: { groupId?: number | null; clusterId?: number | null; territoryId?: number | null },
+  ) {
+    if (dto.groupId) {
+      const group = await this.prisma.enterpriseGroup.findFirst({
+        where: { id: dto.groupId, organisationId: orgId },
+        select: { id: true },
+      });
+      if (!group) throw new NotFoundException('Group not found');
+    }
+    if (dto.clusterId) {
+      const cluster = await this.prisma.cluster.findFirst({
+        where: { id: dto.clusterId, organisationId: orgId },
+        select: { id: true },
+      });
+      if (!cluster) throw new NotFoundException('Cluster not found');
+    }
+    if (dto.territoryId) {
+      const territory = await this.prisma.territory.findFirst({
+        where: { id: dto.territoryId, organisationId: orgId },
+        select: { id: true },
+      });
+      if (!territory) throw new NotFoundException('Territory not found');
+    }
+  }
+
+  private async placeSite(
+    orgId: number,
+    siteId: number,
+    actorId: number,
+    dto: { groupId?: number | null; clusterId?: number | null; territoryId?: number | null },
+    allowClear = false,
+  ) {
+    if (dto.groupId) {
+      await this.prisma.groupSite.upsert({
+        where: { siteId },
+        create: { siteId, groupId: dto.groupId, organisationId: orgId, assignedBy: actorId },
+        update: { groupId: dto.groupId, assignedBy: actorId, assignedAt: new Date() },
+      });
+    } else if (allowClear && dto.groupId === null) {
+      await this.prisma.groupSite.deleteMany({ where: { siteId } });
+    }
+
+    if (dto.clusterId) {
+      await this.prisma.clusterSite.upsert({
+        where: { siteId },
+        create: { siteId, clusterId: dto.clusterId, assignedBy: actorId },
+        update: { clusterId: dto.clusterId, assignedBy: actorId, assignedAt: new Date() },
+      });
+    } else if (allowClear && dto.clusterId === null) {
+      await this.prisma.clusterSite.deleteMany({ where: { siteId } });
+    }
+
+    if (dto.territoryId) {
+      await this.prisma.territorySite.upsert({
+        where: { siteId },
+        create: { siteId, territoryId: dto.territoryId, assignedBy: actorId },
+        update: { territoryId: dto.territoryId, assignedBy: actorId, assignedAt: new Date() },
+      });
+    } else if (allowClear && dto.territoryId === null) {
+      await this.prisma.territorySite.deleteMany({ where: { siteId } });
+    }
+  }
+
+  /** Super Admin or Enterprise Admin may add and assign sites. */
+  private assertCanManageSites(caller: Jwtpayload) {
+    if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
+    if (
+      caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
+      caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN
+    ) {
+      return;
+    }
+    throw new ForbiddenException('Only an Enterprise Super Admin or Enterprise Admin can manage sites');
+  }
+
+  /** Super/Enterprise Admin, or the Site Admin of this site. */
+  private assertCanEditSite(caller: Jwtpayload, siteId: number) {
+    if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
+    if (
+      caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
+      caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN
+    ) {
+      return;
+    }
+    this.assertSiteAccess(caller, siteId);
   }
 
   /** Throws 403 if caller is not a SUPER_ADMIN of their org. */

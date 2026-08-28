@@ -684,6 +684,7 @@ export class AuthService {
       platformRole: user.platformRole,
       orgId: membership?.organisationId,
       orgRole: membership?.orgRole,
+      enterpriseRole: membership?.enterpriseRole ?? null,
       siteId: siteAccess?.siteId,
       siteRole: siteAccess?.siteRole,
       orgType: membership?.organisation?.organizationType,

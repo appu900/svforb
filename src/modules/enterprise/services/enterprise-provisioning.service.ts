@@ -238,17 +238,63 @@ export class EnterpriseProvisioningService {
     });
     const byOrg = new Map(contracts.map((c) => [c.organisationId, c]));
 
-    return profiles.map((p) => ({
-      organisationId: p.organisationId,
-      enterpriseId: p.enterpriseId,
-      name: p.organisation.name,
-      accountStatus: p.accountStatus,
-      country: p.country,
-      currency: p.currency,
-      sites: sitesByOrg.get(p.organisationId) ?? 0,
-      users: p.organisation._count.orgMemeberShips,
-      contract: byOrg.get(p.organisationId) ?? null,
-    }));
+    const memberships = orgIds.length
+      ? await this.prisma.orgMemeberShip.findMany({
+          where: { organisationId: { in: orgIds } },
+          select: {
+            organisationId: true,
+            user: { select: { lastLoginAt: true, termsAcceptedAt: true } },
+          },
+        })
+      : [];
+
+    const lastLoginByOrg = new Map<number, Date>();
+    const activatedOrgs = new Set<number>();
+    for (const membership of memberships) {
+      if (membership.user.termsAcceptedAt || membership.user.lastLoginAt) {
+        activatedOrgs.add(membership.organisationId);
+      }
+      if (membership.user.lastLoginAt) {
+        const previous = lastLoginByOrg.get(membership.organisationId);
+        if (!previous || membership.user.lastLoginAt > previous) {
+          lastLoginByOrg.set(membership.organisationId, membership.user.lastLoginAt);
+        }
+      }
+    }
+
+    const toActivate = profiles
+      .filter(
+        (p) =>
+          p.accountStatus === EnterpriseAccountStatus.PENDING &&
+          activatedOrgs.has(p.organisationId),
+      )
+      .map((p) => p.organisationId);
+    if (toActivate.length) {
+      await this.prisma.enterpriseProfile.updateMany({
+        where: { organisationId: { in: toActivate } },
+        data: { accountStatus: EnterpriseAccountStatus.ACTIVE },
+      });
+    }
+
+    return profiles.map((p) => {
+      const lastLoginAt = lastLoginByOrg.get(p.organisationId) ?? null;
+      const onboarded = activatedOrgs.has(p.organisationId);
+      return {
+        organisationId: p.organisationId,
+        enterpriseId: p.enterpriseId,
+        name: p.organisation.name,
+        accountStatus:
+          p.accountStatus === EnterpriseAccountStatus.PENDING && onboarded
+            ? EnterpriseAccountStatus.ACTIVE
+            : p.accountStatus,
+        country: p.country,
+        currency: p.currency,
+        sites: sitesByOrg.get(p.organisationId) ?? 0,
+        users: p.organisation._count.orgMemeberShips,
+        lastLoginAt,
+        contract: byOrg.get(p.organisationId) ?? null,
+      };
+    });
   }
 
   async getOne(organisationId: number) {
@@ -258,14 +304,79 @@ export class EnterpriseProvisioningService {
     });
     if (!profile) throw new NotFoundException('Enterprise not found');
 
-    const [contract, pendingInvites] = await Promise.all([
+    const [contract, memberships, invitations] = await Promise.all([
       this.prisma.enterpriseContract.findUnique({ where: { organisationId } }),
-      this.prisma.enterpriseInvitation.count({
+      this.prisma.orgMemeberShip.findMany({
+        where: { organisationId },
+        orderBy: { joinedAt: 'asc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phoneNumber: true,
+              isActive: true,
+              lastLoginAt: true,
+              termsAcceptedAt: true,
+            },
+          },
+        },
+      }),
+      this.prisma.enterpriseInvitation.findMany({
         where: { organisationId, status: 'PENDING' },
+        orderBy: { sentAt: 'desc' },
       }),
     ]);
 
-    return { ...this.shape(profile), contract, pendingInvitations: pendingInvites };
+    const onboarded = memberships.some(
+      (membership) => membership.user.termsAcceptedAt || membership.user.lastLoginAt,
+    );
+
+    return {
+      ...this.shape(profile),
+      accountStatus:
+        profile.accountStatus === EnterpriseAccountStatus.PENDING && onboarded
+          ? EnterpriseAccountStatus.ACTIVE
+          : profile.accountStatus,
+      createdAt: profile.createdAt,
+      contract,
+      pendingInvitations: invitations.length,
+      users: memberships.map((membership) => {
+        const role =
+          membership.enterpriseRole ??
+          (membership.orgRole === 'SUPER_ADMIN' ? EnterpriseRole.SUPER_ADMIN : EnterpriseRole.SITE_USER);
+        const user = membership.user;
+        return {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          mobile: user.phoneNumber,
+          role,
+          roleLabel: this.roleLabel(role),
+          status: !user.isActive
+            ? 'DEACTIVATED'
+            : user.termsAcceptedAt || user.lastLoginAt
+              ? 'ACTIVE'
+              : 'INVITED',
+          lastLoginAt: user.lastLoginAt,
+          joinedAt: membership.joinedAt,
+        };
+      }),
+      invitations: invitations.map((row) => ({
+        id: row.id,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        role: row.enterpriseRole,
+        roleLabel: this.roleLabel(row.enterpriseRole),
+        status: 'INVITED' as const,
+        invitationSentAt: row.sentAt,
+        expiresAt: row.expiresAt,
+      })),
+    };
   }
 
   /** Provisioning fields only — these stay read-only to Enterprise users. */
@@ -366,5 +477,18 @@ export class EnterpriseProvisioningService {
       primaryContactPhone: profile.primaryContactPhone,
       logoUrl: profile.logoUrl,
     };
+  }
+
+  private roleLabel(role: EnterpriseRole): string {
+    const map: Record<EnterpriseRole, string> = {
+      SUPER_ADMIN: 'Enterprise Super Admin',
+      ENTERPRISE_ADMIN: 'Enterprise Admin',
+      REPORTING_USER: 'Reporting User',
+      GROUP_ADMIN: 'Group Admin',
+      SITE_ADMIN: 'Site Admin',
+      CLUSTER_ADMIN: 'Cluster Admin',
+      SITE_USER: 'Site User',
+    };
+    return map[role];
   }
 }

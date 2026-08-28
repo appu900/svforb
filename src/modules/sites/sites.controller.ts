@@ -16,6 +16,7 @@ import { SiteAdminOrAboveGuard } from './guards/site-admin-or-above.guard';
 import { SuperAdminGuard } from './guards/super-admin.guard';
 import {
   AddStaffDto,
+  AssignExistingSiteAdminDto,
   AssignSiteManagerDto,
   CreateSiteDto,
   UpdateSiteDto,
@@ -31,10 +32,9 @@ export class SitesController {
    * POST /sites
    * Create a new site.
    * Requires: SUPER_ADMIN + BUSINESS_MULTI + subscription site limit not reached.
-   * Body: { siteName, address, postcode, contactName, contactEmail, phoneNumber?, latitude, longitude }
+   * Body: { siteName, address, postcode?, siteCode?, contact, collection, structure, latitude, longitude }
    */
   @Post()
-  @UseGuards(SuperAdminGuard)
   createSite(
     @Req() req: Request & { user: Jwtpayload },
     @Body() dto: CreateSiteDto,
@@ -81,8 +81,20 @@ export class SitesController {
     @Param('siteId', ParseIntPipe) siteId: number,
     @Body() dto: AssignSiteManagerDto,
   ) {
-    console.log("requeted site id",siteId)
     return this.sitesService.assignSiteManager(req.user, siteId, dto);
+  }
+
+  /**
+   * POST /sites/:siteId/assign-admin
+   * Grant Site Admin to an existing organisation member. No password.
+   */
+  @Post(':siteId/assign-admin')
+  assignExistingSiteAdmin(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('siteId', ParseIntPipe) siteId: number,
+    @Body() dto: AssignExistingSiteAdminDto,
+  ) {
+    return this.sitesService.assignExistingSiteAdmin(req.user, siteId, dto);
   }
 
   /**
@@ -143,7 +155,6 @@ export class SitesController {
    * Requires: SUPER_ADMIN + BUSINESS_MULTI.
    */
   @Patch(':siteId')
-  @UseGuards(SuperAdminGuard)
   updateSite(
     @Req() req: Request & { user: Jwtpayload },
     @Param('siteId', ParseIntPipe) siteId: number,

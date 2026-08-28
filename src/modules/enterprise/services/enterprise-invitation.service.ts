@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   AuditArea,
+  EnterpriseAccountStatus,
   EnterpriseRole,
   InvitationStatus,
   OrgRole,
@@ -405,6 +406,14 @@ export class EnterpriseInvitationService {
           acceptedAt: now,
           acceptedUserId: account.id,
         },
+      });
+
+      await tx.enterpriseProfile.updateMany({
+        where: {
+          organisationId: invitation.organisationId,
+          accountStatus: EnterpriseAccountStatus.PENDING,
+        },
+        data: { accountStatus: EnterpriseAccountStatus.ACTIVE },
       });
 
       return account;

@@ -411,6 +411,7 @@ export class EnterpriseStructureService {
           id: true,
           organisationName: true,
           isActive: true,
+          groupSite: { select: { groupId: true } },
           clusterSite: { select: { clusterId: true } },
           territorySite: { select: { territoryId: true } },
         },

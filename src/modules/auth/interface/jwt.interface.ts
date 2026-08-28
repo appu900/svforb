@@ -1,4 +1,4 @@
-import { OrgRole, OrgType, PlatformRole, SiteRole } from '@prisma/client';
+import { EnterpriseRole, OrgRole, OrgType, PlatformRole, SiteRole } from '@prisma/client';
 
 export interface Jwtpayload {
   sub: number;
@@ -7,6 +7,7 @@ export interface Jwtpayload {
   orgId?: number;
   orgType?: OrgType;
   orgRole?: OrgRole;
+  enterpriseRole?: EnterpriseRole | null;
   siteId?: number;
   siteRole?: SiteRole;
 }
