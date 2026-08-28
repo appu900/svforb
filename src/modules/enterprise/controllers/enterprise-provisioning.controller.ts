@@ -22,6 +22,7 @@ import {
   ProvisionEnterpriseDto,
   UpdateProvisioningDto,
 } from '../dto/enterprise.dto';
+import { SitesService } from '../../sites/service/sites.service';
 import { EnterpriseProvisioningService } from '../services/enterprise-provisioning.service';
 import { EnterpriseStructureService } from '../services/enterprise-structure.service';
 import { EnterpriseUserService } from '../services/enterprise-user.service';
@@ -39,6 +40,7 @@ export class EnterpriseProvisioningController {
     private readonly provisioning: EnterpriseProvisioningService,
     private readonly structure: EnterpriseStructureService,
     private readonly users: EnterpriseUserService,
+    private readonly sites: SitesService,
   ) {}
 
   /** Creates the Enterprise and invites its first Super Admin. */
@@ -63,9 +65,19 @@ export class EnterpriseProvisioningController {
     return this.provisioning.list();
   }
 
+  @Get('sites')
+  listSites(@Req() req: Request & { user: Jwtpayload }) {
+    return this.sites.listAllEnterpriseSites(req.user);
+  }
+
   @Get(':organisationId/structure')
   getStructure(@Param('organisationId', ParseIntPipe) organisationId: number) {
     return this.structure.getStructureForOrganisation(organisationId);
+  }
+
+  @Get(':organisationId/users')
+  listUsers(@Param('organisationId', ParseIntPipe) organisationId: number) {
+    return this.provisioning.listMembers(organisationId);
   }
 
   @Post(':organisationId/users')

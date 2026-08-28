@@ -343,28 +343,7 @@ export class EnterpriseProvisioningService {
       createdAt: profile.createdAt,
       contract,
       pendingInvitations: invitations.length,
-      users: memberships.map((membership) => {
-        const role =
-          membership.enterpriseRole ??
-          (membership.orgRole === 'SUPER_ADMIN' ? EnterpriseRole.SUPER_ADMIN : EnterpriseRole.SITE_USER);
-        const user = membership.user;
-        return {
-          id: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          mobile: user.phoneNumber,
-          role,
-          roleLabel: this.roleLabel(role),
-          status: !user.isActive
-            ? 'DEACTIVATED'
-            : user.termsAcceptedAt || user.lastLoginAt
-              ? 'ACTIVE'
-              : 'INVITED',
-          lastLoginAt: user.lastLoginAt,
-          joinedAt: membership.joinedAt,
-        };
-      }),
+      users: memberships.map((membership) => this.shapeMember(membership)),
       invitations: invitations.map((row) => ({
         id: row.id,
         firstName: row.firstName,
@@ -377,6 +356,35 @@ export class EnterpriseProvisioningService {
         expiresAt: row.expiresAt,
       })),
     };
+  }
+
+  async listMembers(organisationId: number) {
+    const profile = await this.prisma.enterpriseProfile.findUnique({
+      where: { organisationId },
+      select: { organisationId: true },
+    });
+    if (!profile) throw new NotFoundException('Enterprise not found');
+
+    const memberships = await this.prisma.orgMemeberShip.findMany({
+      where: { organisationId },
+      orderBy: { joinedAt: 'asc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phoneNumber: true,
+            isActive: true,
+            lastLoginAt: true,
+            termsAcceptedAt: true,
+          },
+        },
+      },
+    });
+
+    return { users: memberships.map((membership) => this.shapeMember(membership)) };
   }
 
   /** Provisioning fields only — these stay read-only to Enterprise users. */
@@ -476,6 +484,43 @@ export class EnterpriseProvisioningService {
       primaryContactEmail: profile.primaryContactEmail,
       primaryContactPhone: profile.primaryContactPhone,
       logoUrl: profile.logoUrl,
+    };
+  }
+
+  private shapeMember(membership: {
+    orgRole: string;
+    enterpriseRole: EnterpriseRole | null;
+    joinedAt: Date;
+    user: {
+      id: number;
+      firstName: string;
+      lastName: string;
+      email: string;
+      phoneNumber: string | null;
+      isActive: boolean;
+      lastLoginAt: Date | null;
+      termsAcceptedAt: Date | null;
+    };
+  }) {
+    const role =
+      membership.enterpriseRole ??
+      (membership.orgRole === 'SUPER_ADMIN' ? EnterpriseRole.SUPER_ADMIN : EnterpriseRole.SITE_USER);
+    const user = membership.user;
+    return {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      mobile: user.phoneNumber,
+      role,
+      roleLabel: this.roleLabel(role),
+      status: !user.isActive
+        ? 'DEACTIVATED'
+        : user.termsAcceptedAt || user.lastLoginAt
+          ? 'ACTIVE'
+          : 'INVITED',
+      lastLoginAt: user.lastLoginAt,
+      joinedAt: membership.joinedAt,
     };
   }
 

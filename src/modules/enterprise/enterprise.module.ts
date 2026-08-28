@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { SitesModule } from '../sites/sites.module';
 import { EnterpriseAuditService } from './services/enterprise-audit.service';
 import { EnterpriseBillingService } from './services/enterprise-billing.service';
 import { EnterpriseImpactService } from './services/enterprise-impact.service';
@@ -28,7 +29,7 @@ import { ENTERPRISE_QUEUE, EnterpriseQueueService } from './queues/enterprise.qu
 import { EnterpriseWorker } from './workers/enterprise.worker';
 
 @Module({
-  imports: [AuthModule, BullModule.registerQueue({ name: ENTERPRISE_QUEUE })],
+  imports: [AuthModule, SitesModule, BullModule.registerQueue({ name: ENTERPRISE_QUEUE })],
   controllers: [
     EnterpriseStructureController,
     EnterpriseReportingController,
