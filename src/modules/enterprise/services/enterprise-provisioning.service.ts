@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -21,8 +22,11 @@ import {
   UpdateProvisioningDto,
 } from '../dto/enterprise.dto';
 import { ENTERPRISE_ERROR, ENTERPRISE_PLAN_NAME } from '../enterprise.constants';
+import { S3Service } from '../../../uploads/s3/s3.service';
 import { EnterpriseAuditService } from './enterprise-audit.service';
 import { EnterpriseInvitationService } from './enterprise-invitation.service';
+
+const LOGO_FOLDER = 'enterprise-logos';
 
 /** Currency defaults by country, so the admin form does not have to ask twice. */
 const CURRENCY_BY_COUNTRY: Record<string, string> = {
@@ -46,7 +50,17 @@ export class EnterpriseProvisioningService {
     private readonly prisma: PrismaService,
     private readonly invitations: EnterpriseInvitationService,
     private readonly audit: EnterpriseAuditService,
+    private readonly s3: S3Service,
   ) {}
+
+  async uploadLogo(file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('Logo file is required');
+    if (!file.mimetype.startsWith('image/')) {
+      throw new BadRequestException('Logo must be an image');
+    }
+    const logoUrl = await this.s3.uploadFile(file, LOGO_FOLDER);
+    return { logoUrl };
+  }
 
   /**
    * Creates the Enterprise account and invites its first Super Admin.
@@ -57,7 +71,11 @@ export class EnterpriseProvisioningService {
    * for. The invitation is sent afterwards, so a bounced email leaves a usable
    * Enterprise rather than rolling the whole thing back.
    */
-  async provision(caller: Jwtpayload, dto: ProvisionEnterpriseDto) {
+  async provision(
+    caller: Jwtpayload,
+    dto: ProvisionEnterpriseDto,
+    logo?: Express.Multer.File,
+  ) {
     const plan = await this.prisma.subscriptionPlan.findUnique({
       where: { name: ENTERPRISE_PLAN_NAME },
       select: { id: true },
@@ -97,6 +115,9 @@ export class EnterpriseProvisioningService {
     const currency = (
       dto.currency ?? CURRENCY_BY_COUNTRY[country] ?? 'AUD'
     ).toUpperCase();
+    const logoUrl = logo
+      ? (await this.uploadLogo(logo)).logoUrl
+      : (dto.logoUrl ?? null);
 
     const organisation = await this.prisma.$transaction(async (tx) => {
       const org = await tx.organisation.create({
@@ -106,7 +127,7 @@ export class EnterpriseProvisioningService {
           organizationType: OrgType.BUSINESS_MULTI,
           address: dto.address,
           region: dto.region ?? this.regionForCountry(country),
-          logoUrl: dto.logoUrl ?? null,
+          logoUrl,
         },
       });
 
@@ -122,7 +143,7 @@ export class EnterpriseProvisioningService {
           primaryContactName: `${dto.adminFirstName} ${dto.adminLastName}`.trim(),
           primaryContactEmail: adminEmail,
           primaryContactPhone: dto.adminMobile ?? null,
-          logoUrl: dto.logoUrl ?? null,
+          logoUrl,
         },
       });
 

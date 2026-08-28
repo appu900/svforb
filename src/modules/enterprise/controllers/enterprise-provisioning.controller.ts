@@ -7,8 +7,11 @@ import {
   Patch,
   Post,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { PlatformAdminGuard } from '../../../common/guards/platform-admin.guard';
@@ -33,11 +36,19 @@ export class EnterpriseProvisioningController {
 
   /** Creates the Enterprise and invites its first Super Admin. */
   @Post('provision')
+  @UseInterceptors(FileInterceptor('logo'))
   provision(
     @Req() req: Request & { user: Jwtpayload },
     @Body() dto: ProvisionEnterpriseDto,
+    @UploadedFile() logo?: Express.Multer.File,
   ) {
-    return this.provisioning.provision(req.user, dto);
+    return this.provisioning.provision(req.user, dto, logo);
+  }
+
+  @Post('logo')
+  @UseInterceptors(FileInterceptor('logo'))
+  uploadLogo(@UploadedFile() logo?: Express.Multer.File) {
+    return this.provisioning.uploadLogo(logo);
   }
 
   @Get()
