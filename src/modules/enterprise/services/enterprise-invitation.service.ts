@@ -507,11 +507,11 @@ export class EnterpriseInvitationService {
       expiresAt: Date;
     },
   ): Promise<void> {
-    const appUrl = this.config.get<string>(
-      'ENTERPRISE_APP_URL',
-      this.config.get<string>('APP_URL', 'http://localhost:3000'),
-    );
-    const link = `${appUrl.replace(/\/$/, '')}/enterprise/activate?token=${token}`;
+    // Invite links must open the Enterprise website, not the API host.
+    // APP_URL stays the API (billing/webhooks). FRONTEND_URL is this portal.
+    const frontendUrl = this.config.get<string>('FRONTEND_URL');
+    const appUrl = frontendUrl || this.config.get<string>('APP_URL', 'http://localhost:3000');
+    const link = `${appUrl.replace(/\/$/, '')}/activate?token=${token}`;
 
     await this.email
       .sendEnterpriseInvite({
