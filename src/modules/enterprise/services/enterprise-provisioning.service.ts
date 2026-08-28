@@ -387,6 +387,79 @@ export class EnterpriseProvisioningService {
     return { users: memberships.map((membership) => this.shapeMember(membership)) };
   }
 
+  async listAllMembers() {
+    const enterprises = await this.prisma.enterpriseProfile.findMany({
+      select: {
+        organisationId: true,
+        enterpriseId: true,
+        organisation: { select: { name: true } },
+      },
+    });
+    const orgIds = enterprises.map((row) => row.organisationId);
+    if (!orgIds.length) return { users: [], invitations: [] };
+
+    const orgMeta = new Map(
+      enterprises.map((row) => [
+        row.organisationId,
+        { name: row.organisation.name, enterpriseId: row.enterpriseId },
+      ]),
+    );
+
+    const [memberships, invitations] = await Promise.all([
+      this.prisma.orgMemeberShip.findMany({
+        where: { organisationId: { in: orgIds } },
+        orderBy: [{ organisationId: 'asc' }, { joinedAt: 'asc' }],
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phoneNumber: true,
+              isActive: true,
+              lastLoginAt: true,
+              termsAcceptedAt: true,
+            },
+          },
+        },
+      }),
+      this.prisma.enterpriseInvitation.findMany({
+        where: { organisationId: { in: orgIds }, status: 'PENDING' },
+        orderBy: { sentAt: 'desc' },
+      }),
+    ]);
+
+    return {
+      users: memberships.map((membership) => {
+        const meta = orgMeta.get(membership.organisationId);
+        return {
+          ...this.shapeMember(membership),
+          organisationId: membership.organisationId,
+          organisationName: meta?.name ?? '',
+          enterpriseId: meta?.enterpriseId ?? null,
+        };
+      }),
+      invitations: invitations.map((row) => {
+        const meta = orgMeta.get(row.organisationId);
+        return {
+          id: row.id,
+          organisationId: row.organisationId,
+          organisationName: meta?.name ?? '',
+          enterpriseId: meta?.enterpriseId ?? null,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          email: row.email,
+          role: row.enterpriseRole,
+          roleLabel: this.roleLabel(row.enterpriseRole),
+          status: 'INVITED' as const,
+          invitationSentAt: row.sentAt,
+          expiresAt: row.expiresAt,
+        };
+      }),
+    };
+  }
+
   /** Provisioning fields only — these stay read-only to Enterprise users. */
   async updateProvisioning(
     caller: Jwtpayload,

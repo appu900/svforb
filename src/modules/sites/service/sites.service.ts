@@ -48,33 +48,34 @@ export class SitesService {
   // Only SUPER_ADMINs of BUSINESS_MULTI orgs can add new sites.
   // Enforces the plan's maxSites cap before creation.
 
-  /** Every site across every organisation, for the Saveful Admin directory. */
+  /** Sites that belong to provisioned Enterprises only. */
   async listAllEnterpriseSites(caller: Jwtpayload) {
     if (caller.platformRole !== PlatformRole.PLATFORM_ADMIN) {
       throw new ForbiddenException('Platform admin access required');
     }
 
-    const sites = await this.prisma.site.findMany({
-      orderBy: [{ organisationId: 'asc' }, { createdAt: 'desc' }],
-      include: {
-        groupSite: { include: { group: { select: { id: true, name: true } } } },
-        clusterSite: { include: { cluster: { select: { id: true, name: true } } } },
-        territorySite: { include: { territory: { select: { id: true, name: true } } } },
-      },
+    const enterprises = await this.prisma.enterpriseProfile.findMany({
+      select: { organisationId: true, enterpriseId: true },
     });
-    if (!sites.length) return { sites: [] };
+    const orgIds = enterprises.map((row) => row.organisationId);
+    if (!orgIds.length) return { sites: [] };
 
-    const orgIds = [...new Set(sites.map((site) => site.organisationId))];
-    const [organisations, enterprises] = await Promise.all([
+    const [sites, organisations] = await Promise.all([
+      this.prisma.site.findMany({
+        where: { organisationId: { in: orgIds } },
+        orderBy: [{ organisationId: 'asc' }, { createdAt: 'desc' }],
+        include: {
+          groupSite: { include: { group: { select: { id: true, name: true } } } },
+          clusterSite: { include: { cluster: { select: { id: true, name: true } } } },
+          territorySite: { include: { territory: { select: { id: true, name: true } } } },
+        },
+      }),
       this.prisma.organisation.findMany({
         where: { id: { in: orgIds } },
         select: { id: true, name: true },
       }),
-      this.prisma.enterpriseProfile.findMany({
-        where: { organisationId: { in: orgIds } },
-        select: { organisationId: true, enterpriseId: true },
-      }),
     ]);
+    if (!sites.length) return { sites: [] };
 
     const orgNameById = new Map(organisations.map((org) => [org.id, org.name]));
     const enterpriseIdByOrg = new Map(

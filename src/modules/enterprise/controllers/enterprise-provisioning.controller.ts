@@ -70,6 +70,11 @@ export class EnterpriseProvisioningController {
     return this.sites.listAllEnterpriseSites(req.user);
   }
 
+  @Get('users')
+  listAllUsers() {
+    return this.provisioning.listAllMembers();
+  }
+
   @Get(':organisationId/structure')
   getStructure(@Param('organisationId', ParseIntPipe) organisationId: number) {
     return this.structure.getStructureForOrganisation(organisationId);
