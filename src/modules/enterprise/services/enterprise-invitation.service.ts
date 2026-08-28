@@ -507,8 +507,11 @@ export class EnterpriseInvitationService {
       expiresAt: Date;
     },
   ): Promise<void> {
-    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
-    const link = `${appUrl}/enterprise/activate?token=${token}`;
+    const appUrl = this.config.get<string>(
+      'ENTERPRISE_APP_URL',
+      this.config.get<string>('APP_URL', 'http://localhost:3000'),
+    );
+    const link = `${appUrl.replace(/\/$/, '')}/enterprise/activate?token=${token}`;
 
     await this.email
       .sendEnterpriseInvite({

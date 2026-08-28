@@ -655,6 +655,15 @@ export class AuthService {
         email: user.email,
         platformRole: user.platformRole,
       },
+      organisation: {
+        id: organisationId,
+        name: memberShip.organisation.name,
+      },
+      role: {
+        orgRole: memberShip.orgRole,
+        enterpriseRole: memberShip.enterpriseRole ?? null,
+        siteRole: primarySiteAccess?.siteRole ?? null,
+      },
       siteAccess: primarySiteAccess,
     };
   }
@@ -880,6 +889,7 @@ export class AuthService {
       role: {
         platformRole: user.platformRole,
         orgRole: membership.orgRole,
+        enterpriseRole: membership.enterpriseRole ?? null,
         siteRole: siteAccesses[0]?.siteRole ?? null,
       },
       subscription: subscription
