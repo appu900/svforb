@@ -6,24 +6,30 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { EnterpriseRole, OrgRole, PlatformRole, ScopeType } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import {
+  EnterpriseRole,
+  InvitationStatus,
+  OrgRole,
+  ScopeType,
+} from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { EmailQueueService } from '../../notifications/queues/email.queue.service';
 import {
-  InviteEnterpriseUserDto,
-  ResendInviteDto,
+  InviteUserDto,
   ScopeGrantDto,
   SetUserScopesDto,
   UpdateEnterpriseUserDto,
 } from '../dto/enterprise.dto';
 import { ENTERPRISE_ERROR } from '../enterprise.constants';
+import { EnterpriseAuditService } from './enterprise-audit.service';
+import { EnterpriseInvitationService } from './enterprise-invitation.service';
 import { EnterpriseScopeService } from './enterprise-scope.service';
 
 /** Roles that may administer other users, and how far their reach extends. */
 const ADMIN_ROLES: EnterpriseRole[] = [
   EnterpriseRole.SUPER_ADMIN,
+  EnterpriseRole.ENTERPRISE_ADMIN,
   EnterpriseRole.GROUP_ADMIN,
 ];
 
@@ -37,11 +43,21 @@ export class EnterpriseUserService {
     private readonly prisma: PrismaService,
     private readonly scope: EnterpriseScopeService,
     private readonly emailService: EmailQueueService,
+    private readonly invitations: EnterpriseInvitationService,
+    private readonly audit: EnterpriseAuditService,
   ) {}
 
   // ─── Invite ────────────────────────────────────────────────────────────────
 
-  async inviteUser(caller: Jwtpayload, dto: InviteEnterpriseUserDto) {
+  /**
+   * Invites a user. No password is created on their behalf — they receive a
+   * time-limited activation link and set their own, per the Enterprise Account
+   * Activation rules.
+   *
+   * The role and scope are held on the invitation until it is accepted, so an
+   * unopened invite never leaves a half-provisioned user behind.
+   */
+  async inviteUser(caller: Jwtpayload, dto: InviteUserDto) {
     const orgId = await this.assertUserAdmin(caller);
     await this.assertCanGrantRole(caller, dto.role);
 
@@ -49,96 +65,84 @@ export class EnterpriseUserService {
     await this.assertScopesWithinCallerReach(caller, orgId, scopes);
     await this.assertScopeTargetsExist(orgId, scopes);
 
-    const email = dto.email.trim().toLowerCase();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-
-    if (existing) {
-      const otherOrg = await this.prisma.orgMemeberShip.findFirst({
-        where: { userId: existing.id, organisationId: { not: orgId } },
-      });
-      if (otherOrg) {
-        throw new ConflictException(
-          'That email already belongs to a different organisation',
-        );
-      }
-    }
-
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      const user = existing
-        ? await tx.user.update({
-            where: { id: existing.id },
-            data: { passwordHash, isActive: true },
-          })
-        : await tx.user.create({
-            data: {
-              firstName: dto.firstName,
-              lastName: dto.lastName,
-              email,
-              passwordHash,
-              phoneNumber: dto.mobile ?? '',
-              platformRole: PlatformRole.ORG_USER,
-              emailVerified: true,
-              isActive: true,
-            },
-          });
-
-      await tx.orgMemeberShip.upsert({
-        where: { userId_organisationId: { userId: user.id, organisationId: orgId } },
-        create: {
-          userId: user.id,
-          organisationId: orgId,
-          orgRole:
-            dto.role === EnterpriseRole.SUPER_ADMIN
-              ? OrgRole.SUPER_ADMIN
-              : OrgRole.ORG_MEMBER,
-          enterpriseRole: dto.role,
-        },
-        update: { enterpriseRole: dto.role },
-      });
-
-      await tx.userScope.deleteMany({ where: { userId: user.id, organisationId: orgId } });
-      if (scopes.length) {
-        await tx.userScope.createMany({
-          data: scopes.map((s) => ({
-            userId: user.id,
-            organisationId: orgId,
-            scopeType: s.scopeType,
-            scopeId: s.scopeId ?? null,
-            grantedBy: caller.sub,
-          })),
-        });
-      }
-
-      return user;
-    });
-
-    const org = await this.prisma.organisation.findUnique({
-      where: { id: orgId },
-      select: { name: true },
-    });
-
-    await this.emailService
-      .sendStaffInvite({
-        to: email,
-        name: dto.firstName,
-        email,
-        password: dto.password,
-        siteName: org?.name ?? 'your organisation',
-        role: this.roleLabel(dto.role),
-      })
-      .catch((err) => this.logger.warn(`invite email failed: ${err.message}`));
+    const actor = await this.audit.actorFrom(caller);
+    const invitation = await this.invitations.issue(
+      {
+        organisationId: orgId,
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        mobile: dto.mobile ?? null,
+        role: dto.role,
+        scopes: scopes.map((sc) => ({
+          scopeType: sc.scopeType,
+          scopeId: sc.scopeId ?? null,
+        })),
+        siteAdminForSiteId: dto.siteAdminForSiteId ?? null,
+        invitedBy: caller.sub,
+      },
+      actor,
+    );
 
     this.logger.log(
-      `Enterprise user invited: id=${result.id} role=${dto.role} ` +
+      `Enterprise user invited: email=${invitation.email} role=${dto.role} ` +
         `scopes=${scopes.length} org=${orgId} by=${caller.sub}`,
     );
 
     return {
-      message: 'User invited. Login credentials sent by email.',
-      user: await this.getUser(caller, result.id),
+      message: 'Invitation sent. The user will set their own password.',
+      invitation: {
+        id: invitation.invitationId,
+        email: invitation.email,
+        role: this.roleLabel(dto.role),
+        status: 'PENDING',
+        sentAt: new Date(),
+        expiresAt: invitation.expiresAt,
+      },
     };
+  }
+
+  /** Pending invitations, shown alongside members in the Users listing. */
+  async listInvitations(caller: Jwtpayload) {
+    const orgId = await this.assertUserAdmin(caller);
+
+    const rows = await this.prisma.enterpriseInvitation.findMany({
+      where: { organisationId: orgId, status: InvitationStatus.PENDING },
+      orderBy: { sentAt: 'desc' },
+      include: { scopes: { select: { scopeType: true, scopeId: true } } },
+    });
+    const labels = await this.scopeLabels(orgId);
+
+    return rows.map((r) => ({
+      id: r.id,
+      firstName: r.firstName,
+      lastName: r.lastName,
+      email: r.email,
+      role: r.enterpriseRole,
+      roleLabel: this.roleLabel(r.enterpriseRole),
+      status: 'INVITED' as const,
+      invitationSentAt: r.sentAt,
+      expiresAt: r.expiresAt,
+      scopes: r.scopes.map((sc) => ({
+        scopeType: sc.scopeType,
+        scopeId: sc.scopeId,
+        name: labels.get(`${sc.scopeType}:${sc.scopeId ?? ''}`) ?? null,
+      })),
+    }));
+  }
+
+  /** Reissues the link, invalidating the previous one. */
+  async resendInvitation(caller: Jwtpayload, invitationId: number) {
+    const orgId = await this.assertUserAdmin(caller);
+    const actor = await this.audit.actorFrom(caller);
+    const result = await this.invitations.resend(orgId, invitationId, actor);
+    return { message: 'Invitation resent. The previous link no longer works.', ...result };
+  }
+
+  async revokeInvitation(caller: Jwtpayload, invitationId: number) {
+    const orgId = await this.assertUserAdmin(caller);
+    const actor = await this.audit.actorFrom(caller);
+    return this.invitations.revoke(orgId, invitationId, actor);
   }
 
   // ─── Read ──────────────────────────────────────────────────────────────────
@@ -159,6 +163,7 @@ export class EnterpriseUserService {
             phoneNumber: true,
             isActive: true,
             lastLoginAt: true,
+            termsAcceptedAt: true,
           },
         },
       },
@@ -209,6 +214,7 @@ export class EnterpriseUserService {
             phoneNumber: true,
             isActive: true,
             lastLoginAt: true,
+            termsAcceptedAt: true,
             createdAt: true,
           },
         },
@@ -341,31 +347,46 @@ export class EnterpriseUserService {
     return { message: isActive ? 'User activated' : 'User deactivated' };
   }
 
-  async resendInvite(caller: Jwtpayload, userId: number, dto: ResendInviteDto) {
+  /**
+   * Resends to an existing member by re-inviting them. Administrators never
+   * set another person's password, so there is no password path here.
+   */
+  async resendInviteForUser(caller: Jwtpayload, userId: number) {
     const orgId = await this.assertUserAdmin(caller);
     const membership = await this.requireMembership(userId, orgId);
-
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    const org = await this.prisma.organisation.findUnique({
-      where: { id: orgId },
-      select: { name: true },
+
+    const pending = await this.prisma.enterpriseInvitation.findFirst({
+      where: { organisationId: orgId, email: user.email, status: InvitationStatus.PENDING },
+      orderBy: { sentAt: 'desc' },
+      select: { id: true },
     });
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash: await bcrypt.hash(dto.newPassword, 10) },
+    const actor = await this.audit.actorFrom(caller);
+    if (pending) {
+      const result = await this.invitations.resend(orgId, pending.id, actor);
+      return { message: 'Invitation resent. The previous link no longer works.', ...result };
+    }
+
+    const scopes = await this.prisma.userScope.findMany({
+      where: { userId, organisationId: orgId },
+      select: { scopeType: true, scopeId: true },
     });
 
-    await this.emailService.sendStaffInvite({
-      to: user.email,
-      name: user.firstName,
-      email: user.email,
-      password: dto.newPassword,
-      siteName: org?.name ?? 'your organisation',
-      role: this.roleLabel(membership.enterpriseRole ?? this.legacyRole(membership.orgRole)),
-    });
-
-    return { message: 'Invite resent' };
+    const result = await this.invitations.issue(
+      {
+        organisationId: orgId,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        mobile: user.phoneNumber,
+        role: membership.enterpriseRole ?? this.legacyRole(membership.orgRole),
+        scopes,
+        invitedBy: caller.sub,
+      },
+      actor,
+    );
+    return { message: 'Invitation sent.', ...result };
   }
 
   // ─── Guards ────────────────────────────────────────────────────────────────
@@ -384,6 +405,14 @@ export class EnterpriseUserService {
   private async assertCanGrantRole(caller: Jwtpayload, role: EnterpriseRole) {
     const callerRole = await this.scope.getEnterpriseRole(caller);
     if (callerRole === EnterpriseRole.SUPER_ADMIN) return;
+
+    // Only a Super Admin may mint another Super Admin.
+    if (
+      callerRole === EnterpriseRole.ENTERPRISE_ADMIN &&
+      role !== EnterpriseRole.SUPER_ADMIN
+    ) {
+      return;
+    }
 
     if (role === EnterpriseRole.SUPER_ADMIN || role === EnterpriseRole.GROUP_ADMIN) {
       throw new ForbiddenException(`Only a Super Admin can assign the ${role} role`);
@@ -478,8 +507,19 @@ export class EnterpriseUserService {
     return scopes ?? [];
   }
 
-  private statusOf(user: { isActive: boolean; lastLoginAt: Date | null }): UserStatus {
+  /**
+   * Activation is what makes a user Active, not their first sign-in — a person
+   * who has set their password and accepted the terms is Active even before
+   * they log in again. `lastLoginAt` remains the fallback for accounts created
+   * before the invitation flow existed.
+   */
+  private statusOf(user: {
+    isActive: boolean;
+    lastLoginAt: Date | null;
+    termsAcceptedAt?: Date | null;
+  }): UserStatus {
     if (!user.isActive) return 'DEACTIVATED';
+    if (user.termsAcceptedAt) return 'ACTIVE';
     return user.lastLoginAt ? 'ACTIVE' : 'INVITED';
   }
 
@@ -492,10 +532,13 @@ export class EnterpriseUserService {
   private roleLabel(role: EnterpriseRole): string {
     const map: Record<EnterpriseRole, string> = {
       SUPER_ADMIN: 'Enterprise Super Admin',
+      ENTERPRISE_ADMIN: 'Enterprise Admin',
       REPORTING_USER: 'Reporting User',
       GROUP_ADMIN: 'Group Admin',
-      CLUSTER_ADMIN: 'Cluster Admin',
       SITE_ADMIN: 'Site Admin',
+      // Retained for existing rows only — not offered in the Enterprise Portal,
+      // which defines five roles (Roles & Permissions, page 17).
+      CLUSTER_ADMIN: 'Cluster Admin',
       SITE_USER: 'Site User',
     };
     return map[role];

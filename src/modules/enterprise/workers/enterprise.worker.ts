@@ -5,6 +5,7 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { ENTERPRISE_JOBS, ENTERPRISE_QUEUE } from '../queues/enterprise.queue.service';
 import { EnterpriseBillingService } from '../services/enterprise-billing.service';
+import { EnterpriseInvitationService } from '../services/enterprise-invitation.service';
 
 @Processor(ENTERPRISE_QUEUE)
 export class EnterpriseWorker extends WorkerHost {
@@ -13,6 +14,7 @@ export class EnterpriseWorker extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly billing: EnterpriseBillingService,
+    private readonly invitations: EnterpriseInvitationService,
   ) {
     super();
   }
@@ -25,6 +27,8 @@ export class EnterpriseWorker extends WorkerHost {
       case ENTERPRISE_JOBS.MARK_OVERDUE:
         await this.markOverdue();
         await this.billing.expireLapsedContracts();
+        // Lapsed activation links stop reading as "Invited" in the user list.
+        await this.invitations.expireLapsedInvitations();
         break;
       default:
         this.logger.warn(`Unhandled enterprise job: ${job.name}`);

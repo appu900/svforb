@@ -1,7 +1,10 @@
 import {
   BillingFrequency,
   ContractStatus,
+  EnterpriseAccountStatus,
   EnterpriseRole,
+  MeasurementUnit,
+  Region,
   ScopeType,
 } from '@prisma/client';
 import { Type } from 'class-transformer';
@@ -152,4 +155,74 @@ export class SetUserScopesDto {
 
 export class ResendInviteDto {
   @IsString() @MinLength(8) newPassword!: string;
+}
+
+// ─── Provisioning & profile ──────────────────────────────────────────────────
+
+/**
+ * Saveful creates the Enterprise; customers cannot self-create one. Everything
+ * here is set in the Saveful administration environment.
+ */
+export class ProvisionEnterpriseDto {
+  @IsString() @IsNotEmpty() @MaxLength(160) enterpriseName!: string;
+  /// Human-facing identifier, e.g. ENT-AU-001284. Generated when omitted.
+  @IsString() @IsOptional() @MaxLength(40) enterpriseId?: string;
+
+  @IsString() @IsNotEmpty() @MaxLength(200) address!: string;
+  @IsString() @IsNotEmpty() @MaxLength(80) country!: string;
+  @IsString() @IsNotEmpty() @MaxLength(80) timezone!: string;
+  @IsString() @IsOptional() @MaxLength(3) currency?: string;
+  @IsEnum(MeasurementUnit) @IsOptional() measurementUnit?: MeasurementUnit;
+  @IsEnum(Region) @IsOptional() region?: Region;
+
+  @IsString() @IsOptional() @MaxLength(500) logoUrl?: string;
+
+  /// The nominated Enterprise Super Admin. They receive an activation
+  /// invitation — no password is set on their behalf.
+  @IsString() @IsNotEmpty() @MaxLength(80) adminFirstName!: string;
+  @IsString() @IsNotEmpty() @MaxLength(80) adminLastName!: string;
+  @IsEmail() adminEmail!: string;
+  @IsString() @IsOptional() @MaxLength(30) adminMobile?: string;
+}
+
+/** Provisioning fields, editable by Saveful only. */
+export class UpdateProvisioningDto {
+  @IsEnum(EnterpriseAccountStatus) @IsOptional() accountStatus?: EnterpriseAccountStatus;
+  @IsString() @IsOptional() @MaxLength(80) country?: string;
+  @IsString() @IsOptional() @MaxLength(80) timezone?: string;
+  @IsString() @IsOptional() @MaxLength(3) currency?: string;
+  @IsEnum(MeasurementUnit) @IsOptional() measurementUnit?: MeasurementUnit;
+}
+
+/** Organisation Profile fields an authorised Enterprise user may maintain. */
+export class UpdateEnterpriseProfileDto {
+  @IsString() @IsOptional() @MaxLength(160) enterpriseName?: string;
+  @IsString() @IsOptional() @MaxLength(120) primaryContactName?: string;
+  @IsEmail() @IsOptional() primaryContactEmail?: string;
+  @IsString() @IsOptional() @MaxLength(30) primaryContactPhone?: string;
+  @IsString() @IsOptional() @MaxLength(500) logoUrl?: string;
+  @IsString() @IsOptional() @MaxLength(80) timezone?: string;
+  @IsEnum(MeasurementUnit) @IsOptional() measurementUnit?: MeasurementUnit;
+}
+
+// ─── Invitations ─────────────────────────────────────────────────────────────
+
+/** Invite a user. No password field by design — they create their own. */
+export class InviteUserDto {
+  @IsString() @IsNotEmpty() @MaxLength(80) firstName!: string;
+  @IsString() @IsNotEmpty() @MaxLength(80) lastName!: string;
+  @IsEmail() email!: string;
+  @IsString() @IsOptional() @MaxLength(30) mobile?: string;
+
+  @IsEnum(EnterpriseRole) role!: EnterpriseRole;
+
+  @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => ScopeGrantDto)
+  scopes?: ScopeGrantDto[];
+
+  @Type(() => Number) @IsInt() @IsOptional() siteAdminForSiteId?: number;
+}
+
+export class AcceptInvitationDto {
+  @IsString() @MinLength(10) @MaxLength(128) password!: string;
+  @IsBoolean() acceptTerms!: boolean;
 }

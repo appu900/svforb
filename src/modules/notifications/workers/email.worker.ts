@@ -7,6 +7,7 @@ import {
   EmailJobName,
   SendOtpPayload,
   SendPasswordResetPayload,
+  SendEnterpriseInvitePayload,
   SendStaffInvitePayload,
   SendWelcomePayload,
 } from '../types/email.types';
@@ -53,6 +54,12 @@ export class EmailWorker extends WorkerHost {
           siteName,
           role,
         );
+        break;
+      }
+
+      case EmailJobName.SEND_ENTERPRISE_INVITE: {
+        const payload = job.data as SendEnterpriseInvitePayload;
+        await this.mailerService.sendEnterpriseInvite(payload);
         break;
       }
 

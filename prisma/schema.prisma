@@ -58,7 +58,6 @@ enum VenueType {
   ORCHARD
   PROCESSING_FACILITY
   OTHER
-
 }
 
 enum BillingCycle {
@@ -126,6 +125,8 @@ enum InvoiceStatus {
 /// which slice of the Enterprise they may see.
 enum EnterpriseRole {
   SUPER_ADMIN
+  /// Full administration across the Enterprise, per Roles & Permissions (page 17)
+  ENTERPRISE_ADMIN
   REPORTING_USER
   GROUP_ADMIN
   CLUSTER_ADMIN
@@ -221,13 +222,27 @@ model User {
   /// null means the invite has never been used — surfaces as INVITED
   lastLoginAt DateTime?
 
+  /// Set at Enterprise account activation; T&Cs acceptance is required there
+  termsAcceptedAt DateTime?
+  termsVersion    String?
+
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecret  String?
+
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   orgMemeberShips OrgMemeberShip[]
   siteAccesses    siteAccess[]
-  driverPickups  DriverPickup[] @relation("DriverPickups")
-  deviceTokens   DeviceToken[]
-  userScopes     UserScope[]
+  driverPickups   DriverPickup[]   @relation("DriverPickups")
+  deviceTokens    DeviceToken[]
+  userScopes      UserScope[]
+
+  invitationsSent    EnterpriseInvitation[]       @relation("InvitationsSent")
+  invitationAccepted EnterpriseInvitation?        @relation("InvitationAccepted")
+  auditLogs          AuditLog[]
+  notificationPrefs  UserNotificationPreference[]
+  enterpriseReports  EnterpriseReport[]
+  siteImportJobs     SiteImportJob[]
 
   @@index([email])
   @@index([phoneNumber])
@@ -247,7 +262,7 @@ model SubscriptionPlan {
   description String?
 
   /// null means unlimited (Enterprise)
-  maxSites Int?
+  maxSites       Int?
   /// null means unlimited (Multi Site, Enterprise)
   maxUserPerSite Int?
 
@@ -255,7 +270,7 @@ model SubscriptionPlan {
   priceMonthly Float?
   priceAnnual  Float?
   /// Base/default currency, used for any region without its own pricing
-  currency String @default("AUD")
+  currency     String @default("AUD")
 
   /// India (region = IN) is billed in INR. Held on the same Stripe Price via
   /// currency_options, so there is still only one price id per billing cycle.
@@ -305,11 +320,11 @@ model PlanFeature {
   plan   SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   /// Stable slug for code-level entitlement checks — `label` is display text and may change
-  key      String
-  category String
-  label    String
+  key       String
+  category  String
+  label     String
   /// false renders as an em dash in the grid
-  included Boolean @default(true)
+  included  Boolean @default(true)
   /// Replaces the tick with text, e.g. "Up to 6" on the Users row
   value     String?
   sortOrder Int     @default(0)
@@ -359,6 +374,15 @@ model Organisation {
   listingActivities    ListingActivity[]
   sportedByCharitiesup RestaurantCharitySupport[] @relation("RestaurantSupport")
   restaurantsSupported RestaurantCharitySupport[] @relation("CharitySupport")
+
+  enterpriseProfile     EnterpriseProfile?
+  enterpriseInvitations EnterpriseInvitation[]
+  auditLogs             AuditLog[]
+  notificationSettings  EnterpriseNotificationSetting[]
+  notificationPrefs     UserNotificationPreference[]
+  enterpriseReports     EnterpriseReport[]
+  siteImportJobs        SiteImportJob[]
+  groupSites            GroupSite[]
 
   @@index([region])
   @@index([organizationType])
@@ -448,7 +472,7 @@ model Payment {
   currency    String        @default("AUD")
   status      PaymentStatus @default(PENDING)
 
-  description    String?
+  description      String?
   hostedInvoiceUrl String?
   invoicePdfUrl    String?
   failureMessage   String?
@@ -481,6 +505,11 @@ model Site {
   id               Int                                    @id @default(autoincrement())
   organisationId   Int
   organisationName String
+  /// Site name as shown in the Enterprise Portal. Backfilled from
+  /// organisationName; that column stays for the existing mobile app.
+  name             String?
+  /// The Enterprise's own internal site code, unique within the Enterprise
+  siteCode         String?
   address          String
   postcode         String?
   contactName      String
@@ -492,6 +521,18 @@ model Site {
   isActive         Boolean                                @default(true)
   pickupRadiusKm   Int?
 
+  /// Default collection information, reused when listings are created here
+  collectionDays         String[] @default([])
+  collectionStartTime    String?
+  collectionEndTime      String?
+  collectionInstructions String?
+
+  /// Site Status is Active/Deactivated only — never derived from activity
+  activatedAt    DateTime?
+  deactivatedAt  DateTime?
+  /// Denormalised for the Sites table; only qualifying activity updates it
+  lastActivityAt DateTime?
+
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   siteAccesses      siteAccess[]
@@ -500,21 +541,27 @@ model Site {
   siteNotifications SiteNotification[]
   clusterSite       ClusterSite?
   territorySite     TerritorySite?
+  groupSite         GroupSite?
+  alertStates       SiteAlertState[]
+  importRows        SiteImportRow[]
 
+  @@unique([organisationId, siteCode])
   @@index([organisationId])
+  @@index([organisationId, isActive])
+  @@index([lastActivityAt])
   @@map("sites")
 }
 
 model OrgMemeberShip {
-  id             Int          @id @default(autoincrement())
+  id             Int             @id @default(autoincrement())
   userId         Int
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   organisationId Int
-  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  orgRole        OrgRole      @default(ORG_MEMBER)
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  orgRole        OrgRole         @default(ORG_MEMBER)
   /// Set only for organisations on the Enterprise plan
   enterpriseRole EnterpriseRole?
-  joinedAt       DateTime     @default(now())
+  joinedAt       DateTime        @default(now())
 
   @@unique([userId, organisationId])
   @@index([userId])
@@ -560,9 +607,12 @@ model FoodListing {
   organisationId Int
   organisation   Organisation @relation(fields: [organisationId], references: [id])
 
-  listingType    FoodListingType @default(HUMAN)
-  totalQtyKg     Float
-  remainingQtyKg Float
+  listingType     FoodListingType  @default(HUMAN)
+  /// Enterprise reporting dimension (page 7/12/16). Backfilled from listingType:
+  /// HUMAN -> FOOD_FOR_PEOPLE, ANIMAL -> LIVESTOCK_FEED.
+  recoveryPathway RecoveryPathway?
+  totalQtyKg      Float
+  remainingQtyKg  Float
 
   pickupAddress  String
   pickupPostcode String?
@@ -590,8 +640,8 @@ model FoodListing {
 
   uniqueClaimantCount Int @default(0)
 
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
   foodItems         FoodItem[]
   foodClaims        FoodClaim[]
   listingActivities ListingActivity[]
@@ -633,33 +683,45 @@ model FoodItem {
 }
 
 model FoodClaim {
-  id            Int          @id @default(autoincrement())
-  listingId     Int
-  listing       FoodListing  @relation(fields: [listingId], references: [id])
-  claimantOrgId Int
-  claimantOrg   Organisation @relation("CharityClaims", fields: [claimantOrgId], references: [id])
-  /** Charity/farmer site that made the claim (location admin). Null for legacy / head-office claims. */
+  id             Int          @id @default(autoincrement())
+  listingId      Int
+  listing        FoodListing  @relation(fields: [listingId], references: [id])
+  claimantOrgId  Int
+  claimantOrg    Organisation @relation("CharityClaims", fields: [claimantOrgId], references: [id])
+  /**
+   * Charity/farmer site that made the claim (location admin). Null for legacy / head-office claims.
+   */
   claimantSiteId Int?
-  claimantSite   Site?       @relation("ClaimantSiteClaims", fields: [claimantSiteId], references: [id])
-  claimMode     ClaimMode    @default(PARTIAL)
-  status        ClaimStatus  @default(PENDING)
+  claimantSite   Site?        @relation("ClaimantSiteClaims", fields: [claimantSiteId], references: [id])
+  claimMode      ClaimMode    @default(PARTIAL)
+  status         ClaimStatus  @default(PENDING)
+
+  /// Pathway of the actual completed collection, which may differ from the
+  /// listing's intended pathway (page 21).
+  recoveryPathway RecoveryPathway?
 
   rating     Int?
   ratingNote String?
 
-  /** Listing provider (restaurant) confirmed the collection happened. */
-  providerConfirmedAt  DateTime?
-  /** Restaurant rates the claimant (charity / farmer). */
-  providerRating       Int?
-  providerRatingNote   String?
-  /** true = restaurant says collection happened; false = dispute / no-show. */
-  providerDidCollect   Boolean?
+  /**
+   * Listing provider (restaurant) confirmed the collection happened.
+   */
+  providerConfirmedAt DateTime?
+  /**
+   * Restaurant rates the claimant (charity / farmer).
+   */
+  providerRating      Int?
+  providerRatingNote  String?
+  /**
+   * true = restaurant says collection happened; false = dispute / no-show.
+   */
+  providerDidCollect  Boolean?
 
-  confirmedAt DateTime?
-  collectedAt DateTime?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  claimItems  ClaimItem[]
+  confirmedAt   DateTime?
+  collectedAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  claimItems    ClaimItem[]
   driverPickups DriverPickup[]
 
   /// Classification at claim time — see FoodListing for rationale.
@@ -802,15 +864,15 @@ model NotificationRecord {
   priority       String  @default("normal")
   priorityWeight Int     @default(1)
 
-  targetUserIds  Int[]    @default([])
-  isBroadcast    Boolean  @default(false)
-  targetPlatform String   @default("all")
+  targetUserIds  Int[]   @default([])
+  isBroadcast    Boolean @default(false)
+  targetPlatform String  @default("all")
 
   totalTargets Int @default(0)
   successCount Int @default(0)
   failureCount Int @default(0)
 
-  failedTokens String[] @default([])
+  failedTokens String[]  @default([])
   lastError    String?
   completedAt  DateTime?
   scheduledAt  DateTime?
@@ -845,11 +907,6 @@ model SiteNotification {
   @@map("site_notifications")
 }
 
-
-
-
-
-
 // ═════════════════════════════════════════════════════════════════════════════
 // ENTERPRISE
 //
@@ -867,11 +924,15 @@ model EnterpriseGroup {
   organisationId Int
   organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
 
-  name     String
-  code     String?
-  isActive Boolean @default(true)
+  name          String
+  code          String?
+  description   String?
+  isActive      Boolean   @default(true)
+  /// Structures with history are deactivated, never deleted (page 8)
+  deactivatedAt DateTime?
 
-  clusters Cluster[]
+  clusters   Cluster[]
+  groupSites GroupSite[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -887,12 +948,17 @@ model Cluster {
   organisationId Int
   organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
 
-  groupId Int
-  group   EnterpriseGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  /// DEPRECATED. Group, Territory and Cluster are independent Enterprise-defined
+  /// dimensions (Global Business Rules), so a cluster no longer nests under a
+  /// group. Left nullable rather than dropped to keep this migration additive.
+  groupId Int?
+  group   EnterpriseGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
-  name     String
-  code     String?
-  isActive Boolean @default(true)
+  name          String
+  code          String?
+  description   String?
+  isActive      Boolean   @default(true)
+  deactivatedAt DateTime?
 
   clusterSites ClusterSite[]
 
@@ -928,9 +994,11 @@ model Territory {
   organisationId Int
   organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
 
-  name     String
-  code     String?
-  isActive Boolean @default(true)
+  name          String
+  code          String?
+  description   String?
+  isActive      Boolean   @default(true)
+  deactivatedAt DateTime?
 
   territorySites TerritorySite[]
 
@@ -996,10 +1064,10 @@ model EnterpriseContract {
 
 /// Generated on a schedule by the billing cron; marked paid by hand.
 model EnterpriseInvoice {
-  id             Int          @id @default(autoincrement())
-  invoiceNumber  String       @unique
+  id             Int                @id @default(autoincrement())
+  invoiceNumber  String             @unique
   organisationId Int
-  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation   Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   contractId     Int
   contract       EnterpriseContract @relation(fields: [contractId], references: [id], onDelete: Restrict)
 
@@ -1048,7 +1116,7 @@ model UserScope {
 
   scopeType ScopeType
   /// null when scopeType is ENTERPRISE — the whole organisation
-  scopeId Int?
+  scopeId   Int?
 
   grantedAt DateTime @default(now())
   grantedBy Int
@@ -1057,4 +1125,398 @@ model UserScope {
   @@index([userId])
   @@index([organisationId, scopeType])
   @@map("user_scopes")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENTERPRISE PORTAL — Design & Development feedback, 22/8/26
+//
+// Group, Territory and Cluster are independent Enterprise-defined dimensions,
+// never a fixed hierarchy. Everything below follows the Global Business Rules
+// on the final page of that document.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Where recovered food and organic resources actually went.
+enum RecoveryPathway {
+  FOOD_FOR_PEOPLE
+  LIVESTOCK_FEED
+  /// Higher-value or circular recovery
+  CIRCULAR_RECOVERY
+  BIOENERGY
+}
+
+enum MeasurementUnit {
+  METRIC
+  IMPERIAL
+}
+
+/// Set by Saveful in the admin environment; read-only to Enterprise users.
+enum EnterpriseAccountStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+/// Which part of the portal an audit record belongs to (page 19 filters).
+enum AuditArea {
+  SITES
+  USERS
+  ORGANISATION_STRUCTURE
+  ENTERPRISE_SETTINGS
+  NOTIFICATIONS
+  AUTH
+}
+
+enum ReportFormat {
+  PDF
+  EXCEL
+}
+
+enum ReportStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  /// No reportable data for the chosen scope + period — never emit a blank file
+  NO_DATA
+}
+
+enum SiteImportStatus {
+  VALIDATING
+  AWAITING_CONFIRMATION
+  IMPORTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum SiteImportRowStatus {
+  READY
+  NEEDS_ATTENTION
+  IMPORTED
+  SKIPPED
+}
+
+/// Site placement in the Group dimension. `siteId @unique` gives a site one
+/// group, mirroring ClusterSite and TerritorySite — the three are independent
+/// of each other, not nested.
+model GroupSite {
+  id             Int             @id @default(autoincrement())
+  groupId        Int
+  group          EnterpriseGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  siteId         Int             @unique
+  site           Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  organisationId Int
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+  assignedBy Int
+
+  @@index([groupId])
+  @@index([organisationId])
+  @@map("group_sites")
+}
+
+/// Enterprise-level settings (page 16). Provisioning fields are established by
+/// Saveful and are read-only to Enterprise users; the rest they maintain.
+model EnterpriseProfile {
+  id             Int          @id @default(autoincrement())
+  organisationId Int          @unique
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  /// Human-facing identifier, e.g. ENT-AU-001284. Never changes.
+  enterpriseId  String                  @unique
+  accountStatus EnterpriseAccountStatus @default(PENDING)
+
+  /// Drive display and reporting defaults across the portal
+  country         String
+  timezone        String
+  currency        String          @default("AUD")
+  measurementUnit MeasurementUnit @default(METRIC)
+
+  primaryContactName  String?
+  primaryContactEmail String?
+  primaryContactPhone String?
+
+  /// Used wherever Enterprise branding appears in the portal and reports
+  logoUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("enterprise_profiles")
+}
+
+/// Secure, time-limited account activation. Administrators never create
+/// passwords on behalf of users (page 6).
+model EnterpriseInvitation {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  email     String
+  firstName String
+  lastName  String
+  mobile    String?
+
+  /// Role and Scope are retained from invitation through to activation
+  enterpriseRole EnterpriseRole
+  scopes         EnterpriseInvitationScope[]
+
+  /// Set when the invite came from the Add Site flow — grants site access on accept
+  siteAdminForSiteId Int?
+
+  /// Only the hash is stored; the raw token lives in the emailed link
+  tokenHash String           @unique
+  expiresAt DateTime
+  status    InvitationStatus @default(PENDING)
+
+  invitedBy Int
+  inviter   User @relation("InvitationsSent", fields: [invitedBy], references: [id])
+
+  /// A resend invalidates the previous link by superseding this row
+  sentAt         DateTime  @default(now())
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  /// Populated on acceptance so the audit trail links invite to account
+  acceptedUserId Int?      @unique
+  acceptedUser   User?     @relation("InvitationAccepted", fields: [acceptedUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organisationId, status])
+  @@index([email])
+  @@index([status, expiresAt])
+  @@map("enterprise_invitations")
+}
+
+/// Scope held in escrow until the invitation is accepted, then copied to UserScope.
+model EnterpriseInvitationScope {
+  id           Int                  @id @default(autoincrement())
+  invitationId Int
+  invitation   EnterpriseInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+
+  scopeType ScopeType
+  /// null when scopeType is ENTERPRISE — the whole organisation
+  scopeId   Int?
+
+  @@unique([invitationId, scopeType, scopeId])
+  @@index([invitationId])
+  @@map("enterprise_invitation_scopes")
+}
+
+/// Administrative changes only. Routine operational activity belongs in Activity.
+/// Read-only to Enterprise users — never updated or deleted (page 19).
+model AuditLog {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  actorUserId Int?
+  actor       User?  @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  /// Kept verbatim so the log still reads correctly after a user is deleted
+  actorName   String
+  actorEmail  String
+
+  area        AuditArea
+  /// Stable slug, e.g. "site.reassigned", "user.access_changed"
+  action      String
+  /// What was touched, for the detail panel — e.g. "Site" / 42 / "Perth College"
+  entityType  String
+  entityId    Int?
+  entityLabel String?
+
+  /// Previous and new values for the change detail panel
+  previousValue Json?
+  newValue      Json?
+  summary       String
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organisationId, createdAt])
+  @@index([organisationId, area, createdAt])
+  @@index([actorUserId])
+  @@map("audit_logs")
+}
+
+/// Enterprise Settings decides which alerts exist and their thresholds (page 18).
+model EnterpriseNotificationSetting {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  /// Stable slug: no_recent_activity | never_activated | no_listings |
+  /// report_ready | new_user_activated | user_access_changed
+  key               String
+  enabled           Boolean @default(true)
+  /// Threshold in days where the alert is time-based; null where it is an event
+  thresholdDays     Int?
+  /// Suppresses repeat alerts for the same unresolved condition
+  renotifyAfterDays Int?    @default(7)
+
+  updatedBy Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organisationId, key])
+  @@map("enterprise_notification_settings")
+}
+
+/// My Profile decides whether an individual receives the alerts that exist.
+model UserNotificationPreference {
+  id             Int          @id @default(autoincrement())
+  userId         Int
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  key     String
+  enabled Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, organisationId, key])
+  @@index([organisationId, key])
+  @@map("user_notification_preferences")
+}
+
+/// Tracks an unresolved alert condition per site so the same condition does not
+/// generate a notification on every cron pass.
+model SiteAlertState {
+  id     Int  @id @default(autoincrement())
+  siteId Int
+  site   Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  alertKey        String
+  firstDetectedAt DateTime  @default(now())
+  lastNotifiedAt  DateTime?
+  resolvedAt      DateTime?
+
+  @@unique([siteId, alertKey])
+  @@index([alertKey, resolvedAt])
+  @@map("site_alert_states")
+}
+
+/// A Create Report request (page 14). Generation is async so the user sees
+/// progress rather than clicking repeatedly.
+model EnterpriseReport {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  requestedBy Int
+  requester   User @relation(fields: [requestedBy], references: [id])
+
+  /// Reporting scope: ENTERPRISE with empty ids, or the selected dimension
+  scopeType ScopeType
+  scopeIds  Int[]     @default([])
+
+  periodStart DateTime
+  periodEnd   DateTime
+  /// Which sections to include, e.g. impact_summary, recovery_pathways
+  sections    String[] @default([])
+
+  format ReportFormat
+  status ReportStatus @default(QUEUED)
+
+  fileUrl      String?
+  errorMessage String?
+
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([organisationId, createdAt])
+  @@index([status])
+  @@map("enterprise_reports")
+}
+
+/// Bulk Site Upload (page 7): Download -> Upload -> Review & Import. Rows are
+/// validated and held here so a partly-invalid file is never rejected outright.
+model SiteImportJob {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  uploadedBy Int
+  uploader   User @relation(fields: [uploadedBy], references: [id])
+
+  fileName String
+  status   SiteImportStatus @default(VALIDATING)
+
+  totalRows      Int @default(0)
+  readyRows      Int @default(0)
+  errorRows      Int @default(0)
+  importedRows   Int @default(0)
+  /// How many rows will trigger a Site Admin invitation, shown before confirming
+  invitationRows Int @default(0)
+
+  errorFileUrl String?
+
+  rows SiteImportRow[]
+
+  createdAt  DateTime  @default(now())
+  importedAt DateTime?
+
+  @@index([organisationId, createdAt])
+  @@map("site_import_jobs")
+}
+
+model SiteImportRow {
+  id    Int           @id @default(autoincrement())
+  jobId Int
+  job   SiteImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  /// 1-based row number in the uploaded file, shown in the review table
+  rowNumber Int
+  status    SiteImportRowStatus @default(NEEDS_ATTENTION)
+
+  /// Raw parsed values, kept so the error file can reproduce the input
+  rawData Json
+  /// One entry per failed rule, e.g. "Territory not recognised"
+  issues  String[] @default([])
+
+  /// Set once the row is imported
+  siteId Int?
+  site   Site? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+
+  @@unique([jobId, rowNumber])
+  @@index([jobId, status])
+  @@map("site_import_rows")
+}
+
+/// Centrally managed Saveful conversion factors. One source for Dashboard,
+/// Site Detail, Insights and Reports so figures always reconcile.
+model ImpactFactor {
+  id Int @id @default(autoincrement())
+
+  /// meals_per_kg | co2e_kg_per_kg | value_per_kg
+  key     String
+  /// null applies to every pathway; a row with a pathway overrides it
+  pathway RecoveryPathway?
+
+  value Float
+  unit  String?
+  notes String?
+
+  /// Versioned rather than edited, so historical reports stay reproducible
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([key, pathway, effectiveFrom])
+  @@index([key, effectiveFrom])
+  @@map("impact_factors")
 }

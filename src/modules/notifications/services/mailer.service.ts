@@ -186,6 +186,81 @@ export class MailerService {
     });
   }
 
+  /**
+   * Enterprise account activation. Carries a time-limited link and never a
+   * password — administrators do not create passwords on behalf of users.
+   */
+  async sendEnterpriseInvite(payload: {
+    to: string;
+    name: string;
+    enterpriseName: string;
+    role: string;
+    activationUrl: string;
+    expiresInHours: number;
+  }): Promise<void> {
+    const { to, name, enterpriseName, role, activationUrl, expiresInHours } =
+      payload;
+
+    await this.sendMail({
+      to,
+      subject: `You have been invited to ${enterpriseName} on Saveful for Business`,
+      text:
+        `Hello ${name},\n\n` +
+        `You have been invited to manage ${enterpriseName} on Saveful for Business ` +
+        `as ${role}.\n\n` +
+        `Activate your account and create your password here:\n${activationUrl}\n\n` +
+        `This link expires in ${expiresInHours} hours. If it expires, ask your ` +
+        `administrator to send a new invitation.\n\n` +
+        `If you did not expect this invitation, you can safely ignore this email.`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+          ${this.logoDataUri ? `<div style="text-align:center;margin-bottom:24px;"><img src="${this.logoDataUri}" alt="Saveful for Business" style="max-width:180px;height:auto;" /></div>` : ''}
+          <h2 style="color:#1a1a1a;margin-bottom:8px;">You&rsquo;ve been invited to Saveful for Business</h2>
+          <p>Hello <strong>${name}</strong>,</p>
+          <p>You&rsquo;ve been invited to manage <strong>${enterpriseName}</strong>&rsquo;s Enterprise account.</p>
+
+          <table style="width:100%;border-collapse:collapse;margin:24px 0;background:#f6f8f6;border-radius:8px;">
+            <tr>
+              <td style="padding:16px 20px;border-bottom:1px solid #e6ebe6;">
+                <div style="font-size:12px;color:#6b7d74;text-transform:uppercase;letter-spacing:.06em;">Enterprise</div>
+                <div style="font-size:15px;color:#1a1a1a;font-weight:bold;">${enterpriseName}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 20px;">
+                <div style="font-size:12px;color:#6b7d74;text-transform:uppercase;letter-spacing:.06em;">Your role</div>
+                <div style="font-size:15px;color:#1a1a1a;font-weight:bold;">${role}</div>
+              </td>
+            </tr>
+          </table>
+
+          <p>Set your own password to activate your account:</p>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="${activationUrl}"
+               style="background:#1f5c43;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;display:inline-block;">
+              Activate your account
+            </a>
+          </div>
+
+          <p style="font-size:13px;color:#666;">
+            This link expires in <strong>${expiresInHours} hours</strong>.
+            If it expires, ask your administrator to send a new invitation.
+          </p>
+          <p style="font-size:12px;color:#999;word-break:break-all;">
+            If the button doesn&rsquo;t work, paste this into your browser:<br />${activationUrl}
+          </p>
+
+          <hr style="margin:24px 0;border:none;border-top:1px solid #eee;" />
+
+          <p style="font-size:12px;color:#999;">
+            If you did not expect this invitation, you can safely ignore this email.<br />
+            Saveful for Business
+          </p>
+        </div>
+      `,
+    });
+  }
+
   async sendPasswordReset(
     to: string,
     otp: string,

@@ -4,6 +4,12 @@ import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { ENTERPRISE_ERROR, ENTERPRISE_PLAN_NAME, ScopeType } from '../enterprise.constants';
 
+/** Roles whose reach is the entire Enterprise, regardless of UserScope rows. */
+export const UNRESTRICTED_ROLES: EnterpriseRole[] = [
+  EnterpriseRole.SUPER_ADMIN,
+  EnterpriseRole.ENTERPRISE_ADMIN,
+];
+
 export interface ResolvedScope {
   scopeType: ScopeType;
   scopeId: number | null;
@@ -69,19 +75,25 @@ export class EnterpriseScopeService {
     };
   }
 
-  /** Every site under every cluster in the group. */
+  /**
+   * Every site tagged into the group.
+   *
+   * Group, Territory and Cluster are independent Enterprise-defined dimensions,
+   * so this reads GroupSite directly rather than walking a cluster tree.
+   */
   async resolveGroup(orgId: number, groupId: number): Promise<ResolvedScope> {
     const group = await this.prisma.enterpriseGroup.findFirst({
       where: { id: groupId, organisationId: orgId },
-      select: {
-        name: true,
-        clusters: { select: { clusterSites: { select: { siteId: true } } } },
-      },
+      select: { name: true, groupSites: { select: { siteId: true } } },
     });
     if (!group) throw new NotFoundException('Group not found');
 
-    const siteIds = group.clusters.flatMap((c) => c.clusterSites.map((cs) => cs.siteId));
-    return { scopeType: 'GROUP', scopeId: groupId, label: group.name, siteIds };
+    return {
+      scopeType: 'GROUP',
+      scopeId: groupId,
+      label: group.name,
+      siteIds: group.groupSites.map((gs) => gs.siteId),
+    };
   }
 
   async resolveCluster(orgId: number, clusterId: number): Promise<ResolvedScope> {
@@ -117,14 +129,14 @@ export class EnterpriseScopeService {
   async resolveSite(orgId: number, siteId: number): Promise<ResolvedScope> {
     const site = await this.prisma.site.findFirst({
       where: { id: siteId, organisationId: orgId },
-      select: { id: true, organisationName: true },
+      select: { id: true, name: true, organisationName: true },
     });
     if (!site) throw new NotFoundException('Site not found');
 
     return {
       scopeType: 'SITE',
       scopeId: siteId,
-      label: site.organisationName,
+      label: site.name ?? site.organisationName,
       siteIds: [site.id],
     };
   }
@@ -158,10 +170,14 @@ export class EnterpriseScopeService {
     snapshotClusterId: number | null;
     snapshotTerritoryId: number | null;
   }> {
-    const [clusterSite, territorySite] = await Promise.all([
+    const [groupSite, clusterSite, territorySite] = await Promise.all([
+      this.prisma.groupSite.findUnique({
+        where: { siteId },
+        select: { groupId: true },
+      }),
       this.prisma.clusterSite.findUnique({
         where: { siteId },
-        select: { clusterId: true, cluster: { select: { groupId: true } } },
+        select: { clusterId: true },
       }),
       this.prisma.territorySite.findUnique({
         where: { siteId },
@@ -170,7 +186,7 @@ export class EnterpriseScopeService {
     ]);
 
     return {
-      snapshotGroupId: clusterSite?.cluster.groupId ?? null,
+      snapshotGroupId: groupSite?.groupId ?? null,
       snapshotClusterId: clusterSite?.clusterId ?? null,
       snapshotTerritoryId: territorySite?.territoryId ?? null,
     };
@@ -206,7 +222,7 @@ export class EnterpriseScopeService {
     if (!orgId) return [];
 
     const role = await this.getEnterpriseRole(caller);
-    if (role === EnterpriseRole.SUPER_ADMIN) return null; // whole Enterprise
+    if (role && UNRESTRICTED_ROLES.includes(role)) return null; // whole Enterprise
 
     const scopes = await this.prisma.userScope.findMany({
       where: { userId: caller.sub, organisationId: orgId },
@@ -266,6 +282,61 @@ export class EnterpriseScopeService {
     const resolved = await this.resolve(orgId, scopeType, scopeId);
     await this.assertScopeAllowed(caller, resolved);
     return resolved;
+  }
+
+  /**
+   * Turns the shared Group / Territory / Cluster / Site filter set into the
+   * site ids a request may actually read.
+   *
+   * Filters combine rather than replace each other: naming both a Group and a
+   * Territory means the sites in both. The result is then intersected with the
+   * caller's own reach, so a filter can only ever narrow what they already see
+   * — never widen it.
+   */
+  async resolveFilters(
+    caller: Jwtpayload,
+    filters: {
+      groupId?: number;
+      territoryId?: number;
+      clusterId?: number;
+      siteId?: number;
+    },
+  ): Promise<number[]> {
+    const orgId = await this.assertEnterprise(caller);
+
+    const dimensions: Array<[ScopeType, number | undefined]> = [
+      ['GROUP', filters.groupId],
+      ['TERRITORY', filters.territoryId],
+      ['CLUSTER', filters.clusterId],
+      ['SITE', filters.siteId],
+    ];
+
+    let selected: Set<number> | null = null;
+    for (const [scopeType, id] of dimensions) {
+      if (id === undefined) continue;
+      const resolved = await this.resolve(orgId, scopeType, id);
+      const ids = new Set(resolved.siteIds);
+      selected = selected
+        ? new Set([...selected].filter((s:any) => ids.has(s)))
+        : ids;
+    }
+
+    // No filter given: the caller's whole reach.
+    if (selected === null) {
+      const allowed = await this.getAllowedSiteIds(caller);
+      if (allowed !== null) return allowed;
+      const all = await this.prisma.site.findMany({
+        where: { organisationId: orgId },
+        select: { id: true },
+      });
+      return all.map((s) => s.id);
+    }
+
+    const allowed = await this.getAllowedSiteIds(caller);
+    if (allowed === null) return [...selected];
+
+    const allowedSet = new Set(allowed);
+    return [...selected].filter((id) => allowedSet.has(id));
   }
 
   private requireId(id: number | null | undefined, name: string): number {

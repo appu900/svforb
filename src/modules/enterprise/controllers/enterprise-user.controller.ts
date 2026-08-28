@@ -1,11 +1,12 @@
 import {
-  Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Req, UseGuards,
+  Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Req, UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
+import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import {
-  InviteEnterpriseUserDto, ResendInviteDto, SetUserScopesDto, UpdateEnterpriseUserDto,
+  InviteUserDto, SetUserScopesDto, UpdateEnterpriseUserDto,
 } from '../dto/enterprise.dto';
 import { EnterpriseUserService } from '../services/enterprise-user.service';
 
@@ -19,7 +20,7 @@ export class EnterpriseUserController {
   constructor(private readonly users: EnterpriseUserService) {}
 
   @Post()
-  invite(@Req() req: Request & { user: Jwtpayload }, @Body() dto: InviteEnterpriseUserDto) {
+  invite(@Req() req: Request & { user: Jwtpayload }, @Body() dto: InviteUserDto) {
     return this.users.inviteUser(req.user, dto);
   }
 
@@ -72,12 +73,44 @@ export class EnterpriseUserController {
     return this.users.setActive(req.user, userId, false);
   }
 
+  /** Reissues an activation link for a member. No password is ever set here. */
   @Post(':userId/resend-invite')
   resendInvite(
     @Req() req: Request & { user: Jwtpayload },
     @Param('userId', ParseIntPipe) userId: number,
-    @Body() dto: ResendInviteDto,
   ) {
-    return this.users.resendInvite(req.user, userId, dto);
+    return this.users.resendInviteForUser(req.user, userId);
+  }
+}
+
+/**
+ * Pending invitations — people who have been invited but have not activated.
+ * They have no user record yet, so they cannot live under /enterprise/users.
+ */
+@Controller('enterprise/invites')
+@UseGuards(JwtAuthGuard)
+@SkipSubscriptionCheck()
+export class EnterpriseInviteController {
+  constructor(private readonly users: EnterpriseUserService) {}
+
+  @Get()
+  list(@Req() req: Request & { user: Jwtpayload }) {
+    return this.users.listInvitations(req.user);
+  }
+
+  @Post(':invitationId/resend')
+  resend(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('invitationId', ParseIntPipe) invitationId: number,
+  ) {
+    return this.users.resendInvitation(req.user, invitationId);
+  }
+
+  @Delete(':invitationId')
+  revoke(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('invitationId', ParseIntPipe) invitationId: number,
+  ) {
+    return this.users.revokeInvitation(req.user, invitationId);
   }
 }

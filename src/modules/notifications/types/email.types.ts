@@ -5,6 +5,7 @@ export enum EmailJobName {
   SEND_WELCOME = 'send-welcome',
   SEND_PASSWORD_RESET = 'send-password-reset',
   SEND_STAFF_INVITE = 'send-staff-invite',
+  SEND_ENTERPRISE_INVITE = 'send-enterprise-invite',
 }
 
 export interface SendOtpPayload {
@@ -31,4 +32,14 @@ export interface SendStaffInvitePayload {
   password: string;
   siteName: string;
   role: string;
+}
+
+export interface SendEnterpriseInvitePayload {
+  to: string;
+  name: string;
+  enterpriseName: string;
+  role: string;
+  /** Time-limited activation link. Never contains a password. */
+  activationUrl: string;
+  expiresInHours: number;
 }
