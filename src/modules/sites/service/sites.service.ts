@@ -92,6 +92,7 @@ export class SitesService {
         siteCode: site.siteCode || this.autoSiteCode(site.id),
         address: site.address,
         isActive: site.isActive,
+        createdAt: site.createdAt,
         activatedAt: site.activatedAt,
         lastActivityAt: site.lastActivityAt,
         groupId: site.groupSite?.group.id ?? null,

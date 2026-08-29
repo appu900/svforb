@@ -292,6 +292,7 @@ export class EnterpriseProvisioningService {
         sites: sitesByOrg.get(p.organisationId) ?? 0,
         users: p.organisation._count.orgMemeberShips,
         lastLoginAt,
+        createdAt: p.createdAt,
         contract: byOrg.get(p.organisationId) ?? null,
       };
     });
