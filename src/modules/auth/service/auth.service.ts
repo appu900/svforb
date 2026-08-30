@@ -569,7 +569,7 @@ export class AuthService {
       await this.authCacheManaher.incrementLoginattempts(email);
     if (currentLoginAttempts > 5) {
       throw new ForbiddenException(
-        'Too many login attepmts, Try again after 15 Minutes',
+        'Too many login attempts. Please try again after 15 minutes.',
       );
     }
     const user = await this.prisma.user.findFirst({
@@ -577,14 +577,23 @@ export class AuthService {
         email: { equals: email, mode: 'insensitive' },
       },
     });
-    if (!user || !user.isActive)
-      throw new UnauthorizedException('User not found');
-    const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!passwordMatch) throw new UnauthorizedException('Invalid Credentials');
-    if (!user.emailVerified)
-      throw new ForbiddenException(
-        'Please verify your email before logging in',
+    if (!user) {
+      throw new UnauthorizedException('No account found with this email.');
+    }
+    if (!user.isActive) {
+      throw new UnauthorizedException(
+        'This account has been deactivated. Please contact your organisation administrator.',
       );
+    }
+    const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!passwordMatch) {
+      throw new UnauthorizedException('Incorrect password. Please try again.');
+    }
+    if (!user.emailVerified) {
+      throw new ForbiddenException(
+        'Please verify your email before logging in. Check your inbox for the verification code.',
+      );
+    }
 
     await this.authCacheManaher.clearLoginAttempts(email);
 
@@ -612,8 +621,11 @@ export class AuthService {
         },
       },
     });
-    if (!memberShip)
-      throw new UnauthorizedException('No organisation found for this user');
+    if (!memberShip) {
+      throw new UnauthorizedException(
+        'This account is not linked to an organisation. Please contact support.',
+      );
+    }
 
     const organisationId = memberShip.organisationId;
     let primarySiteAccess:
@@ -703,16 +715,18 @@ export class AuthService {
     const cachedOtp = await this.authCacheManaher.getEmailVerifyOtp(email);
     if (!cachedOtp) {
       throw new BadRequestException(
-        'OTP has expired, please request a new one',
+        'The verification code has expired. Please request a new one.',
       );
     }
     if (cachedOtp !== dto.otp) {
-      throw new BadRequestException('Invalid OTP');
+      throw new BadRequestException(
+        'The verification code is incorrect. Please try again.',
+      );
     }
 
     const existingUser = await this.findUserByEmail(email);
     if (!existingUser) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('No account found with this email.');
     }
 
     const user = await this.prisma.user.update({
@@ -736,7 +750,9 @@ export class AuthService {
       },
     });
     if (!membership) {
-      throw new UnauthorizedException('No organisation found for this user');
+      throw new UnauthorizedException(
+        'This account is not linked to an organisation. Please contact support.',
+      );
     }
 
     const access = await this.prisma.siteAccess.findFirst({
@@ -809,7 +825,12 @@ export class AuthService {
         createdAt: true,
       },
     });
-    if (!user || !user.isActive) throw new UnauthorizedException('User not found');
+    if (!user) throw new UnauthorizedException('No account found with this email.');
+    if (!user.isActive) {
+      throw new UnauthorizedException(
+        'This account has been deactivated. Please contact your organisation administrator.',
+      );
+    }
 
     if (user.platformRole === PlatformRole.PLATFORM_ADMIN) {
       return {
@@ -844,8 +865,11 @@ export class AuthService {
         },
       },
     });
-    if (!membership)
-      throw new UnauthorizedException('No organisation found for this user');
+    if (!membership) {
+      throw new UnauthorizedException(
+        'This account is not linked to an organisation. Please contact support.',
+      );
+    }
 
     const { organisation } = membership;
 
@@ -919,7 +943,7 @@ export class AuthService {
 
   async updateProfile(userId: number, phoneNumber: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new UnauthorizedException('User not found');
+    if (!user) throw new UnauthorizedException('No account found.');
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -935,8 +959,13 @@ export class AuthService {
     });
 
     
-    if (!user || !user.isActive) {
-      throw new NotFoundException("user not found with this email ID")
+    if (!user) {
+      throw new NotFoundException('No account found with this email.');
+    }
+    if (!user.isActive) {
+      throw new UnauthorizedException(
+        'This account has been deactivated. Please contact your organisation administrator.',
+      );
     }
 
     const otp = GenerateOtp();
@@ -953,7 +982,7 @@ export class AuthService {
 
     this.logger.log(`Password reset OTP sent: ${dto.email}`);
     return {
-      message: 'a reset code has been sent.',
+      message: 'A reset code has been sent to your email.',
     };
   }
 
@@ -964,11 +993,13 @@ export class AuthService {
 
     if (!cachedOtp) {
       throw new BadRequestException(
-        'Reset code has expired. Please request a new one.',
+        'The reset code has expired. Please request a new one.',
       );
     }
     if (cachedOtp !== dto.otp) {
-      throw new BadRequestException('Invalid reset code.');
+      throw new BadRequestException(
+        'The reset code is incorrect. Please try again.',
+      );
     }
 
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
@@ -1075,9 +1106,9 @@ export class AuthService {
   async resendVerificationEmail(emailInput: string) {
     const email = normalizeEmail(emailInput);
     const user = await this.findUserByEmail(email);
-    if (!user) throw new NotFoundException('user with this email not found');
+    if (!user) throw new NotFoundException('No account found with this email.');
     if (user.emailVerified === true) {
-      throw new BadRequestException('email already verified');
+      throw new BadRequestException('This email is already verified. You can log in.');
     }
     const otp = GenerateOtp();
     await this.authCacheManaher.storeEmailVerificationOtp(email, otp);

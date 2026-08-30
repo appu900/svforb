@@ -61,8 +61,12 @@ export class RegisterCharityDto {
 }
 
 export class LoginDto {
-  @IsEmail() email!: string;
-  @IsString() @IsNotEmpty() password!: string;
+  @IsEmail({}, { message: 'Please enter a valid email address.' })
+  email!: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Password is required.' })
+  password!: string;
 }
 
 export class VerifyEmailDto {

@@ -6,6 +6,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Req,
   UploadedFile,
   UseGuards,
@@ -23,6 +24,8 @@ import {
   UpdateProvisioningDto,
 } from '../dto/enterprise.dto';
 import { SitesService } from '../../sites/service/sites.service';
+import { AuditArea } from '@prisma/client';
+import { EnterpriseAuditService } from '../services/enterprise-audit.service';
 import { EnterpriseProvisioningService } from '../services/enterprise-provisioning.service';
 import { EnterpriseStructureService } from '../services/enterprise-structure.service';
 import { EnterpriseUserService } from '../services/enterprise-user.service';
@@ -41,6 +44,7 @@ export class EnterpriseProvisioningController {
     private readonly structure: EnterpriseStructureService,
     private readonly users: EnterpriseUserService,
     private readonly sites: SitesService,
+    private readonly audit: EnterpriseAuditService,
   ) {}
 
   /** Creates the Enterprise and invites its first Super Admin. */
@@ -75,6 +79,24 @@ export class EnterpriseProvisioningController {
     return this.provisioning.listAllMembers();
   }
 
+  @Get('audit')
+  listAudit(
+    @Query('page', new ParseIntPipe({ optional: true })) page = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit = 100,
+    @Query('search') search?: string,
+    @Query('area') area?: AuditArea,
+    @Query('organisationId', new ParseIntPipe({ optional: true })) organisationId?: number,
+  ) {
+    const take = Math.min(200, Math.max(1, limit));
+    return this.audit.listAll({
+      skip: (Math.max(1, page) - 1) * take,
+      take,
+      search,
+      area,
+      organisationId,
+    });
+  }
+
   @Get(':organisationId/structure')
   getStructure(@Param('organisationId', ParseIntPipe) organisationId: number) {
     return this.structure.getStructureForOrganisation(organisationId);
@@ -83,6 +105,24 @@ export class EnterpriseProvisioningController {
   @Get(':organisationId/users')
   listUsers(@Param('organisationId', ParseIntPipe) organisationId: number) {
     return this.provisioning.listMembers(organisationId);
+  }
+
+  @Get(':organisationId/audit')
+  listOrganisationAudit(
+    @Param('organisationId', ParseIntPipe) organisationId: number,
+    @Query('page', new ParseIntPipe({ optional: true })) page = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit = 100,
+    @Query('search') search?: string,
+    @Query('area') area?: AuditArea,
+  ) {
+    const take = Math.min(200, Math.max(1, limit));
+    return this.audit.listAll({
+      organisationId,
+      skip: (Math.max(1, page) - 1) * take,
+      take,
+      search,
+      area,
+    });
   }
 
   @Post(':organisationId/users')

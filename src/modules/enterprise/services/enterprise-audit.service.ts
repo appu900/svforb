@@ -31,6 +31,7 @@ export interface AuditActor {
 }
 
 export interface AuditLogQuery {
+  organisationId?: number;
   from?: Date;
   to?: Date;
   area?: AuditArea;
@@ -117,8 +118,12 @@ export class EnterpriseAuditService {
   // ─── Reading ───────────────────────────────────────────────────────────────
 
   async list(organisationId: number, query: AuditLogQuery) {
+    return this.listAll({ ...query, organisationId });
+  }
+
+  async listAll(query: AuditLogQuery) {
     const where: Prisma.AuditLogWhereInput = {
-      organisationId,
+      ...(query.organisationId ? { organisationId: query.organisationId } : {}),
       ...(query.area ? { area: query.area } : {}),
       ...(query.actorUserId ? { actorUserId: query.actorUserId } : {}),
       ...(query.from || query.to
@@ -147,6 +152,7 @@ export class EnterpriseAuditService {
         orderBy: { createdAt: 'desc' },
         skip: query.skip,
         take: query.take,
+        include: { organisation: { select: { id: true, name: true } } },
       }),
     ]);
 
