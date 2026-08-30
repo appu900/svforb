@@ -5,24 +5,31 @@ import * as path from 'path';
 import * as nodemailer from 'nodemailer';
 import Mail from 'nodemailer/lib/mailer';
 
+const LOGO_CID = 'saveful-logo@saveful';
+
 @Injectable()
 export class MailerService {
   private readonly logger = new Logger(MailerService.name);
   private readonly transporter: nodemailer.Transporter;
   private readonly from: string;
-  private readonly logoDataUri: string;
+  private readonly logoPath: string | null;
+  private readonly hostedLogoUrl: string;
 
   constructor(private readonly config: ConfigService) {
     this.from = this.config.get<string>('FROM_EMAIL', 'noreply@example.com');
-    console.log(this.from)
 
-    const logoPath = path.join(process.cwd(), 'public', 'logo.png');
-    try {
-      const logoBuffer = fs.readFileSync(logoPath);
-      this.logoDataUri = `data:image/png;base64,${logoBuffer.toString('base64')}`;
-    } catch {
-      this.logoDataUri = '';
-    }
+    const explicitLogo = this.config.get<string>('EMAIL_LOGO_URL')?.trim();
+    const frontendUrl = this.config
+      .get<string>('FRONTEND_URL')
+      ?.trim()
+      .replace(/\/$/, '');
+    this.hostedLogoUrl =
+      explicitLogo || (frontendUrl ? `${frontendUrl}/logo.png` : '');
+
+    this.logoPath = [
+      path.join(__dirname, '..', 'assets', 'logo.png'),
+      path.join(process.cwd(), 'public', 'logo.png'),
+    ].find((candidate) => fs.existsSync(candidate)) ?? null;
 
     this.transporter = nodemailer.createTransport({
       host: this.config.get<string>('SMTP_HOST'),
@@ -35,8 +42,37 @@ export class MailerService {
     });
   }
 
+  /**
+   * Gmail and most webmail clients block data-URI images. Prefer an inline CID
+   * attachment (works without a public fetch). Fall back to a hosted HTTPS URL.
+   */
+  private logoMarkup(maxWidth = 180): string {
+    const src = this.logoPath
+      ? `cid:${LOGO_CID}`
+      : this.hostedLogoUrl;
+    if (!src) return '';
+    return `<div style="text-align:center;margin-bottom:24px;"><img src="${src}" alt="Saveful for Business" width="${maxWidth}" style="max-width:${maxWidth}px;height:auto;border:0;display:block;margin:0 auto;" /></div>`;
+  }
+
+  private logoAttachments(): Mail.Attachment[] {
+    if (!this.logoPath) return [];
+    return [
+      {
+        filename: 'logo.png',
+        path: this.logoPath,
+        cid: LOGO_CID,
+        contentDisposition: 'inline',
+        contentType: 'image/png',
+      },
+    ];
+  }
+
   async sendMail(options: Mail.Options): Promise<void> {
-    await this.transporter.sendMail({ from: this.from, ...options });
+    await this.transporter.sendMail({
+      from: this.from,
+      ...options,
+      attachments: [...this.logoAttachments(), ...(options.attachments ?? [])],
+    });
     this.logger.log(`Email sent to ${String(options.to)}`);
   }
 
@@ -47,7 +83,7 @@ export class MailerService {
   text: `Your OTP is ${otp}. It expires in 10 minutes.`,
   html: `
     <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:20px;color:#333;">
-      ${this.logoDataUri ? `<div style="text-align:center;margin-bottom:24px;"><img src="${this.logoDataUri}" alt="Saveful for Business" style="max-width:180px;height:auto;" /></div>` : ''}
+      ${this.logoMarkup(180)}
 
       <p>${name ? `Hi ${name},` : 'Hi,'}</p>
 
@@ -108,13 +144,7 @@ export class MailerService {
       subject: 'Welcome to Saveful for Business - Your account is ready',
       html: `
         <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#333;line-height:1.5;">
-          ${
-            this.logoDataUri
-              ? `<div style="text-align:center;margin:0 0 28px;">
-                  <img src="${this.logoDataUri}" alt="Saveful for Business" style="max-width:200px;height:auto;" />
-                </div>`
-              : ''
-          }
+          ${this.logoMarkup(200)}
 
           <p style="margin:0 0 16px;">Hello ${name},</p>
 
@@ -214,7 +244,7 @@ export class MailerService {
         `If you did not expect this invitation, you can safely ignore this email.`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          ${this.logoDataUri ? `<div style="text-align:center;margin-bottom:24px;"><img src="${this.logoDataUri}" alt="Saveful for Business" style="max-width:180px;height:auto;" /></div>` : ''}
+          ${this.logoMarkup(180)}
           <h2 style="color:#1a1a1a;margin-bottom:8px;">You&rsquo;ve been invited to Saveful for Business</h2>
           <p>Hello <strong>${name}</strong>,</p>
           <p>You&rsquo;ve been invited to manage <strong>${enterpriseName}</strong>&rsquo;s Enterprise account.</p>
@@ -272,7 +302,7 @@ export class MailerService {
       text: `Your password reset code is ${otp}. It expires in 1 hour.`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          ${this.logoDataUri ? `<div style="text-align:center;margin-bottom:24px;"><img src="${this.logoDataUri}" alt="Saveful for Business" style="max-width:180px;height:auto;" /></div>` : ''}
+          ${this.logoMarkup(180)}
           <h2 style="color:#333;">Password Reset</h2>
           <p>${name ? `Hello <strong>${name}</strong>,` : 'Hello,'}</p>
           <p>Use the code below to reset your password:</p>
