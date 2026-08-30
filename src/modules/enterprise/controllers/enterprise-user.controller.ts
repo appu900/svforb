@@ -1,12 +1,12 @@
 import {
-  Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Req, UseGuards,
+  Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import {
-  InviteUserDto, SetUserScopesDto, UpdateEnterpriseUserDto,
+  InviteUserDto, SetUserScopesDto, UpdateEnterpriseUserDto, UserListQueryDto,
 } from '../dto/enterprise.dto';
 import { EnterpriseUserService } from '../services/enterprise-user.service';
 
@@ -24,10 +24,17 @@ export class EnterpriseUserController {
     return this.users.inviteUser(req.user, dto);
   }
 
-  /** Everyone in the Enterprise, with role, status and scope grants. */
+  /**
+   * Everyone in the Enterprise — members and people still on an invitation —
+   * with role, status and scope grants. Paginated, filterable by role, status,
+   * free-text search, and by which structure a person can reach.
+   */
   @Get()
-  list(@Req() req: Request & { user: Jwtpayload }) {
-    return this.users.listUsers(req.user);
+  list(
+    @Req() req: Request & { user: Jwtpayload },
+    @Query() query: UserListQueryDto,
+  ) {
+    return this.users.listUsers(req.user, query);
   }
 
   @Get(':userId')
@@ -112,5 +119,22 @@ export class EnterpriseInviteController {
     @Param('invitationId', ParseIntPipe) invitationId: number,
   ) {
     return this.users.revokeInvitation(req.user, invitationId);
+  }
+}
+
+/**
+ * Roles & Permissions.
+ *
+ * Served from the same matrix that gates every request, so this screen is a
+ * readout of the live rules rather than a description maintained beside them.
+ */
+@Controller('enterprise/roles')
+@UseGuards(JwtAuthGuard)
+export class EnterpriseRolesController {
+  constructor(private readonly users: EnterpriseUserService) {}
+
+  @Get()
+  list(@Req() req: Request & { user: Jwtpayload }) {
+    return this.users.listRoles(req.user);
   }
 }

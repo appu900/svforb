@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AuditArea,
   EnterpriseRole,
   InvitationStatus,
   OrgRole,
@@ -21,20 +22,24 @@ import {
   ScopeGrantDto,
   SetUserScopesDto,
   UpdateEnterpriseUserDto,
+  UserListQueryDto,
+  UserStatusFilter,
 } from '../dto/enterprise.dto';
 import { ENTERPRISE_ERROR } from '../enterprise.constants';
+import { pageRequest, paginate } from '../enterprise.pagination';
+import {
+  assignableRolesFor,
+  isPortalRole,
+  isUnrestricted,
+  PERMISSION,
+  roleLabel,
+  rolesMatrix,
+} from '../enterprise.permissions';
 import { EnterpriseAuditService } from './enterprise-audit.service';
 import { EnterpriseInvitationService } from './enterprise-invitation.service';
 import { EnterpriseScopeService } from './enterprise-scope.service';
 
-/** Roles that may administer other users, and how far their reach extends. */
-const ADMIN_ROLES: EnterpriseRole[] = [
-  EnterpriseRole.SUPER_ADMIN,
-  EnterpriseRole.ENTERPRISE_ADMIN,
-  EnterpriseRole.GROUP_ADMIN,
-];
-
-type UserStatus = 'INVITED' | 'ACTIVE' | 'DEACTIVATED';
+type UserStatus = UserStatusFilter;
 
 @Injectable()
 export class EnterpriseUserService {
@@ -79,6 +84,7 @@ export class EnterpriseUserService {
     await this.assertCanGrantRole(caller, dto.role);
 
     const scopes = this.normaliseScopes(dto.role, dto.scopes);
+    this.assertScopeSatisfiesRole(dto.role, scopes);
     await this.assertScopesWithinCallerReach(caller, orgId, scopes);
     await this.assertScopeTargetsExist(orgId, scopes);
     return this.issueInvite(caller, orgId, dto);
@@ -174,56 +180,207 @@ export class EnterpriseUserService {
 
   // ─── Read ──────────────────────────────────────────────────────────────────
 
-  async listUsers(caller: Jwtpayload) {
-    const orgId = await this.scope.assertEnterprise(caller);
+  /**
+   * Users & Access: members and pending invitations in one list.
+   *
+   * Someone invited but not yet activated is a row on this screen, so the two
+   * sources are merged before anything is filtered — which is also why paging
+   * happens after the merge rather than in SQL. An Enterprise has tens of
+   * administrators, not thousands, and the alternative is two pagers that
+   * disagree about what page 2 contains.
+   */
+  async listUsers(caller: Jwtpayload, query: UserListQueryDto = {}) {
+    const orgId = await this.scope.assertPermission(caller, PERMISSION.USERS_VIEW);
+    const page = pageRequest(query.page, query.pageSize);
 
-    const memberships = await this.prisma.orgMemeberShip.findMany({
-      where: { organisationId: orgId },
-      orderBy: { joinedAt: 'asc' },
-      include: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            phoneNumber: true,
-            isActive: true,
-            lastLoginAt: true,
-            termsAcceptedAt: true,
+    const [memberships, invitations, scopeRows, siteAccess, labels, index, callerReach] =
+      await Promise.all([
+        this.prisma.orgMemeberShip.findMany({
+          where: { organisationId: orgId },
+          orderBy: { joinedAt: 'asc' },
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                phoneNumber: true,
+                isActive: true,
+                lastLoginAt: true,
+                termsAcceptedAt: true,
+              },
+            },
           },
-        },
-      },
-    });
+        }),
+        this.prisma.enterpriseInvitation.findMany({
+          where: { organisationId: orgId, status: InvitationStatus.PENDING },
+          orderBy: { sentAt: 'desc' },
+          include: { scopes: { select: { scopeType: true, scopeId: true } } },
+        }),
+        this.prisma.userScope.findMany({ where: { organisationId: orgId } }),
+        this.prisma.siteAccess.findMany({
+          where: { organisationId: orgId },
+          select: { userId: true, siteId: true },
+        }),
+        this.scopeLabels(orgId),
+        this.scopeSiteIndex(orgId),
+        this.scope.getAllowedSiteIds(caller),
+      ]);
 
-    const scopes = await this.prisma.userScope.findMany({
-      where: { organisationId: orgId },
-    });
-    const labels = await this.scopeLabels(orgId);
-
-    const byUser = new Map<number, typeof scopes>();
-    for (const s of scopes) {
-      const list = byUser.get(s.userId) ?? [];
-      list.push(s);
-      byUser.set(s.userId, list);
+    const grantsByUser = new Map<number, Array<{ scopeType: ScopeType; scopeId: number | null }>>();
+    for (const row of scopeRows) {
+      const list = grantsByUser.get(row.userId) ?? [];
+      list.push({ scopeType: row.scopeType, scopeId: row.scopeId });
+      grantsByUser.set(row.userId, list);
     }
 
-    return memberships.map((m) => ({
-      id: m.user.id,
-      firstName: m.user.firstName,
-      lastName: m.user.lastName,
-      email: m.user.email,
-      mobile: m.user.phoneNumber,
-      role: m.enterpriseRole ?? this.legacyRole(m.orgRole),
-      status: this.statusOf(m.user),
-      lastLoginAt: m.user.lastLoginAt,
-      joinedAt: m.joinedAt,
-      scopes: (byUser.get(m.user.id) ?? []).map((s) => ({
-        scopeType: s.scopeType,
-        scopeId: s.scopeId,
-        name: labels.get(`${s.scopeType}:${s.scopeId ?? ''}`) ?? null,
+    const accessByUser = new Map<number, number[]>();
+    for (const row of siteAccess) {
+      const list = accessByUser.get(row.userId) ?? [];
+      list.push(row.siteId);
+      accessByUser.set(row.userId, list);
+    }
+
+    const describe = (list: Array<{ scopeType: ScopeType; scopeId: number | null }>) =>
+      list.map((sc) => ({
+        scopeType: sc.scopeType,
+        scopeId: sc.scopeId,
+        name: labels.get(`${sc.scopeType}:${sc.scopeId ?? ''}`) ?? null,
+      }));
+
+    const members = memberships.map((m) => {
+      const role = m.enterpriseRole ?? this.legacyRole(m.orgRole);
+      const grants = grantsByUser.get(m.user.id) ?? [];
+      const reach = this.reachFrom(role, grants, accessByUser.get(m.user.id) ?? [], index);
+
+      return {
+        id: m.user.id,
+        invitationId: null as number | null,
+        firstName: m.user.firstName,
+        lastName: m.user.lastName,
+        email: m.user.email,
+        mobile: m.user.phoneNumber,
+        role,
+        roleLabel: this.roleLabel(role),
+        status: this.statusOf(m.user),
+        lastLoginAt: m.user.lastLoginAt,
+        joinedAt: m.joinedAt as Date | null,
+        invitationSentAt: null as Date | null,
+        invitationExpiresAt: null as Date | null,
+        scopes: describe(grants),
+        reach,
+      };
+    });
+
+    // Invited people have no user row yet, so their role and scope still live
+    // on the invitation. They read identically on the screen.
+    const invited = invitations.map((inv) => {
+      const grants = inv.scopes.map((sc) => ({
+        scopeType: sc.scopeType,
+        scopeId: sc.scopeId,
+      }));
+      return {
+        id: null as number | null,
+        invitationId: inv.id,
+        firstName: inv.firstName,
+        lastName: inv.lastName,
+        email: inv.email,
+        mobile: inv.mobile,
+        role: inv.enterpriseRole,
+        roleLabel: this.roleLabel(inv.enterpriseRole),
+        status: 'INVITED' as UserStatus,
+        lastLoginAt: null as Date | null,
+        joinedAt: null as Date | null,
+        invitationSentAt: inv.sentAt,
+        invitationExpiresAt: inv.expiresAt,
+        scopes: describe(grants),
+        reach: this.reachFrom(inv.enterpriseRole, grants, [], index),
+      };
+    });
+
+    const everyone = [...members, ...invited];
+
+    // A scoped administrator sees the people they overlap with, plus anyone
+    // whose reach is the whole Enterprise — hiding the admins from a Group
+    // Admin would leave them with nobody to escalate to.
+    const callerSites = callerReach === null ? null : new Set(callerReach);
+    const withinReach = everyone.filter((row) => {
+      if (callerSites === null) return true;
+      if (row.reach === null) return true;
+      return row.reach.some((siteId) => callerSites.has(siteId));
+    });
+
+    const search = query.search?.trim().toLowerCase();
+    const scopeSites =
+      query.scopeType !== undefined
+        ? new Set(index.get(`${query.scopeType}:${query.scopeId ?? ''}`) ?? [])
+        : null;
+
+    const filtered = withinReach.filter((row) => {
+      if (query.role && row.role !== query.role) return false;
+      if (query.status && row.status !== query.status) return false;
+
+      if (search) {
+        const haystack = `${row.firstName} ${row.lastName} ${row.email}`.toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+
+      // "Who can see this structure": any overlap counts, so a Group Admin
+      // covering half of it still appears.
+      if (scopeSites) {
+        if (row.reach === null) return true;
+        if (!row.reach.some((siteId) => scopeSites.has(siteId))) return false;
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) =>
+      `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`),
+    );
+
+    const rows = filtered
+      .slice(page.skip, page.skip + page.take)
+      .map(({ reach, ...row }) => ({
+        ...row,
+        reach: reach === null ? 'ENTIRE_ENTERPRISE' : { siteCount: reach.length },
+      }));
+
+    return {
+      ...paginate(rows, filtered.length, page),
+      summary: {
+        total: withinReach.length,
+        active: withinReach.filter((r) => r.status === 'ACTIVE').length,
+        invited: withinReach.filter((r) => r.status === 'INVITED').length,
+        deactivated: withinReach.filter((r) => r.status === 'DEACTIVATED').length,
+      },
+    };
+  }
+
+  /**
+   * Roles & Permissions.
+   *
+   * Read from the same table that gates every request, so the screen cannot
+   * promise something the guards refuse. `youMayAssign` is what the Add User
+   * form should offer — no more.
+   */
+  async listRoles(caller: Jwtpayload) {
+    await this.scope.assertPermission(caller, PERMISSION.USERS_VIEW);
+
+    const callerRole = await this.scope.getEnterpriseRole(caller);
+    const assignable = assignableRolesFor(callerRole);
+    const matrix = rolesMatrix();
+
+    return {
+      yourRole: callerRole,
+      yourRoleLabel: callerRole ? this.roleLabel(callerRole) : null,
+      youMayAssign: assignable,
+      permissions: matrix.permissions,
+      roles: matrix.roles.map((r) => ({
+        ...r,
+        youMayAssign: assignable.includes(r.role),
       })),
-    }));
+    };
   }
 
   async getUser(caller: Jwtpayload, userId: number) {
@@ -284,6 +441,10 @@ export class EnterpriseUserService {
   async updateUser(caller: Jwtpayload, userId: number, dto: UpdateEnterpriseUserDto) {
     const orgId = await this.assertUserAdmin(caller);
     const membership = await this.requireMembership(userId, orgId);
+    const existing = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, email: true, phoneNumber: true },
+    });
 
     if (dto.role) {
       await this.assertCanGrantRole(caller, dto.role);
@@ -313,11 +474,46 @@ export class EnterpriseUserService {
         });
 
         // A Super Admin covers everything, so explicit grants become noise.
-        if (dto.role === EnterpriseRole.SUPER_ADMIN) {
+        if (isUnrestricted(dto.role)) {
           await tx.userScope.deleteMany({ where: { userId, organisationId: orgId } });
         }
       }
     });
+
+    const previousRole =
+      membership.enterpriseRole ?? this.legacyRole(membership.orgRole);
+    const changed = EnterpriseAuditService.diff(
+      {
+        firstName: existing.firstName,
+        lastName: existing.lastName,
+        mobile: existing.phoneNumber,
+        role: previousRole,
+      },
+      {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        mobile: dto.mobile,
+        role: dto.role,
+      },
+    );
+
+    if (changed) {
+      await this.audit.recordFor(caller, {
+        organisationId: orgId,
+        area: AuditArea.USERS,
+        action: dto.role ? 'user.role_changed' : 'user.updated',
+        entityType: 'User',
+        entityId: userId,
+        entityLabel: existing.email,
+        previousValue: changed.previous,
+        newValue: changed.next,
+        summary: dto.role
+          ? `${existing.firstName} ${existing.lastName} changed from ` +
+            `${roleLabel(previousRole)} to ${roleLabel(dto.role)}`
+          : `${existing.firstName} ${existing.lastName} updated ` +
+            `(${Object.keys(changed.next).join(', ')})`,
+      });
+    }
 
     return this.getUser(caller, userId);
   }
@@ -328,15 +524,21 @@ export class EnterpriseUserService {
     const membership = await this.requireMembership(userId, orgId);
 
     const role = membership.enterpriseRole ?? this.legacyRole(membership.orgRole);
-    if (role === EnterpriseRole.SUPER_ADMIN) {
+    if (isUnrestricted(role)) {
       throw new BadRequestException(
-        'A Super Admin already covers the entire Enterprise and cannot be scoped.',
+        `A ${roleLabel(role)} already covers the entire Enterprise and cannot be scoped.`,
       );
     }
 
     const scopes = this.normaliseScopes(role, dto.scopes);
+    this.assertScopeSatisfiesRole(role, scopes);
     await this.assertScopesWithinCallerReach(caller, orgId, scopes);
     await this.assertScopeTargetsExist(orgId, scopes);
+
+    const before = await this.prisma.userScope.findMany({
+      where: { userId, organisationId: orgId },
+      select: { scopeType: true, scopeId: true },
+    });
 
     await this.prisma.$transaction(async (tx) => {
       await tx.userScope.deleteMany({ where: { userId, organisationId: orgId } });
@@ -353,6 +555,33 @@ export class EnterpriseUserService {
       }
     });
 
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const targetName = target
+      ? `${target.firstName} ${target.lastName}`.trim()
+      : `User ${userId}`;
+    const labels = await this.scopeLabels(orgId);
+    const describe = (list: Array<{ scopeType: ScopeType; scopeId?: number | null }>) =>
+      list.map(
+        (sc) => labels.get(`${sc.scopeType}:${sc.scopeId ?? ''}`) ?? `${sc.scopeType}`,
+      );
+
+    await this.audit.recordFor(caller, {
+      organisationId: orgId,
+      area: AuditArea.USERS,
+      action: 'user.access_changed',
+      entityType: 'User',
+      entityId: userId,
+      entityLabel: target?.email ?? targetName,
+      previousValue: { scopes: describe(before) },
+      newValue: { scopes: describe(scopes) },
+      summary: scopes.length
+        ? `${targetName} scoped to ${describe(scopes).join(', ')}`
+        : `All scope grants removed from ${targetName}`,
+    });
+
     this.logger.log(`Scopes set for user=${userId}: ${scopes.length} grant(s) by=${caller.sub}`);
     return this.getUser(caller, userId);
   }
@@ -366,7 +595,25 @@ export class EnterpriseUserService {
       await this.assertNotLastSuperAdmin(orgId, userId, null, role);
     }
 
-    await this.prisma.user.update({ where: { id: userId }, data: { isActive } });
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { isActive },
+      select: { firstName: true, lastName: true, email: true },
+    });
+
+    await this.audit.recordFor(caller, {
+      organisationId: orgId,
+      area: AuditArea.USERS,
+      action: isActive ? 'user.activated' : 'user.deactivated',
+      entityType: 'User',
+      entityId: userId,
+      entityLabel: user.email,
+      previousValue: { isActive: !isActive },
+      newValue: { isActive },
+      summary: `${user.firstName} ${user.lastName} ${
+        isActive ? 'activated' : 'deactivated'
+      }`,
+    });
 
     this.logger.log(
       `User ${userId} ${isActive ? 'activated' : 'deactivated'} in org=${orgId} by=${caller.sub}`,
@@ -419,31 +666,54 @@ export class EnterpriseUserService {
   // ─── Guards ────────────────────────────────────────────────────────────────
 
   private async assertUserAdmin(caller: Jwtpayload): Promise<number> {
-    const orgId = await this.scope.assertEnterprise(caller);
-    const role = await this.scope.getEnterpriseRole(caller);
-
-    if (!role || !ADMIN_ROLES.includes(role)) {
-      throw new ForbiddenException('You do not have permission to manage users');
-    }
-    return orgId;
+    return this.scope.assertPermission(caller, PERMISSION.USERS_MANAGE);
   }
 
-  /** A Group Admin may not mint Super Admins or other Group Admins. */
+  /**
+   * Nobody may grant a role above their own.
+   *
+   * The answer comes from the same table the Roles & Permissions screen
+   * renders, so what that screen promises and what this allows cannot drift
+   * apart.
+   */
   private async assertCanGrantRole(caller: Jwtpayload, role: EnterpriseRole) {
+    if (!isPortalRole(role)) {
+      throw new BadRequestException({
+        error: ENTERPRISE_ERROR.ROLE_NOT_OFFERED,
+        message:
+          `${roleLabel(role)} is a legacy role and can no longer be assigned. ` +
+          `The portal defines five roles.`,
+      });
+    }
+
     const callerRole = await this.scope.getEnterpriseRole(caller);
-    if (callerRole === EnterpriseRole.SUPER_ADMIN) return;
+    const assignable = assignableRolesFor(callerRole);
 
-    // Only a Super Admin may mint another Super Admin.
-    if (
-      callerRole === EnterpriseRole.ENTERPRISE_ADMIN &&
-      role !== EnterpriseRole.SUPER_ADMIN
-    ) {
-      return;
+    if (!assignable.includes(role)) {
+      throw new ForbiddenException({
+        error: ENTERPRISE_ERROR.ROLE_NOT_ASSIGNABLE,
+        message: callerRole
+          ? `A ${roleLabel(callerRole)} cannot assign the ${roleLabel(role)} role.`
+          : 'You are not a member of this Enterprise.',
+        assignableRoles: assignable,
+      });
     }
+  }
 
-    if (role === EnterpriseRole.SUPER_ADMIN || role === EnterpriseRole.GROUP_ADMIN) {
-      throw new ForbiddenException(`Only a Super Admin can assign the ${role} role`);
-    }
+  /**
+   * A scoped role with no scope grants sees nothing at all, which is never
+   * what the administrator meant — so it is rejected rather than saved.
+   */
+  private assertScopeSatisfiesRole(role: EnterpriseRole, scopes: ScopeGrantDto[]) {
+    if (isUnrestricted(role)) return;
+    if (scopes.length) return;
+
+    throw new BadRequestException({
+      error: ENTERPRISE_ERROR.SCOPE_REQUIRED,
+      message:
+        `A ${roleLabel(role)} only sees what they are scoped to. Assign at least one ` +
+        `Group, Territory, Cluster or Site.`,
+    });
   }
 
   /** Nobody may hand out access they do not themselves hold. */
@@ -525,12 +795,15 @@ export class EnterpriseUserService {
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  /** A Super Admin is implicitly enterprise-wide, so explicit grants are dropped. */
+  /**
+   * Roles that already cover the whole Enterprise are implicitly unrestricted,
+   * so explicit grants on them are noise and get dropped.
+   */
   private normaliseScopes(
     role: EnterpriseRole,
     scopes?: ScopeGrantDto[],
   ): ScopeGrantDto[] {
-    if (role === EnterpriseRole.SUPER_ADMIN) return [];
+    if (isUnrestricted(role)) return [];
     return scopes ?? [];
   }
 
@@ -557,18 +830,78 @@ export class EnterpriseUserService {
   }
 
   private roleLabel(role: EnterpriseRole): string {
-    const map: Record<EnterpriseRole, string> = {
-      SUPER_ADMIN: 'Enterprise Super Admin',
-      ENTERPRISE_ADMIN: 'Enterprise Admin',
-      REPORTING_USER: 'Reporting User',
-      GROUP_ADMIN: 'Group Admin',
-      SITE_ADMIN: 'Site Admin',
-      // Retained for existing rows only — not offered in the Enterprise Portal,
-      // which defines five roles (Roles & Permissions, page 17).
-      CLUSTER_ADMIN: 'Cluster Admin',
-      SITE_USER: 'Site User',
+    return roleLabel(role);
+  }
+
+  /**
+   * Every scope target in the organisation resolved to its site ids, in one
+   * pass.
+   *
+   * The listing needs each person's reach, and resolving scopes person by
+   * person would be a query per row. This builds the lookup once and the rows
+   * read from it.
+   */
+  private async scopeSiteIndex(orgId: number): Promise<Map<string, number[]>> {
+    const [groupSites, clusterSites, territorySites, sites] = await Promise.all([
+      this.prisma.groupSite.findMany({
+        where: { organisationId: orgId },
+        select: { groupId: true, siteId: true },
+      }),
+      this.prisma.clusterSite.findMany({
+        where: { cluster: { organisationId: orgId } },
+        select: { clusterId: true, siteId: true },
+      }),
+      this.prisma.territorySite.findMany({
+        where: { territory: { organisationId: orgId } },
+        select: { territoryId: true, siteId: true },
+      }),
+      this.prisma.site.findMany({
+        where: { organisationId: orgId },
+        select: { id: true },
+      }),
+    ]);
+
+    const index = new Map<string, number[]>();
+    const add = (key: string, siteId: number) => {
+      const list = index.get(key);
+      if (list) list.push(siteId);
+      else index.set(key, [siteId]);
     };
-    return map[role];
+
+    groupSites.forEach((r) => add(`GROUP:${r.groupId}`, r.siteId));
+    clusterSites.forEach((r) => add(`CLUSTER:${r.clusterId}`, r.siteId));
+    territorySites.forEach((r) => add(`TERRITORY:${r.territoryId}`, r.siteId));
+    sites.forEach((s) => add(`SITE:${s.id}`, s.id));
+    index.set(
+      'ENTERPRISE:',
+      sites.map((s) => s.id),
+    );
+    return index;
+  }
+
+  /**
+   * One person's reach, or null for the whole Enterprise.
+   *
+   * Mirrors `EnterpriseScopeService.getAllowedSiteIds` — including the fall
+   * back to the sites they operate on when they hold no explicit grant — but
+   * reads from the prebuilt index instead of querying per user.
+   */
+  private reachFrom(
+    role: EnterpriseRole,
+    grants: Array<{ scopeType: ScopeType; scopeId: number | null }>,
+    fallbackSiteIds: number[],
+    index: Map<string, number[]>,
+  ): number[] | null {
+    if (isUnrestricted(role)) return null;
+    if (!grants.length) return fallbackSiteIds;
+
+    const reach = new Set<number>();
+    for (const grant of grants) {
+      if (grant.scopeType === ScopeType.ENTERPRISE) return null;
+      const key = `${grant.scopeType}:${grant.scopeId ?? ''}`;
+      (index.get(key) ?? []).forEach((siteId) => reach.add(siteId));
+    }
+    return [...reach];
   }
 
   /** Friendly names for every scope target, for display alongside grants. */

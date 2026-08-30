@@ -7,8 +7,9 @@ import {
   Region,
   ScopeType,
 } from '@prisma/client';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayNotEmpty,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -27,44 +28,49 @@ import {
 
 // ─── Structure ───────────────────────────────────────────────────────────────
 
-export class CreateGroupDto {
+/**
+ * Group, Cluster and Territory are independent dimensions and are created the
+ * same way — a cluster deliberately takes no group, because it does not sit
+ * inside one.
+ *
+ * None of these carry `isActive`: activation moves through the explicit
+ * deactivate and reactivate endpoints, so there is exactly one path to it and
+ * one audit record for it.
+ */
+class StructureBaseDto {
   @IsString() @IsNotEmpty() @MaxLength(120) name!: string;
   @IsString() @IsOptional() @MaxLength(40) code?: string;
+  @IsString() @IsOptional() @MaxLength(500) description?: string;
 }
 
-export class UpdateGroupDto {
+class StructureUpdateBaseDto {
   @IsString() @IsOptional() @MaxLength(120) name?: string;
   @IsString() @IsOptional() @MaxLength(40) code?: string;
-  @IsBoolean() @IsOptional() isActive?: boolean;
+  @IsString() @IsOptional() @MaxLength(500) description?: string;
 }
 
-export class CreateClusterDto {
-  @Type(() => Number) @IsInt() groupId!: number;
-  @IsString() @IsNotEmpty() @MaxLength(120) name!: string;
-  @IsString() @IsOptional() @MaxLength(40) code?: string;
-}
+export class CreateGroupDto extends StructureBaseDto {}
+export class UpdateGroupDto extends StructureUpdateBaseDto {}
 
-export class UpdateClusterDto {
-  @Type(() => Number) @IsInt() @IsOptional() groupId?: number;
-  @IsString() @IsOptional() @MaxLength(120) name?: string;
-  @IsString() @IsOptional() @MaxLength(40) code?: string;
-  @IsBoolean() @IsOptional() isActive?: boolean;
-}
+export class CreateClusterDto extends StructureBaseDto {}
+export class UpdateClusterDto extends StructureUpdateBaseDto {}
 
-export class CreateTerritoryDto {
-  @IsString() @IsNotEmpty() @MaxLength(120) name!: string;
-  @IsString() @IsOptional() @MaxLength(40) code?: string;
-}
+export class CreateTerritoryDto extends StructureBaseDto {}
+export class UpdateTerritoryDto extends StructureUpdateBaseDto {}
 
-export class UpdateTerritoryDto {
-  @IsString() @IsOptional() @MaxLength(120) name?: string;
-  @IsString() @IsOptional() @MaxLength(40) code?: string;
-  @IsBoolean() @IsOptional() isActive?: boolean;
+/** Deactivated structures are hidden unless explicitly asked for. */
+export class StructureListQueryDto {
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  includeInactive?: boolean;
+  @IsString() @IsOptional() @MaxLength(120) search?: string;
 }
 
 export class AssignSitesDto {
   @Type(() => Number)
   @IsInt({ each: true })
+  @ArrayNotEmpty()
   siteIds!: number[];
 }
 
@@ -155,6 +161,33 @@ export class SetUserScopesDto {
 
 export class ResendInviteDto {
   @IsString() @MinLength(8) newPassword!: string;
+}
+
+export const USER_STATUS = {
+  INVITED: 'INVITED',
+  ACTIVE: 'ACTIVE',
+  DEACTIVATED: 'DEACTIVATED',
+} as const;
+
+export type UserStatusFilter = (typeof USER_STATUS)[keyof typeof USER_STATUS];
+
+/**
+ * Users & Access listing. Invited people appear alongside members, so the
+ * status filter spans both — someone who has been invited but not activated is
+ * still a row on this screen.
+ */
+export class UserListQueryDto {
+  @Type(() => Number) @IsInt() @IsOptional() page?: number;
+  @Type(() => Number) @IsInt() @IsOptional() pageSize?: number;
+
+  @IsString() @IsOptional() @MaxLength(160) search?: string;
+  @IsEnum(EnterpriseRole) @IsOptional() role?: EnterpriseRole;
+
+  @IsEnum(USER_STATUS) @IsOptional() status?: UserStatusFilter;
+
+  /** Narrow the listing to people whose reach includes this structure. */
+  @IsEnum(ScopeType) @IsOptional() scopeType?: ScopeType;
+  @Type(() => Number) @IsInt() @IsOptional() scopeId?: number;
 }
 
 // ─── Provisioning & profile ──────────────────────────────────────────────────
