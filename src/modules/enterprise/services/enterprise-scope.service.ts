@@ -3,12 +3,12 @@ import { EnterpriseRole, ScopeType as PrismaScopeType } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { ENTERPRISE_ERROR, ENTERPRISE_PLAN_NAME, ScopeType } from '../enterprise.constants';
-
-/** Roles whose reach is the entire Enterprise, regardless of UserScope rows. */
-export const UNRESTRICTED_ROLES: EnterpriseRole[] = [
-  EnterpriseRole.SUPER_ADMIN,
-  EnterpriseRole.ENTERPRISE_ADMIN,
-];
+import {
+  EnterprisePermission,
+  isUnrestricted,
+  roleHasPermission,
+  roleLabel,
+} from '../enterprise.permissions';
 
 export interface ResolvedScope {
   scopeType: ScopeType;
@@ -222,7 +222,7 @@ export class EnterpriseScopeService {
     if (!orgId) return [];
 
     const role = await this.getEnterpriseRole(caller);
-    if (role && UNRESTRICTED_ROLES.includes(role)) return null; // whole Enterprise
+    if (isUnrestricted(role)) return null; // whole Enterprise
 
     const scopes = await this.prisma.userScope.findMany({
       where: { userId: caller.sub, organisationId: orgId },
@@ -269,6 +269,74 @@ export class EnterpriseScopeService {
       message: `You do not have access to all of "${requested.label}".`,
       scopeType: requested.scopeType,
       scopeId: requested.scopeId,
+    });
+  }
+
+  // ─── Permission enforcement ────────────────────────────────────────────────
+
+  /**
+   * Gates a request on the role matrix, and returns the caller's organisation.
+   *
+   * Permission answers "may this role do this at all"; scope answers "to which
+   * slice of the Enterprise". Both must pass, so a caller acting on something
+   * in particular follows this with one of the reach checks below.
+   */
+  async assertPermission(
+    caller: Jwtpayload,
+    permission: EnterprisePermission,
+  ): Promise<number> {
+    const orgId = await this.assertEnterprise(caller);
+    const role = await this.getEnterpriseRole(caller);
+
+    if (!roleHasPermission(role, permission)) {
+      throw new ForbiddenException({
+        statusCode: HttpStatus.FORBIDDEN,
+        error: ENTERPRISE_ERROR.MISSING_PERMISSION,
+        message: role
+          ? `A ${roleLabel(role)} cannot do this.`
+          : 'You are not a member of this Enterprise.',
+        requiredPermission: permission,
+      });
+    }
+    return orgId;
+  }
+
+  /**
+   * A structure the caller may act on: every site it currently holds has to sit
+   * inside their own reach.
+   *
+   * An empty structure passes, deliberately — a Group Admin can rename or
+   * populate a group holding nothing yet, and the moment it holds a site
+   * outside their reach this stops them.
+   */
+  async assertStructureWithinReach(
+    caller: Jwtpayload,
+    orgId: number,
+    scopeType: ScopeType,
+    scopeId: number,
+  ): Promise<ResolvedScope> {
+    const resolved = await this.resolve(orgId, scopeType, scopeId);
+    await this.assertScopeAllowed(caller, resolved);
+    return resolved;
+  }
+
+  /** Sites the caller may pull into a structure or hand to somebody else. */
+  async assertSitesWithinReach(caller: Jwtpayload, siteIds: number[]): Promise<void> {
+    const allowed = await this.getAllowedSiteIds(caller);
+    if (allowed === null) return; // unrestricted
+
+    const allowedSet = new Set(allowed);
+    const outside = siteIds.filter((id) => !allowedSet.has(id));
+    if (!outside.length) return;
+
+    throw new ForbiddenException({
+      statusCode: HttpStatus.FORBIDDEN,
+      error: ENTERPRISE_ERROR.OUTSIDE_SCOPE,
+      message:
+        outside.length === 1
+          ? 'One of the sites you selected is outside your scope.'
+          : `${outside.length} of the sites you selected are outside your scope.`,
+      siteIds: outside,
     });
   }
 

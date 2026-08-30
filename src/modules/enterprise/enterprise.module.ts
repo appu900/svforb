@@ -23,6 +23,7 @@ import { EnterpriseProfileController } from './controllers/enterprise-profile.co
 import { EnterpriseProvisioningController } from './controllers/enterprise-provisioning.controller';
 import {
   EnterpriseInviteController,
+  EnterpriseRolesController,
   EnterpriseUserController,
 } from './controllers/enterprise-user.controller';
 import { ENTERPRISE_QUEUE, EnterpriseQueueService } from './queues/enterprise.queue.service';
@@ -37,6 +38,7 @@ import { EnterpriseWorker } from './workers/enterprise.worker';
     EnterpriseInvoiceController,
     EnterpriseUserController,
     EnterpriseInviteController,
+    EnterpriseRolesController,
     EnterpriseProvisioningController,
     EnterpriseProfileController,
     // Unauthenticated by design — the invitation token is the credential.
