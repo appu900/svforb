@@ -227,18 +227,44 @@ export class MailerService {
     role: string;
     activationUrl: string;
     expiresInHours: number;
+    invitedByName?: string;
+    siteName?: string;
   }): Promise<void> {
-    const { to, name, enterpriseName, role, activationUrl, expiresInHours } =
-      payload;
+    const {
+      to,
+      name,
+      enterpriseName,
+      role,
+      activationUrl,
+      expiresInHours,
+      invitedByName,
+      siteName,
+    } = payload;
+    const possessive = /s$/i.test(enterpriseName.trim())
+      ? `${enterpriseName}'`
+      : `${enterpriseName}'s`;
+    const isSiteInvite = Boolean(siteName);
+    const intro = isSiteInvite
+      ? invitedByName
+        ? `You've been invited by ${invitedByName} of ${possessive} Enterprise Account to manage ${siteName}.`
+        : `You've been invited to manage ${siteName} for ${possessive} Enterprise Account.`
+      : `You've been invited to manage ${possessive} Enterprise account.`;
+    const subjectTarget = isSiteInvite ? siteName! : enterpriseName;
+    const contextLabel = isSiteInvite ? 'Site' : 'Enterprise';
+    const contextValue = isSiteInvite ? siteName! : enterpriseName;
+    const cta = isSiteInvite
+      ? 'Activate your account using your mobile only'
+      : 'Activate your account';
 
     await this.sendMail({
       to,
-      subject: `You have been invited to ${enterpriseName} on Saveful for Business`,
+      subject: `You have been invited to ${subjectTarget} on Saveful for Business`,
       text:
         `Hello ${name},\n\n` +
-        `You have been invited to manage ${enterpriseName} on Saveful for Business ` +
-        `as ${role}.\n\n` +
-        `Activate your account and create your password here:\n${activationUrl}\n\n` +
+        `${intro}\n\n` +
+        `${contextLabel}: ${contextValue}\n` +
+        `Your role: ${role}\n\n` +
+        `${cta}:\n${activationUrl}\n\n` +
         `This link expires in ${expiresInHours} hours. If it expires, ask your ` +
         `administrator to send a new invitation.\n\n` +
         `If you did not expect this invitation, you can safely ignore this email.`,
@@ -247,13 +273,19 @@ export class MailerService {
           ${this.logoMarkup(180)}
           <h2 style="color:#1a1a1a;margin-bottom:8px;">You&rsquo;ve been invited to Saveful for Business</h2>
           <p>Hello <strong>${name}</strong>,</p>
-          <p>You&rsquo;ve been invited to manage <strong>${enterpriseName}</strong>&rsquo;s Enterprise account.</p>
+          <p>${
+            isSiteInvite && invitedByName
+              ? `You&rsquo;ve been invited by <strong>${invitedByName}</strong> of <strong>${possessive}</strong> Enterprise Account to manage <strong>${siteName}</strong>.`
+              : isSiteInvite
+                ? `You&rsquo;ve been invited to manage <strong>${siteName}</strong> for <strong>${possessive}</strong> Enterprise Account.`
+                : `You&rsquo;ve been invited to manage <strong>${possessive}</strong> Enterprise account.`
+          }</p>
 
           <table style="width:100%;border-collapse:collapse;margin:24px 0;background:#f6f8f6;border-radius:8px;">
             <tr>
               <td style="padding:16px 20px;border-bottom:1px solid #e6ebe6;">
-                <div style="font-size:12px;color:#6b7d74;text-transform:uppercase;letter-spacing:.06em;">Enterprise</div>
-                <div style="font-size:15px;color:#1a1a1a;font-weight:bold;">${enterpriseName}</div>
+                <div style="font-size:12px;color:#6b7d74;text-transform:uppercase;letter-spacing:.06em;">${contextLabel}</div>
+                <div style="font-size:15px;color:#1a1a1a;font-weight:bold;">${contextValue}</div>
               </td>
             </tr>
             <tr>
@@ -268,7 +300,7 @@ export class MailerService {
           <div style="text-align:center;margin:28px 0;">
             <a href="${activationUrl}"
                style="background:#1f5c43;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;display:inline-block;">
-              Activate your account
+              ${cta}
             </a>
           </div>
 

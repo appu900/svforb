@@ -42,4 +42,6 @@ export interface SendEnterpriseInvitePayload {
   /** Time-limited activation link. Never contains a password. */
   activationUrl: string;
   expiresInHours: number;
+  invitedByName?: string;
+  siteName?: string;
 }

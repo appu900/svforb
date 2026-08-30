@@ -283,6 +283,9 @@ export class EnterpriseInvitationService {
       });
     }
 
+    const siteName = await this.resolveSiteName(invitation);
+    const invitedByName = this.personName(invitation.inviter);
+
     return {
       email: invitation.email,
       firstName: invitation.firstName,
@@ -291,6 +294,8 @@ export class EnterpriseInvitationService {
       role: this.roleLabel(invitation.enterpriseRole),
       expiresAt: invitation.expiresAt,
       termsVersion: TERMS_VERSION,
+      invitedByName: invitedByName || undefined,
+      siteName,
     };
   }
 
@@ -494,6 +499,7 @@ export class EnterpriseInvitationService {
       include: {
         scopes: { select: { scopeType: true, scopeId: true } },
         organisation: { select: { name: true } },
+        inviter: { select: { firstName: true, lastName: true } },
       },
     });
     if (!invitation) {
@@ -522,6 +528,18 @@ export class EnterpriseInvitationService {
     const appUrl = frontendUrl || this.config.get<string>('APP_URL', 'http://localhost:3000');
     const link = `${appUrl.replace(/\/$/, '')}/activate?token=${token}`;
 
+    const invitation = await this.prisma.enterpriseInvitation.findUnique({
+      where: { id: invitationId },
+      include: {
+        inviter: { select: { firstName: true, lastName: true } },
+        scopes: { select: { scopeType: true, scopeId: true } },
+      },
+    });
+    const invitedByName = this.personName(invitation?.inviter);
+    const siteName = invitation
+      ? await this.resolveSiteName(invitation)
+      : undefined;
+
     await this.email
       .sendEnterpriseInvite({
         to: meta.email,
@@ -530,12 +548,43 @@ export class EnterpriseInvitationService {
         role: this.roleLabel(meta.role),
         activationUrl: link,
         expiresInHours: INVITATION_TTL_HOURS,
+        invitedByName: invitedByName || undefined,
+        siteName,
       })
       .catch((err) =>
         this.logger.warn(
           `invitation email failed (id=${invitationId}): ${(err as Error).message}`,
         ),
       );
+  }
+
+  private personName(
+    user?: { firstName?: string | null; lastName?: string | null } | null,
+  ): string {
+    return `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.replace(/\s+/g, ' ').trim();
+  }
+
+  private async resolveSiteName(input: {
+    siteAdminForSiteId?: number | null;
+    enterpriseRole: EnterpriseRole;
+    scopes?: Array<{ scopeType: ScopeType; scopeId: number | null }>;
+  }): Promise<string | undefined> {
+    const fromField = input.siteAdminForSiteId ?? null;
+    const fromScope =
+      input.scopes?.find((scope) => scope.scopeType === ScopeType.SITE && scope.scopeId != null)
+        ?.scopeId ?? null;
+    const siteId = fromField ?? fromScope;
+    const isSiteRole =
+      input.enterpriseRole === EnterpriseRole.SITE_ADMIN ||
+      input.enterpriseRole === EnterpriseRole.SITE_USER;
+    if (!siteId || (!isSiteRole && !fromField)) return undefined;
+
+    const site = await this.prisma.site.findUnique({
+      where: { id: siteId },
+      select: { name: true, organisationName: true },
+    });
+    const name = site?.name?.trim() || site?.organisationName?.trim();
+    return name || undefined;
   }
 
   private roleLabel(role: EnterpriseRole): string {
