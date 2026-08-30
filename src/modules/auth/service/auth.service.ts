@@ -805,10 +805,11 @@ export class AuthService {
         email: true,
         phoneNumber: true,
         platformRole: true,
+        isActive: true,
         createdAt: true,
       },
     });
-    if (!user) throw new UnauthorizedException('User not found');
+    if (!user || !user.isActive) throw new UnauthorizedException('User not found');
 
     if (user.platformRole === PlatformRole.PLATFORM_ADMIN) {
       return {
