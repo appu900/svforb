@@ -3,9 +3,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 import 'dotenv/config';
 import { OrgType, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
-import * as fs from 'fs';
-import * as path from 'path';
+import { createPgPool } from '../src/infra/prisma/create-pg-pool';
 
 /**
  * Seeds the subscription catalogue.
@@ -15,13 +13,7 @@ import * as path from 'path';
  * on the same catalogue.
  */
 
-const caPath = path.join(process.cwd(), 'src/infra/prisma', 'ca.pem');
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: fs.existsSync(caPath)
-    ? { rejectUnauthorized: false, ca: fs.readFileSync(caPath).toString() }
-    : undefined,
-});
+const pool = createPgPool();
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 const BUSINESS_SINGLE_PLANS: OrgType[] = [

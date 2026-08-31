@@ -1,41 +1,23 @@
-import {
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-  Injectable,
-} from '@nestjs/common';
+import { Logger, OnModuleInit, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import {Pool} from 'pg'
-import * as fs from 'fs'
-import * as path from 'path';
-
+import { createPgPool } from './create-pg-pool';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit {
   private readonly logger = new Logger(PrismaService.name);
   constructor() {
-      const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false,
-        ca: fs.readFileSync(path.join(process.cwd(), 'src/infra/prisma', 'ca.pem')).toString(),
-      },
-      max: 20,                   // max connections in the pool
-      min: 2,                    // keep 2 connections warm at all times
-      idleTimeoutMillis: 30_000, // close idle connections after 30s
-      connectionTimeoutMillis: 5_000, // fail fast if pool is exhausted
+    const pool = createPgPool({
+      max: 20,
+      min: 2,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
     });
-    const adapter = new PrismaPg(pool);
-    super({ adapter });
+    super({ adapter: new PrismaPg(pool) });
   }
 
   async onModuleInit() {
-    try {
-      await this.$connect();
-      this.logger.debug('DATABASE CONNECTED')
-    } catch (error) {
-      console.error('problem is connecting the database');
-    }
+    await this.$connect();
+    this.logger.debug('DATABASE CONNECTED');
   }
 }
