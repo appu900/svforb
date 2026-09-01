@@ -105,12 +105,12 @@ const PLANS = [
     description:
       'For businesses managing multiple locations with consistent reporting and operations.',
     maxSites: 10,
-    maxUserPerSite: null, // unlimited
-    priceMonthly: 89, // per site
-    priceAnnual: 890, // per site
-    priceMonthlyInr: 9, // TEST pricing, per site
-    priceAnnualInr: 90, // TEST pricing, per site
-    isPerSite: true,
+    maxUserPerSite: null,
+    priceMonthly: 89, // flat fee covering up to 10 locations
+    priceAnnual: 890, // flat fee covering up to 10 locations
+    priceMonthlyInr: 9, // TEST pricing, flat fee
+    priceAnnualInr: 90, // TEST pricing, flat fee
+    isPerSite: false,
     contactSalesOnly: false,
     applicableOrgTypes: BUSINESS_MULTI_PLANS,
     features: [

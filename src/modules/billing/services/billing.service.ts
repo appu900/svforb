@@ -140,7 +140,7 @@ export class BillingService {
       email: owner?.email ?? caller.email,
     });
 
-    const quantity = await this.resolveQuantity(org.id, plan.isPerSite);
+    const quantity = await this.resolveQuantity(org.id, plan);
     const priceData = await this.buildRecurringPriceData(plan, org.region, billingCycle);
     const appUrl = this.websiteOrigin();
 
@@ -211,7 +211,7 @@ export class BillingService {
       });
     }
 
-    const quantity = await this.resolveQuantity(org.id, newPlan.isPerSite);
+    const quantity = await this.resolveQuantity(org.id, newPlan);
     const priceData = await this.buildRecurringPriceData(newPlan, org.region, targetCycle);
 
     // Any decision supersedes a downgrade the org scheduled earlier.
@@ -245,7 +245,7 @@ export class BillingService {
       });
     }
 
-    const quantity = await this.resolveQuantity(org.id, newPlan.isPerSite);
+    const quantity = await this.resolveQuantity(org.id, newPlan);
     const priceData = await this.buildRecurringPriceData(newPlan, org.region, targetCycle);
     const recurringAmount = ((priceData.unit_amount ?? 0) * quantity) / 100;
     const currency = priceData.currency.toUpperCase();
@@ -503,6 +503,8 @@ export class BillingService {
       throw new NotFoundException('No billing account found for your organisation.');
     }
 
+    await this.syncSiteQuantity(org.id);
+
     const appUrl = this.websiteOrigin();
     const session = await this.stripeService.stripe.billingPortal.sessions.create({
       customer: subscription.stripeCustomerId,
@@ -664,36 +666,50 @@ export class BillingService {
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  /** Per-site plans bill on the number of locations the org actually has. */
-  private async resolveQuantity(orgId: number, isPerSite: boolean): Promise<number> {
-    if (!isPerSite) return 1;
+  /**
+   * Multi Site is a flat fee for up to 10 locations. A site cap is not a
+   * Stripe quantity multiplier.
+   */
+  private chargesPerSite(plan: {
+    isPerSite: boolean;
+    name?: string;
+    maxSites?: number | null;
+  }) {
+    if (plan.name === 'MULTI_SITE') return false;
+    if (plan.maxSites != null && plan.maxSites > 1) return false;
+    return plan.isPerSite;
+  }
+
+  private async resolveQuantity(
+    orgId: number,
+    plan: { isPerSite: boolean; name?: string; maxSites?: number | null },
+  ): Promise<number> {
+    if (!this.chargesPerSite(plan)) return 1;
     const siteCount = await this.prisma.site.count({ where: { organisationId: orgId } });
     return Math.max(1, siteCount);
   }
 
   /**
-   * Pushes the real site count onto a per-site subscription. Called after a
-   * site is added; billing must never be the reason a site fails to save, so
-   * every failure is logged rather than thrown.
+   * Keeps Stripe quantity aligned with the plan. Multi Site stays at quantity
+   * 1 (A$89 for up to 10 locations). Failures are logged, not thrown.
    */
   async syncSiteQuantity(orgId: number): Promise<void> {
     try {
       const sub = await this.prisma.orgSubscription.findUnique({
         where: { organisationId: orgId },
-        include: { plan: { select: { isPerSite: true } } },
+        include: { plan: { select: { isPerSite: true, name: true, maxSites: true } } },
       });
 
-      if (!sub?.plan.isPerSite) return;
-      if (!sub.stripeSubscriptionId) return;
+      if (!sub?.stripeSubscriptionId) return;
       if (!LIVE_STATUSES.includes(sub.status)) return;
 
-      const quantity = await this.resolveQuantity(orgId, true);
+      const quantity = await this.resolveQuantity(orgId, sub.plan);
       if (quantity === sub.quantity) return;
 
       const itemId = await this.currentItemId(sub.stripeSubscriptionId);
       await this.stripeService.stripe.subscriptions.update(sub.stripeSubscriptionId, {
         items: [{ id: itemId, quantity }],
-        proration_behavior: 'create_prorations',
+        proration_behavior: this.chargesPerSite(sub.plan) ? 'create_prorations' : 'none',
       });
 
       await this.prisma.orgSubscription.update({
@@ -701,10 +717,12 @@ export class BillingService {
         data: { quantity },
       });
 
-      this.logger.log(`Per-site quantity synced: org=${orgId} qty=${quantity}`);
+      this.logger.log(
+        `Subscription quantity synced: org=${orgId} qty=${quantity} plan=${sub.plan.name}`,
+      );
     } catch (err) {
       this.logger.error(
-        `Failed to sync per-site quantity for org=${orgId}: ${(err as Error).message}`,
+        `Failed to sync subscription quantity for org=${orgId}: ${(err as Error).message}`,
       );
     }
   }

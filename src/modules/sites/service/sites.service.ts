@@ -186,7 +186,7 @@ export class SitesService {
 
     this.logger.log(`Site created: id=${site.id} org=${org.id} by user=${caller.sub}`);
 
-    // Per-site plans bill on location count, so Stripe has to hear about this.
+    // Flat plans stay at quantity 1; per-site plans follow location count.
     await this.billing.syncSiteQuantity(org.id);
 
     return {

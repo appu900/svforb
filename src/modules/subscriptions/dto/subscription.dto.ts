@@ -29,7 +29,7 @@ export class CreateSubscriptionPlanDto {
   @IsNumber() @Min(0) @IsOptional() priceMonthlyInr?: number;
   @IsNumber() @Min(0) @IsOptional() priceAnnualInr?: number;
 
-  /** Bills per location; the Stripe quantity tracks site count. */
+  /** When true, Stripe quantity tracks site count. Multi Site is a flat fee (false). */
   @IsBoolean() @IsOptional() isPerSite?: boolean;
 
   /** Excluded from Checkout; the client routes to an enquiry form. */
