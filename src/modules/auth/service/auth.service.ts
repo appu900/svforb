@@ -111,7 +111,7 @@ export class AuthService {
             lastName: dto.lastName,
             email,
             passwordHash,
-            phoneNumber: dto.mobile,
+            phoneNumber: dto.mobile ?? '',
             platformRole: PlatformRole.ORG_USER,
             emailverifyToken: verifyToken,
             emailVerifyExpiry: verifyExpiery,

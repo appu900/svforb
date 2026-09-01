@@ -142,7 +142,7 @@ export class BillingService {
 
     const quantity = await this.resolveQuantity(org.id, plan.isPerSite);
     const priceData = await this.buildRecurringPriceData(plan, org.region, billingCycle);
-    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
+    const appUrl = this.websiteOrigin();
 
     const metadata = {
       orgId: String(org.id),
@@ -156,8 +156,8 @@ export class BillingService {
       customer: customerId,
       client_reference_id: String(org.id),
       line_items: [{ quantity, price_data: priceData }],
-      success_url: `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${appUrl}/billing/cancelled`,
+      success_url: `${appUrl}/business/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/business/billing/cancelled`,
       allow_promotion_codes: true,
       // Trials start without a card; paid checkout still requires one.
       payment_method_collection: trialDays ? 'if_required' : 'always',
@@ -503,10 +503,10 @@ export class BillingService {
       throw new NotFoundException('No billing account found for your organisation.');
     }
 
-    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
+    const appUrl = this.websiteOrigin();
     const session = await this.stripeService.stripe.billingPortal.sessions.create({
       customer: subscription.stripeCustomerId,
-      return_url: `${appUrl}/billing`,
+      return_url: `${appUrl}/business/plans`,
     });
 
     return { portalUrl: session.url };
@@ -936,5 +936,12 @@ export class BillingService {
     }
 
     return plan;
+  }
+
+  /** Checkout and portal return to the website, not the API host. */
+  private websiteOrigin() {
+    const frontend = this.config.get<string>('FRONTEND_URL')?.trim().replace(/\/$/, '');
+    const app = this.config.get<string>('APP_URL', 'http://localhost:3000').replace(/\/$/, '');
+    return frontend || app;
   }
 }
