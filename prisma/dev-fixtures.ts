@@ -13,10 +13,8 @@ import {
   VenueType,
 } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
+import { createPgPool } from '../src/infra/prisma/create-pg-pool';
 import * as bcrypt from 'bcrypt';
-import * as fs from 'fs';
-import * as path from 'path';
 
 /**
  * Local / Play Store review fixtures.
@@ -44,13 +42,7 @@ const LOCATIONS = {
   },
 } as const;
 
-const caPath = path.join(process.cwd(), 'src/infra/prisma', 'ca.pem');
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: fs.existsSync(caPath)
-    ? { rejectUnauthorized: false, ca: fs.readFileSync(caPath).toString() }
-    : undefined,
-});
+const pool = createPgPool();
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 async function upsertUser(email: string, platformRole: PlatformRole, region?: Region) {
