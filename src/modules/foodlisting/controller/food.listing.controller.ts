@@ -46,8 +46,9 @@ export class FoodListingController {
     @Query('page', new ParseIntPipe({ optional: true })) page = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
     @Query('status') status?: ListingStatus,
+    @Query('fresh') fresh?: string,
   ) {
-    return this.service.getOrgListings(orgId, page, limit, status);
+    return this.service.getOrgListings(orgId, page, limit, status, fresh === "1" || fresh === "true");
   }
 
   @Get('/site')

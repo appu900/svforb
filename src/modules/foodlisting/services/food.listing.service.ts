@@ -202,8 +202,9 @@ export class FoodListingService {
     page = 1,
     limit = DEFAULT_LIMIT,
     status?: ListingStatus,
+    fresh = false,
   ) {
-    const cacheKey = status ? null : await this.cache.getOrgPage(orgId, page);
+    const cacheKey = status || fresh ? null : await this.cache.getOrgPage(orgId, page);
     if (cacheKey) return cacheKey;
 
     const skip = (page - 1) * limit;
@@ -291,7 +292,7 @@ export class FoodListingService {
       totalPages: Math.ceil(total / limit),
     };
 
-    if (!status) await this.cache.setOrgPage(orgId, page, result);
+    if (!status && !fresh) await this.cache.setOrgPage(orgId, page, result);
 
     return result;
   }

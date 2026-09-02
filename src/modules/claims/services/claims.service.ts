@@ -220,6 +220,7 @@ export class ClaimsService {
       this.cache.invalidateListing(dto.listingId),
       this.cache.invalidateRecentPage1(),
       this.cache.invalidateAllNearby(),
+      this.cache.invalidateOrgListings(result.listing.organisationId),
     ]);
 
     this.gateway.pushListingEvents(dto.listingId, {
@@ -564,6 +565,7 @@ export class ClaimsService {
       this.cache.invalidateListing(result.claim.listingId),
       this.cache.invalidateRecentPage1(),
       this.cache.invalidateAllNearby(),
+      this.cache.invalidateOrgListings(result.claim.listing.organisationId),
     ]);
 
     this.gateway.pushListingEvents(result.claim.listingId, {
