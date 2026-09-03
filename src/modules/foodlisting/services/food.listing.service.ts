@@ -262,6 +262,10 @@ export class FoodListingService {
                   id: true,
                   status: true,
                   collectedAt: true,
+                  charityDriverRating: true,
+                  charityDriverRatingNote: true,
+                  restaurantDriverRating: true,
+                  restaurantDriverRatingNote: true,
                   driver: {
                     select: {
                       id: true,

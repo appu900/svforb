@@ -21,7 +21,7 @@ import { NotificationService } from '../../notifications/services/notification.s
 import { ListingGateway } from '../../../gateway/listing.gateway';
 import { DriverLocationService } from '../../drivers/service/driver.location.service';
 import { ClaimsCacheManager } from '../cache/claims.cachemanager';
-import { CreateClaimDto, MarkCollectedDto, ProviderFeedbackDto, RateClaimDto } from '../dto/claims.dto';
+import { CreateClaimDto, MarkCollectedDto, ProviderFeedbackDto, RateClaimDto, RateDriverDto } from '../dto/claims.dto';
 import { resolveCallerSiteId } from '../../foodlisting/utils/resolve-caller-site';
 
 const DEFAULT_LIMIT = 20;
@@ -898,6 +898,118 @@ export class ClaimsService {
     };
   }
 
+  /**
+   * Charity/farmer or food business rates the driver after a completed delivery.
+   * Caller side is inferred from org ownership of the claim / listing.
+   */
+  async rateDriver(caller: Jwtpayload, claimId: number, dto: RateDriverDto) {
+    if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
+
+    const claim = await this.prisma.foodClaim.findUnique({
+      where: { id: claimId },
+      include: {
+        listing: { select: { id: true, organisationId: true } },
+        claimantOrg: { select: { name: true } },
+        driverPickups: {
+          where: { status: DriverPickupStatus.COLLECTED },
+          orderBy: [{ collectedAt: 'desc' }, { createdAt: 'desc' }],
+          take: 1,
+          select: {
+            id: true,
+            driverId: true,
+            charityDriverRating: true,
+            restaurantDriverRating: true,
+            driver: { select: { firstName: true, lastName: true } },
+          },
+        },
+      },
+    });
+
+    if (!claim) throw new NotFoundException('Claim not found');
+
+    const isClaimant = claim.claimantOrgId === caller.orgId;
+    const isProvider = claim.listing.organisationId === caller.orgId;
+    if (!isClaimant && !isProvider) {
+      throw new ForbiddenException('Only the charity or food business can rate this driver');
+    }
+
+    if (claim.status !== ClaimStatus.COLLECTED) {
+      throw new BadRequestException('You can only rate the driver after delivery');
+    }
+
+    const pickup = claim.driverPickups[0];
+    if (!pickup) {
+      throw new BadRequestException('No completed driver delivery found for this claim');
+    }
+
+    if (isClaimant && pickup.charityDriverRating != null) {
+      throw new ConflictException('You have already rated this driver');
+    }
+    if (isProvider && pickup.restaurantDriverRating != null) {
+      throw new ConflictException('You have already rated this driver');
+    }
+
+    const note = dto.ratingNote?.trim() || null;
+    const side = isClaimant ? 'charity' : 'restaurant';
+
+    await this.prisma.driverPickup.update({
+      where: { id: pickup.id },
+      data: isClaimant
+        ? {
+            charityDriverRating: dto.rating,
+            charityDriverRatingNote: note,
+          }
+        : {
+            restaurantDriverRating: dto.rating,
+            restaurantDriverRatingNote: note,
+          },
+    });
+
+    await Promise.all([
+      this.cache.delListingClaims(claim.listingId),
+      this.cache.invalidateMyClaims(claim.claimantOrgId),
+      this.cache.invalidateListing(claim.listingId),
+      this.cache.invalidateOrgListings(claim.listing.organisationId),
+    ]);
+
+    const raterName =
+      (isClaimant
+        ? claim.claimantOrg?.name
+        : (
+            await this.prisma.organisation.findUnique({
+              where: { id: claim.listing.organisationId },
+              select: { name: true },
+            })
+          )?.name) || (isClaimant ? 'Charity' : 'Food business');
+
+    await this.notificationService
+      .send({
+        title: 'New feedback',
+        body: `${raterName} rated you ${dto.rating}/5`,
+        data: {
+          claimId: String(claimId),
+          listingId: String(claim.listingId),
+          pickupId: String(pickup.id),
+          type: 'driver_rated',
+          side,
+          rating: String(dto.rating),
+        },
+        targetUserIds: [String(pickup.driverId)],
+        targetApp: 'driver',
+        priority: 'high',
+        allowEmptyTargets: true,
+      })
+      .catch((err) =>
+        this.logger.warn(`rateDriver notify non-critical error: ${err.message}`),
+      );
+
+    return {
+      message: 'Thanks for rating the driver',
+      rating: dto.rating,
+      side,
+    };
+  }
+
   async getMyClaims(caller: Jwtpayload, page = 1, limit = DEFAULT_LIMIT, status?: ClaimStatus) {
     if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
 
@@ -934,6 +1046,10 @@ export class ClaimsService {
               id: true,
               status: true,
               collectedAt: true,
+              charityDriverRating: true,
+              charityDriverRatingNote: true,
+              restaurantDriverRating: true,
+              restaurantDriverRatingNote: true,
               driver: {
                 select: {
                   id: true,

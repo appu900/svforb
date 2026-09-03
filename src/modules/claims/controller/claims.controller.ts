@@ -16,7 +16,13 @@ import { ClaimStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { ClaimsService } from '../services/claims.service';
-import { CreateClaimDto, MarkCollectedDto, ProviderFeedbackDto, RateClaimDto } from '../dto/claims.dto';
+import {
+  CreateClaimDto,
+  MarkCollectedDto,
+  ProviderFeedbackDto,
+  RateClaimDto,
+  RateDriverDto,
+} from '../dto/claims.dto';
 
 @Controller('claims')
 @UseGuards(JwtAuthGuard)
@@ -100,6 +106,16 @@ export class ClaimsController {
     @Body() dto: ProviderFeedbackDto,
   ) {
     return this.service.submitProviderFeedback(req.user, id, dto);
+  }
+
+  /** Charity/farmer or food business rates the driver after delivery. */
+  @Patch(':id/driver-rating')
+  rateDriver(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RateDriverDto,
+  ) {
+    return this.service.rateDriver(req.user, id, dto);
   }
 
   @Delete(':id')

@@ -434,6 +434,42 @@ export class DriverLocationService {
       return nextPickup;
     });
 
+    if (!claimAlreadyCollected) {
+      // Mirror markCollected: bust charity my-claims cache so Updates shows COLLECTED.
+      await Promise.all([
+        this.redis.del(`claims:listing:${pickup.listingId}`),
+        this.redis.del(`claims:org:v3:${pickup.claim.claimantOrgId}:p1`),
+        this.redis.del(`listing:single:${pickup.listingId}`),
+        this.redis.del(`listing:org:v3:${pickup.claim.listing.organisationId}:p1`),
+        this.redis.deleteByPattern('listing:nearby:*'),
+      ]).catch((err) =>
+        this.logger.warn(`completePickup cache bust non-critical error: ${err.message}`),
+      );
+
+      const charityUserIds = await this.getOrgUserIds(pickup.claim.claimantOrgId);
+      if (charityUserIds.length > 0) {
+        await this.notificationService
+          .send({
+            title: 'Pickup delivered',
+            body: `${totalQtyKg}kg was delivered by your driver. Tap to view Updates.`,
+            data: {
+              claimId: String(pickup.claimId),
+              listingId: String(pickup.listingId),
+              pickupId: String(pickupId),
+              type: 'claim_collected',
+              deepLink: 'updates',
+            },
+            targetUserIds: charityUserIds.map(String),
+            targetApp: 'business',
+            priority: 'high',
+            allowEmptyTargets: true,
+          })
+          .catch((err) =>
+            this.logger.warn(`notifyCharityCollected non-critical error: ${err.message}`),
+          );
+      }
+    }
+
     if (!claimAlreadyCollected && rating !== undefined) {
       const restaurantUserIds = await this.getOrgUserIds(pickup.claim.listing.organisationId);
       if (restaurantUserIds.length > 0) {

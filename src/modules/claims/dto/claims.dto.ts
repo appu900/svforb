@@ -77,3 +77,15 @@ export class ProviderFeedbackDto {
   @IsString()
   ratingNote?: string;
 }
+
+/** Charity/farmer or food business rates the driver after a completed delivery. */
+export class RateDriverDto {
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @IsOptional()
+  @IsString()
+  ratingNote?: string;
+}

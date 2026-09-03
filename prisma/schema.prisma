@@ -805,7 +805,15 @@ model DriverPickup {
 
   photoUrl         String?
   completionNotes  String?
+  /** Driver's rating of the food business at completion. */
   restaurantRating Int?
+
+  /** Charity/farmer rating of the driver after delivery. */
+  charityDriverRating     Int?
+  charityDriverRatingNote String?
+  /** Food business rating of the driver after delivery. */
+  restaurantDriverRating     Int?
+  restaurantDriverRatingNote String?
 
   acceptedAt  DateTime  @default(now())
   arrivedAt   DateTime?
