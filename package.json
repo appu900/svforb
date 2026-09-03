@@ -20,7 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:notifications": "NODE_TLS_REJECT_UNAUTHORIZED=0 jest --config ./test/jest-e2e.json test/notifications-dual-app.e2e-spec.ts --runInBand --forceExit",
     "dev:fixtures": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/dev-fixtures.ts",
-    "backfill:multi-hq-sites": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/backfill-multi-charity-hq-sites.ts"
+    "backfill:multi-hq-sites": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/backfill-multi-charity-hq-sites.ts",
+    "docs:openapi": "nest build && node dist/scripts/generate-openapi.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1025.0",
@@ -33,6 +34,7 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.1.18",
     "@nestjs/platform-socket.io": "^11.1.27",
+    "@nestjs/swagger": "^11.4.7",
     "@nestjs/websockets": "^11.1.27",
     "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.6.0",

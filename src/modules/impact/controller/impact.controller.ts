@@ -9,9 +9,11 @@ import {
   RecipientsQueryDto,
   TopFoodsQueryDto,
 } from '../dto/impact.query.dto';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('impact')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class ImpactController {
   constructor(private readonly service: ImpactService) {}
 

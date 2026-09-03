@@ -18,6 +18,7 @@ import { NotificationProducer } from '../producers/notification.producer';
 import { RegisterTokenDto, UnregisterTokenDto } from '../dto/register-token.dto';
 import { SendNotificationDto } from '../dto/send-notification.dto';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 /** Device-token registration must work before a plan is chosen. */
 @Controller('notifications')
@@ -35,6 +36,7 @@ export class NotificationController {
 
   @Post('token')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
   async registerToken(
     @Body() dto: RegisterTokenDto,
     @Req() req: Request & { user: Jwtpayload },
@@ -44,6 +46,7 @@ export class NotificationController {
 
   @Delete('token')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
   async unregisterToken(
     @Body() dto: UnregisterTokenDto,
     @Req() req: Request & { user: Jwtpayload },
@@ -53,6 +56,7 @@ export class NotificationController {
 
   @Delete('tokens/all')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
   async unregisterAllTokens(
     @Req() req: Request & { user: Jwtpayload },
     @Query('targetApp') targetApp?: 'business' | 'driver',
@@ -62,6 +66,7 @@ export class NotificationController {
 
   @Post('send')
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   async sendNotification(
     @Body() dto: SendNotificationDto,
     @Req() req: Request & { user: Jwtpayload },
@@ -86,24 +91,28 @@ export class NotificationController {
 
   @Post('dispatch/:id')
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   async dispatchNotification(@Param('id', ParseIntPipe) id: number) {
     return this.notificationService.dispatchExisting(id);
   }
 
   @Get('stats')
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   async getStats() {
     return this.notificationService.getStats();
   }
 
   @Get('queue/stats')
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   async getQueueStats() {
     return this.notificationProducer.getQueueStats();
   }
 
   @Post('queue/retry-failed')
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   async retryFailed() {
     const count = await this.notificationProducer.retryAllFailed();
     return { retriedCount: count, message: `Retried ${count} failed jobs` };
@@ -111,6 +120,7 @@ export class NotificationController {
 
   @Post('queue/drain')
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   async drainQueue() {
     await this.notificationProducer.drain();
     return { message: 'Queue drained — all pending jobs removed' };
@@ -118,6 +128,7 @@ export class NotificationController {
 
   @Get()
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   async getNotifications(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -132,6 +143,7 @@ export class NotificationController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   async getNotification(@Param('id', ParseIntPipe) id: number) {
     return this.notificationService.getNotificationById(id);
   }

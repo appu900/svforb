@@ -25,6 +25,7 @@ import {
   UpdateTerritoryDto,
 } from '../dto/enterprise.dto';
 import { EnterpriseStructureService } from '../services/enterprise-structure.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 type Req = Request & { user: Jwtpayload };
 
@@ -40,6 +41,7 @@ type Req = Request & { user: Jwtpayload };
  */
 @Controller('enterprise')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class EnterpriseStructureController {
   constructor(private readonly structure: EnterpriseStructureService) {}
 

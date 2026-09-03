@@ -22,9 +22,11 @@ import {
   UpdateSiteDto,
 } from './dto/sites.dto';
 import { SitesService } from './service/sites.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('sites')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class SitesController {
   constructor(private readonly sitesService: SitesService) {}
 

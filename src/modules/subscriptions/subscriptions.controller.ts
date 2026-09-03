@@ -21,6 +21,7 @@ import {
   CreateSubscriptionPlanDto,
   UpdateSubscriptionPlanDto,
 } from './dto/subscription.dto';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 /**
  * Exempt from the global subscription gate — an organisation with no plan must
@@ -37,6 +38,7 @@ export class SubscriptionsController {
   /** Plans offered to the caller's organisation type. */
   @Get('available')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
   findAvailable(@Req() req: Request & { user: Jwtpayload }) {
     return this.subscriptionsService.findAvailableForCaller(req.user);
   }
@@ -44,12 +46,14 @@ export class SubscriptionsController {
   /** What the caller's organisation is currently allowed to do. */
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
   myEntitlements(@Req() req: Request & { user: Jwtpayload }) {
     return this.access.getEntitlements(req.user);
   }
 
   @Post()
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   create(@Body() dto: CreateSubscriptionPlanDto) {
     return this.subscriptionsService.create(dto);
   }
@@ -66,6 +70,7 @@ export class SubscriptionsController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateSubscriptionPlanDto,
@@ -75,6 +80,7 @@ export class SubscriptionsController {
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
+  @ApiBearerAuth('bearer')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.subscriptionsService.remove(id);
   }

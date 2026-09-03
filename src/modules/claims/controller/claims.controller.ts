@@ -23,9 +23,11 @@ import {
   RateClaimDto,
   RateDriverDto,
 } from '../dto/claims.dto';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('claims')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class ClaimsController {
   constructor(private readonly service: ClaimsService) {}
 

@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { EnterpriseReportingService } from '../services/enterprise-reporting.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 /**
  * Every route takes an optional startDate/endDate; omitted means the last
@@ -11,6 +12,7 @@ import { EnterpriseReportingService } from '../services/enterprise-reporting.ser
  */
 @Controller('enterprise/reports')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class EnterpriseReportingController {
   constructor(private readonly reporting: EnterpriseReportingService) {}
 

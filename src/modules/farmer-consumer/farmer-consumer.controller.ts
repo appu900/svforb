@@ -19,9 +19,11 @@ import {
   UpdateFarmerConsumerMemberDto,
 } from './dto/farmer-consumer.dto';
 import { FarmerConsumerService } from './service/farmer-consumer.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('farmer-consumer')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class FarmerConsumerController {
   constructor(private readonly service: FarmerConsumerService) {}
 

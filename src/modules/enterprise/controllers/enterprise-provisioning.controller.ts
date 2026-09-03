@@ -29,6 +29,7 @@ import { EnterpriseAuditService } from '../services/enterprise-audit.service';
 import { EnterpriseProvisioningService } from '../services/enterprise-provisioning.service';
 import { EnterpriseStructureService } from '../services/enterprise-structure.service';
 import { EnterpriseUserService } from '../services/enterprise-user.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 /**
  * The Saveful administration environment, scoped separately from the
@@ -38,6 +39,7 @@ import { EnterpriseUserService } from '../services/enterprise-user.service';
 @Controller('admin/enterprise')
 @UseGuards(JwtAuthGuard, PlatformAdminGuard)
 @SkipSubscriptionCheck()
+@ApiBearerAuth('bearer')
 export class EnterpriseProvisioningController {
   constructor(
     private readonly provisioning: EnterpriseProvisioningService,

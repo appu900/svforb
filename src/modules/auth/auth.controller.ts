@@ -24,10 +24,11 @@ import {
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from './interface/jwt.interface';
 import { Request } from 'express';
-import { ResendVerficationOtpDto } from './dto/resend-verification';
+import { ResendVerficationOtpDto } from './dto/resend-verification.dto';
 import { RegisterFarmerProducerDto } from './dto/register.farmer.producer.dto';
 import { RegisterFarmerConsumerDto } from './dto/register.farmer.consumer.dto';
 import { SkipSubscriptionCheck } from '../subscriptions/decorators/skip-subscription-check.decorator';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 /** Account management stays reachable regardless of billing state. */
 @Controller('auth')
@@ -88,12 +89,14 @@ export class AuthController {
 
   @Get('profile')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
   getProfile(@Req() req: Request & { user: Jwtpayload }) {
     return this.authService.getProfile(req.user.sub);
   }
 
   @Patch('profile')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
   updateProfile(
     @Req() req: Request & { user: Jwtpayload },
     @Body() dto: UpdateProfileDto,

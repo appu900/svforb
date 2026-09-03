@@ -26,9 +26,11 @@ import {
   RespondToPickupDto,
   UpdatePickupStatusDto,
 } from '../dto/driver.dto';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('drivers')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class DriverController {
   constructor(private readonly driverService: DriverLocationService) {}
 

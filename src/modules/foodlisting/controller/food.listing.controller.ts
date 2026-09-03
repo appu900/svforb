@@ -21,9 +21,11 @@ import { CreateFoodListingDto } from '../dto/food.listing.dto';
 import { FoodListingService } from '../services/food.listing.service';
 import { SiteNotificationService } from '../services/site.notification.service';
 import { ListingStatus } from '@prisma/client';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('food-listings')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class FoodListingController {
   constructor(
     private readonly service: FoodListingService,

@@ -10,6 +10,7 @@ import {
   StartTrialDto,
 } from './dto/billing.dto';
 import { BillingService } from './services/billing.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 /**
  * Exempt from the subscription gate by definition — every route here exists to
@@ -18,6 +19,7 @@ import { BillingService } from './services/billing.service';
 @Controller('billing')
 @UseGuards(JwtAuthGuard)
 @SkipSubscriptionCheck()
+@ApiBearerAuth('bearer')
 export class BillingController {
   constructor(private readonly billing: BillingService) {}
 

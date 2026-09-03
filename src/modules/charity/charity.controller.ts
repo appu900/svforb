@@ -21,9 +21,11 @@ import {
   UpdateCharityMemberDto,
 } from './dto/charity.dto';
 import { CharityService } from './service/charity.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('charity')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class CharityController {
   constructor(private readonly charityService: CharityService) {}
 

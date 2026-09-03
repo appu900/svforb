@@ -11,6 +11,7 @@ import {
   CreateContractDto, GenerateInvoiceDto, MarkInvoicePaidDto, UpdateContractDto,
 } from '../dto/enterprise.dto';
 import { EnterpriseBillingService } from '../services/enterprise-billing.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 /**
  * Contracts and invoices are administered by Saveful, not the customer, so
@@ -20,6 +21,7 @@ import { EnterpriseBillingService } from '../services/enterprise-billing.service
 @Controller('enterprise/admin')
 @UseGuards(JwtAuthGuard, PlatformAdminGuard)
 @SkipSubscriptionCheck()
+@ApiBearerAuth('bearer')
 export class EnterpriseAdminBillingController {
   constructor(private readonly billing: EnterpriseBillingService) {}
 
@@ -88,6 +90,7 @@ export class EnterpriseAdminBillingController {
 @Controller('enterprise/invoices')
 @UseGuards(JwtAuthGuard)
 @SkipSubscriptionCheck()
+@ApiBearerAuth('bearer')
 export class EnterpriseInvoiceController {
   constructor(private readonly billing: EnterpriseBillingService) {}
 

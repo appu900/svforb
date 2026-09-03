@@ -5,6 +5,7 @@ import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import { UpdateEnterpriseProfileDto } from '../dto/enterprise.dto';
 import { EnterpriseProfileService } from '../services/enterprise-profile.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 /**
  * Enterprise Settings → Organisation Profile.
@@ -15,6 +16,7 @@ import { EnterpriseProfileService } from '../services/enterprise-profile.service
 @Controller('enterprise/profile')
 @UseGuards(JwtAuthGuard)
 @SkipSubscriptionCheck()
+@ApiBearerAuth('bearer')
 export class EnterpriseProfileController {
   constructor(private readonly profile: EnterpriseProfileService) {}
 

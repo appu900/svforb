@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../auth/interface/jwt.interface';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { OrganisationService } from "./organization.service";
 import { UpdateLocationDto, UpdateOrganizationDto } from "./dto/update.location.dto";
 
@@ -20,6 +21,7 @@ export class OrganizationController {
 
     @Patch(':orgId')
     @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('bearer')
     @UseInterceptors(FileInterceptor('logo'))
     updateOrganization(
         @Req() req: Request & { user: Jwtpayload },

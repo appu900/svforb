@@ -5,10 +5,12 @@ import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { SkipSubscriptionCheck } from '../subscriptions/decorators/skip-subscription-check.decorator';
 import { Jwtpayload } from '../auth/interface/jwt.interface';
 import { SitesService } from './service/sites.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('admin/sites')
 @UseGuards(JwtAuthGuard, PlatformAdminGuard)
 @SkipSubscriptionCheck()
+@ApiBearerAuth('bearer')
 export class AdminSitesController {
   constructor(private readonly sitesService: SitesService) {}
 

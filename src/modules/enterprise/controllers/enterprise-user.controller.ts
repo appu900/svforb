@@ -9,6 +9,7 @@ import {
   InviteUserDto, SetUserScopesDto, UpdateEnterpriseUserDto, UserListQueryDto,
 } from '../dto/enterprise.dto';
 import { EnterpriseUserService } from '../services/enterprise-user.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 /**
  * Role decides what a user can do; scope decides which slice of the Enterprise
@@ -16,6 +17,7 @@ import { EnterpriseUserService } from '../services/enterprise-user.service';
  */
 @Controller('enterprise/users')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class EnterpriseUserController {
   constructor(private readonly users: EnterpriseUserService) {}
 
@@ -97,6 +99,7 @@ export class EnterpriseUserController {
 @Controller('enterprise/invites')
 @UseGuards(JwtAuthGuard)
 @SkipSubscriptionCheck()
+@ApiBearerAuth('bearer')
 export class EnterpriseInviteController {
   constructor(private readonly users: EnterpriseUserService) {}
 
@@ -130,6 +133,7 @@ export class EnterpriseInviteController {
  */
 @Controller('enterprise/roles')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('bearer')
 export class EnterpriseRolesController {
   constructor(private readonly users: EnterpriseUserService) {}
 

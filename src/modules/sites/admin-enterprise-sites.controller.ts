@@ -17,10 +17,12 @@ import {
   CreateSiteDto,
 } from './dto/sites.dto';
 import { SitesService } from './service/sites.service';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('admin/enterprise')
 @UseGuards(JwtAuthGuard, PlatformAdminGuard)
 @SkipSubscriptionCheck()
+@ApiBearerAuth('bearer')
 export class AdminEnterpriseSitesController {
   constructor(private readonly sitesService: SitesService) {}
 
