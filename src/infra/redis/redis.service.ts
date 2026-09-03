@@ -1,6 +1,22 @@
 import { OnModuleDestroy, Injectable } from '@nestjs/common';
 import Redis, { RedisOptions } from 'ioredis';
 
+/** Explicit REDIS_TLS wins; otherwise TLS for rediss:// or AWS ElastiCache hosts. */
+function redisTlsEnabled(): boolean {
+  const flag = process.env.REDIS_TLS?.toLowerCase();
+  if (flag === 'true') return true;
+  if (flag === 'false') return false;
+
+  const url = process.env.REDIS_URL ?? '';
+  if (url.startsWith('rediss://')) return true;
+
+  const host = process.env.REDIS_HOST ?? '';
+  if (host.includes('.cache.amazonaws.com')) return true;
+  if (host.includes('.serverless.') && host.includes('amazonaws.com')) return true;
+
+  return false;
+}
+
 @Injectable()
 export class RedisService implements OnModuleDestroy {
   async setex(key: string, ttlSeconds: number, value: string): Promise<void> {
@@ -9,28 +25,26 @@ export class RedisService implements OnModuleDestroy {
   private readonly client: Redis;
 
   constructor() {
+    const useTls = redisTlsEnabled();
+
     const options: RedisOptions = {
       maxRetriesPerRequest: 2,
-
       enableReadyCheck: true,
-
+      connectTimeout: 10_000,
       retryStrategy: (attempt) => {
         const delay = Math.min(attempt * 100, 300);
         console.warn(`Redis retry ${attempt}, delay ${delay}ms`);
         return delay;
       },
-
-      ...(process.env.REDIS_TLS === 'true' ? { tls: {} } : {}),
-
+      ...(useTls ? { tls: {} } : {}),
       username: process.env.REDIS_USERNAME,
       password: process.env.REDIS_PASSWORD,
     };
 
     if (process.env.REDIS_URL) {
-      const url =
-        process.env.REDIS_TLS === 'true'
-          ? process.env.REDIS_URL.replace(/^redis:\/\//, 'rediss://')
-          : process.env.REDIS_URL;
+      const url = useTls
+        ? process.env.REDIS_URL.replace(/^redis:\/\//, 'rediss://')
+        : process.env.REDIS_URL;
       this.client = new Redis(url, options);
     } else {
       this.client = new Redis({
@@ -106,7 +120,10 @@ export class RedisService implements OnModuleDestroy {
     await this.set(key, JSON.stringify(value), ttlSeconds);
   }
 
-  /** Delete keys matching a glob pattern via SCAN (avoids blocking KEYS). */
+  /**
+   * Delete keys matching a glob via SCAN.
+   * Deletes one key at a time to avoid CROSSSLOT on ElastiCache serverless / cluster.
+   */
   async deleteByPattern(pattern: string): Promise<number> {
     let cursor = '0';
     let deleted = 0;
@@ -120,7 +137,8 @@ export class RedisService implements OnModuleDestroy {
       );
       cursor = nextCursor;
       if (keys.length) {
-        deleted += await this.client.del(...keys);
+        const results = await Promise.all(keys.map((key) => this.client.del(key)));
+        deleted += results.reduce((sum, n) => sum + n, 0);
       }
     } while (cursor !== '0');
     return deleted;

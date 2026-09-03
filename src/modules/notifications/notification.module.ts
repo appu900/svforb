@@ -23,18 +23,50 @@ import { EmailWorker } from './workers/email.worker';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => {
-        const url = config.get<string>('REDIS_URL');
-        const tls = config.get<string>('REDIS_TLS') === 'true';
+        const redisUrl = config.get<string>('REDIS_URL');
+        const tlsFlag = config.get<string>('REDIS_TLS')?.toLowerCase();
+        const host = config.get<string>('REDIS_HOST', 'localhost');
+        const useTls =
+          tlsFlag === 'true' ||
+          (tlsFlag !== 'false' &&
+            (redisUrl?.startsWith('rediss://') ||
+              host.includes('.cache.amazonaws.com') ||
+              (host.includes('.serverless.') &&
+                host.includes('amazonaws.com'))));
+
+        // `{bull}` hash-tag prefix keeps BullMQ keys same-slot on ElastiCache serverless/cluster
+        if (redisUrl) {
+          const url = new URL(
+            useTls
+              ? redisUrl.replace(/^redis:\/\//, 'rediss://')
+              : redisUrl,
+          );
+          return {
+            prefix: '{bull}',
+            connection: {
+              host: url.hostname,
+              port: Number(url.port) || 6379,
+              username: url.username || config.get('REDIS_USERNAME'),
+              password: url.password || config.get('REDIS_PASSWORD'),
+              ...(useTls ? { tls: {} } : {}),
+              maxRetriesPerRequest: null,
+              enableReadyCheck: false,
+            },
+          };
+        }
+
         return {
-          connection: url
-            ? { url, ...(tls ? { tls: {} } : {}) }
-            : {
-                host: config.get<string>('REDIS_HOST', 'localhost'),
-                port: config.get<number>('REDIS_PORT', 6379),
-                password: config.get<string>('REDIS_PASSWORD'),
-                username: config.get<string>('REDIS_USERNAME'),
-                ...(tls ? { tls: {} } : {}),
-              },
+          prefix: '{bull}',
+          connection: {
+            host,
+            port: config.get<number>('REDIS_PORT', 6379),
+            db: config.get<number>('REDIS_DB', 0),
+            username: config.get<string>('REDIS_USERNAME'),
+            password: config.get<string>('REDIS_PASSWORD'),
+            ...(useTls ? { tls: {} } : {}),
+            maxRetriesPerRequest: null,
+            enableReadyCheck: false,
+          },
         };
       },
       inject: [ConfigService],
