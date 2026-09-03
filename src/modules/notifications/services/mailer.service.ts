@@ -68,12 +68,18 @@ export class MailerService {
   }
 
   async sendMail(options: Mail.Options): Promise<void> {
-    await this.transporter.sendMail({
-      from: this.from,
-      ...options,
-      attachments: [...this.logoAttachments(), ...(options.attachments ?? [])],
-    });
-    this.logger.log(`Email sent to ${String(options.to)}`);
+    try {
+      await this.transporter.sendMail({
+        from: this.from,
+        ...options,
+        attachments: [...this.logoAttachments(), ...(options.attachments ?? [])],
+      });
+      this.logger.log(`Email sent to ${String(options.to)}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to send email to ${String(options.to)}: ${message}`);
+      throw error;
+    }
   }
 
   async sendOtp(to: string, otp: string, name?: string): Promise<void> {

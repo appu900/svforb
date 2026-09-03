@@ -1,21 +1,6 @@
 import { OnModuleDestroy, Injectable } from '@nestjs/common';
 import Redis, { RedisOptions } from 'ioredis';
-
-/** Explicit REDIS_TLS wins; otherwise TLS for rediss:// or AWS ElastiCache hosts. */
-function redisTlsEnabled(): boolean {
-  const flag = process.env.REDIS_TLS?.toLowerCase();
-  if (flag === 'true') return true;
-  if (flag === 'false') return false;
-
-  const url = process.env.REDIS_URL ?? '';
-  if (url.startsWith('rediss://')) return true;
-
-  const host = process.env.REDIS_HOST ?? '';
-  if (host.includes('.cache.amazonaws.com')) return true;
-  if (host.includes('.serverless.') && host.includes('amazonaws.com')) return true;
-
-  return false;
-}
+import { redisTlsEnabled } from './redis-tls';
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {

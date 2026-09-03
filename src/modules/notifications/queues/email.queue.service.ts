@@ -10,6 +10,7 @@ import {
   SendStaffInvitePayload,
   SendWelcomePayload,
 } from '../types/email.types';
+import { MailerService } from '../services/mailer.service';
 
 const JOB_OPTIONS = {
   attempts: 3,
@@ -20,10 +21,14 @@ const JOB_OPTIONS = {
 
 @Injectable()
 export class EmailQueueService {
-  constructor(@InjectQueue(EMAIL_QUEUE) private readonly queue: Queue) {}
+  constructor(
+    @InjectQueue(EMAIL_QUEUE) private readonly queue: Queue,
+    private readonly mailer: MailerService,
+  ) {}
 
+  /** OTP is time-critical — send now, do not wait for the BullMQ worker. */
   async sendOtp(payload: SendOtpPayload): Promise<void> {
-    await this.queue.add(EmailJobName.SEND_OTP, payload, JOB_OPTIONS);
+    await this.mailer.sendOtp(payload.to, payload.otp, payload.name);
   }
 
   async sendWelcome(payload: SendWelcomePayload): Promise<void> {
@@ -31,10 +36,10 @@ export class EmailQueueService {
   }
 
   async sendPasswordReset(payload: SendPasswordResetPayload): Promise<void> {
-    await this.queue.add(
-      EmailJobName.SEND_PASSWORD_RESET,
-      payload,
-      JOB_OPTIONS,
+    await this.mailer.sendPasswordReset(
+      payload.to,
+      payload.resetToken,
+      payload.name,
     );
   }
 

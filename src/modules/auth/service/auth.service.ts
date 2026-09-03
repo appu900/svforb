@@ -178,19 +178,24 @@ export class AuthService {
     }
 
     await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
-    await Promise.all([
-      this.geoSearch.indexBusiness(
+    try {
+      await this.geoSearch.indexBusiness(
         result.org.id,
         dto.latitude,
         dto.longitude,
         dto.region,
-      ),
-      this.emailService.sendOtp({
-        to: email,
-        otp: otp.toString(),
-        name: dto.firstName,
-      }),
-    ]);
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to index business geo for org=${result.org.id}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+    await this.emailService.sendOtp({
+      to: email,
+      otp: otp.toString(),
+      name: dto.firstName,
+    });
     return {
       message: 'Account created, check your inbox to verify your email',
     };
@@ -442,25 +447,32 @@ export class AuthService {
     });
 
     await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
-    await Promise.all([
-      this.geoSearch.indexFarmerConsumer(
-        result.org.id,
-        dto.latitude,
-        dto.longitude,
-        dto.region,
-      ),
-      this.geoSearch.indexFarmerConsumerSite(
-        result.site.id,
-        dto.latitude,
-        dto.longitude,
-        dto.region,
-      ),
-      this.emailService.sendOtp({
-        to: email,
-        otp: otp.toString(),
-        name: dto.firstName,
-      }),
-    ]);
+    try {
+      await Promise.all([
+        this.geoSearch.indexFarmerConsumer(
+          result.org.id,
+          dto.latitude,
+          dto.longitude,
+          dto.region,
+        ),
+        this.geoSearch.indexFarmerConsumerSite(
+          result.site.id,
+          dto.latitude,
+          dto.longitude,
+          dto.region,
+        ),
+      ]);
+    } catch (error) {
+      this.logger.error(
+        `Failed to index farmer-consumer geo for org=${result.org.id}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+    await this.emailService.sendOtp({
+      to: email,
+      otp: otp.toString(),
+      name: dto.firstName,
+    });
     return {
       message: 'Account created, check your inbox to verify your email',
     };
@@ -545,19 +557,24 @@ export class AuthService {
     });
 
     await this.authCacheManaher.storeEmailVerificationOtp(email, otp);
-    await Promise.all([
-      this.geoSearch.indexBusiness(
+    try {
+      await this.geoSearch.indexBusiness(
         result.org.id,
         dto.latitude,
         dto.longitude,
         dto.region,
-      ),
-      this.emailService.sendOtp({
-        to: email,
-        otp: otp.toString(),
-        name: dto.firstName,
-      }),
-    ]);
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to index farmer-producer geo for org=${result.org.id}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+    await this.emailService.sendOtp({
+      to: email,
+      otp: otp.toString(),
+      name: dto.firstName,
+    });
     return {
       message: 'Account created, check your inbox to verify your email',
     };
