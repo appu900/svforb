@@ -141,8 +141,8 @@ export class MailerService {
     siteName: string,
     _role: string,
   ): Promise<void> {
-    const appStoreUrl = 'https://apps.apple.com/us/app/saveful/id6460647948';
-    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.saveful.app';
+    const appStoreUrl = 'https://apps.apple.com/in/app/saveful-for-business/id6805761562';
+    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.saveful.business.app';
     const businessUrl = 'https://www.saveful.com/business';
 
     await this.sendMail({
@@ -258,9 +258,10 @@ export class MailerService {
     const subjectTarget = isSiteInvite ? siteName! : enterpriseName;
     const contextLabel = isSiteInvite ? 'Site' : 'Enterprise';
     const contextValue = isSiteInvite ? siteName! : enterpriseName;
-    const cta = isSiteInvite
-      ? 'Activate your account using your mobile only'
-      : 'Activate your account';
+    const cta = 'Activate your account';
+    const appNote = isSiteInvite
+      ? 'After you activate, sign in on the web to open your site. Download the Saveful app to list surplus and manage collections on site.'
+      : '';
 
     await this.sendMail({
       to,
@@ -271,6 +272,7 @@ export class MailerService {
         `${contextLabel}: ${contextValue}\n` +
         `Your role: ${role}\n\n` +
         `${cta}:\n${activationUrl}\n\n` +
+        (appNote ? `${appNote}\n\n` : '') +
         `This link expires in ${expiresInHours} hours. If it expires, ask your ` +
         `administrator to send a new invitation.\n\n` +
         `If you did not expect this invitation, you can safely ignore this email.`,
@@ -303,6 +305,11 @@ export class MailerService {
           </table>
 
           <p>Set your own password to activate your account:</p>
+          ${
+            isSiteInvite
+              ? `<p style="font-size:14px;color:#444;">After you activate, sign in on the web to open your site. Download the Saveful app to list surplus and manage collections on site.</p>`
+              : ''
+          }
           <div style="text-align:center;margin:28px 0;">
             <a href="${activationUrl}"
                style="background:#1f5c43;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;display:inline-block;">

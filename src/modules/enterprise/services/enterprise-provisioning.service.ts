@@ -406,7 +406,7 @@ export class EnterpriseProvisioningService {
       ]),
     );
 
-    const [memberships, invitations] = await Promise.all([
+    const [memberships, invitations, siteAccesses] = await Promise.all([
       this.prisma.orgMemeberShip.findMany({
         where: { organisationId: { in: orgIds } },
         orderBy: [{ organisationId: 'asc' }, { joinedAt: 'asc' }],
@@ -429,7 +429,18 @@ export class EnterpriseProvisioningService {
         where: { organisationId: { in: orgIds }, status: 'PENDING' },
         orderBy: { sentAt: 'desc' },
       }),
+      this.prisma.siteAccess.findMany({
+        where: { organisationId: { in: orgIds }, siteRole: 'SITE_ADMIN' },
+        select: { userId: true, siteId: true },
+      }),
     ]);
+
+    const sitesByUser = new Map<number, number[]>();
+    for (const row of siteAccesses) {
+      const list = sitesByUser.get(row.userId) ?? [];
+      list.push(row.siteId);
+      sitesByUser.set(row.userId, list);
+    }
 
     return {
       users: memberships.map((membership) => {
@@ -439,6 +450,7 @@ export class EnterpriseProvisioningService {
           organisationId: membership.organisationId,
           organisationName: meta?.name ?? '',
           enterpriseId: meta?.enterpriseId ?? null,
+          siteIds: sitesByUser.get(membership.user.id) ?? [],
         };
       }),
       invitations: invitations.map((row) => {

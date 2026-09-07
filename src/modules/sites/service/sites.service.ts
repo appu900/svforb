@@ -68,6 +68,14 @@ export class SitesService {
           groupSite: { include: { group: { select: { id: true, name: true } } } },
           clusterSite: { include: { cluster: { select: { id: true, name: true } } } },
           territorySite: { include: { territory: { select: { id: true, name: true } } } },
+          siteAccesses: {
+            where: { siteRole: 'SITE_ADMIN' },
+            include: {
+              user: {
+                select: { id: true, firstName: true, lastName: true, email: true, phoneNumber: true },
+              },
+            },
+          },
         },
       }),
       this.prisma.organisation.findMany({
@@ -101,6 +109,10 @@ export class SitesService {
         clusterName: site.clusterSite?.cluster.name ?? null,
         territoryId: site.territorySite?.territory.id ?? null,
         territoryName: site.territorySite?.territory.name ?? null,
+        managers: (site.siteAccesses ?? []).map((access) => ({
+          userId: access.userId,
+          user: access.user,
+        })),
       })),
     };
   }
