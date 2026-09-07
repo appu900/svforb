@@ -336,6 +336,73 @@ export class MailerService {
     });
   }
 
+  /**
+   * Sent when an existing member is given Site Admin on another site.
+   * They already have a password, so this is a notification — not an activation.
+   */
+  async sendSiteAdminAssigned(payload: {
+    to: string;
+    name: string;
+    siteName: string;
+    enterpriseName: string;
+    signInUrl?: string;
+    invitedByName?: string;
+  }): Promise<void> {
+    const frontendUrl = (
+      this.config.get<string>('FRONTEND_URL') ||
+      this.config.get<string>('APP_URL', 'http://localhost:3000')
+    ).replace(/\/$/, '');
+    const signInUrl = payload.signInUrl ?? `${frontendUrl}/login?portal=enterprise`;
+    const { to, name, siteName, enterpriseName, invitedByName } = payload;
+    const possessive = /s$/i.test(enterpriseName.trim())
+      ? `${enterpriseName}'`
+      : `${enterpriseName}'s`;
+    const intro = invitedByName
+      ? `${invitedByName} of ${possessive} Enterprise Account has added you as Site Admin for ${siteName}.`
+      : `You have been added as Site Admin for ${siteName} on ${possessive} Enterprise Account.`;
+    const appStoreUrl = 'https://apps.apple.com/in/app/saveful-for-business/id6805761562';
+    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.saveful.business.app';
+
+    await this.sendMail({
+      to,
+      subject: `You have been added to ${siteName} on Saveful for Business`,
+      text:
+        `Hello ${name},\n\n` +
+        `${intro}\n\n` +
+        `Sign in online with your existing credentials:\n${signInUrl}\n\n` +
+        `You can also download the Saveful for Business app to list surplus and add other team members. ` +
+        `Activity in the app is registered in the online portal and vice-versa.\n\n` +
+        `App Store: ${appStoreUrl}\n` +
+        `Google Play: ${playStoreUrl}\n`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+          ${this.logoMarkup(180)}
+          <h2 style="color:#1a1a1a;margin-bottom:8px;">You&rsquo;ve been added to ${siteName}</h2>
+          <p>Hello <strong>${name}</strong>,</p>
+          <p>${intro}</p>
+          <p>Sign in online with your existing credentials. You can continue to operate Saveful for Business via the portal.</p>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="${signInUrl}"
+               style="background:#1f5c43;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;display:inline-block;">
+              Sign in
+            </a>
+          </div>
+          <p style="font-size:14px;color:#444;">
+            You can also download the Saveful for Business app to list surplus and add other team members.
+            Any activity via the app will be registered through the online portal and vice-versa.
+          </p>
+          <p style="font-size:13px;color:#666;">
+            <a href="${appStoreUrl}">App Store</a>
+            &nbsp;&middot;&nbsp;
+            <a href="${playStoreUrl}">Google Play</a>
+          </p>
+          <hr style="margin:24px 0;border:none;border-top:1px solid #eee;" />
+          <p style="font-size:12px;color:#999;">Saveful for Business</p>
+        </div>
+      `,
+    });
+  }
+
   async sendPasswordReset(
     to: string,
     otp: string,

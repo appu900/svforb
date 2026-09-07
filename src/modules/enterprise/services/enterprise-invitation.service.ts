@@ -102,17 +102,59 @@ export class EnterpriseInvitationService {
     const { token, tokenHash } = this.mintToken();
     const expiresAt = new Date(Date.now() + INVITATION_TTL_HOURS * 3600_000);
 
-    const invitation = await this.prisma.$transaction(async (tx) => {
-      await tx.enterpriseInvitation.updateMany({
-        where: {
-          organisationId: input.organisationId,
-          email,
-          status: InvitationStatus.PENDING,
-        },
-        data: { status: InvitationStatus.REVOKED, revokedAt: new Date() },
+    const pending = await this.prisma.enterpriseInvitation.findFirst({
+      where: {
+        organisationId: input.organisationId,
+        email,
+        status: InvitationStatus.PENDING,
+      },
+      include: {
+        scopes: { select: { scopeType: true, scopeId: true } },
+        organisation: { select: { name: true } },
+      },
+    });
+
+    let invitationId: number;
+    let organisationName: string;
+
+    if (pending) {
+      const existingKeys = new Set(
+        pending.scopes.map((scope) => `${scope.scopeType}:${scope.scopeId ?? ''}`),
+      );
+      const extraScopes = input.scopes.filter(
+        (scope) => !existingKeys.has(`${scope.scopeType}:${scope.scopeId ?? ''}`),
+      );
+
+      await this.prisma.$transaction(async (tx) => {
+        if (extraScopes.length) {
+          await tx.enterpriseInvitationScope.createMany({
+            data: extraScopes.map((scope) => ({
+              invitationId: pending.id,
+              scopeType: scope.scopeType,
+              scopeId: scope.scopeId,
+            })),
+          });
+        }
+
+        await tx.enterpriseInvitation.update({
+          where: { id: pending.id },
+          data: {
+            firstName: input.firstName,
+            lastName: input.lastName,
+            mobile: input.mobile ?? pending.mobile,
+            enterpriseRole: input.role,
+            siteAdminForSiteId: input.siteAdminForSiteId ?? pending.siteAdminForSiteId,
+            tokenHash,
+            expiresAt,
+            sentAt: new Date(),
+          },
+        });
       });
 
-      return tx.enterpriseInvitation.create({
+      invitationId = pending.id;
+      organisationName = pending.organisation.name;
+    } else {
+      const invitation = await this.prisma.enterpriseInvitation.create({
         data: {
           organisationId: input.organisationId,
           email,
@@ -133,13 +175,40 @@ export class EnterpriseInvitationService {
         },
         include: { organisation: { select: { name: true } } },
       });
-    });
+      invitationId = invitation.id;
+      organisationName = invitation.organisation.name;
+    }
 
-    await this.sendInviteEmail(invitation.id, token, {
+    if (input.siteAdminForSiteId) {
+      const site = await this.prisma.site.findFirst({
+        where: { id: input.siteAdminForSiteId, organisationId: input.organisationId },
+        select: { id: true, contactName: true, contactEmail: true, contactMobile: true },
+      });
+      if (site) {
+        const missingName = !site.contactName?.trim() || site.contactName === 'not provided';
+        const missingEmail = !site.contactEmail?.trim() || site.contactEmail === 'not provided';
+        if (missingName || missingEmail) {
+          await this.prisma.site.update({
+            where: { id: site.id },
+            data: {
+              ...(missingName
+                ? { contactName: `${input.firstName} ${input.lastName}`.trim() }
+                : {}),
+              ...(missingEmail ? { contactEmail: email } : {}),
+              ...(!site.contactMobile?.trim() && input.mobile
+                ? { contactMobile: input.mobile }
+                : {}),
+            },
+          });
+        }
+      }
+    }
+
+    await this.sendInviteEmail(invitationId, token, {
       email,
       firstName: input.firstName,
       role: input.role,
-      organisationName: invitation.organisation.name,
+      organisationName,
       expiresAt,
     });
 
@@ -149,7 +218,7 @@ export class EnterpriseInvitationService {
         area: AuditArea.USERS,
         action: 'user.invited',
         entityType: 'EnterpriseInvitation',
-        entityId: invitation.id,
+        entityId: invitationId,
         entityLabel: email,
         newValue: { role: input.role, scopes: input.scopes.length },
         summary: `${input.firstName} ${input.lastName} invited as ${this.roleLabel(input.role)}`,
@@ -157,10 +226,10 @@ export class EnterpriseInvitationService {
     }
 
     this.logger.log(
-      `invitation issued: id=${invitation.id} org=${input.organisationId} role=${input.role}`,
+      `invitation issued: id=${invitationId} org=${input.organisationId} role=${input.role}`,
     );
 
-    return { invitationId: invitation.id, email, expiresAt };
+    return { invitationId, email, expiresAt };
   }
 
   /** Reissues the link for a pending invitation, invalidating the previous one. */
@@ -384,18 +453,25 @@ export class EnterpriseInvitationService {
         });
       }
 
-      // An invitation raised from Add Site also grants operational access.
-      if (invitation.siteAdminForSiteId) {
+      // Add Site invitations grant operational access for every site on the invite.
+      const siteIds = new Set<number>();
+      if (invitation.siteAdminForSiteId) siteIds.add(invitation.siteAdminForSiteId);
+      for (const scope of invitation.scopes) {
+        if (scope.scopeType === ScopeType.SITE && scope.scopeId != null) {
+          siteIds.add(scope.scopeId);
+        }
+      }
+      for (const siteId of siteIds) {
         await tx.siteAccess.upsert({
           where: {
             userId_siteId: {
               userId: account.id,
-              siteId: invitation.siteAdminForSiteId,
+              siteId,
             },
           },
           create: {
             userId: account.id,
-            siteId: invitation.siteAdminForSiteId,
+            siteId,
             organisationId: invitation.organisationId,
             siteRole: SiteRole.SITE_ADMIN,
             grantedBy: invitation.invitedBy,
@@ -540,22 +616,16 @@ export class EnterpriseInvitationService {
       ? await this.resolveSiteName(invitation)
       : undefined;
 
-    await this.email
-      .sendEnterpriseInvite({
-        to: meta.email,
-        name: meta.firstName,
-        enterpriseName: meta.organisationName,
-        role: this.roleLabel(meta.role),
-        activationUrl: link,
-        expiresInHours: INVITATION_TTL_HOURS,
-        invitedByName: invitedByName || undefined,
-        siteName,
-      })
-      .catch((err) =>
-        this.logger.warn(
-          `invitation email failed (id=${invitationId}): ${(err as Error).message}`,
-        ),
-      );
+    await this.email.sendEnterpriseInvite({
+      to: meta.email,
+      name: meta.firstName,
+      enterpriseName: meta.organisationName,
+      role: this.roleLabel(meta.role),
+      activationUrl: link,
+      expiresInHours: INVITATION_TTL_HOURS,
+      invitedByName: invitedByName || undefined,
+      siteName,
+    });
   }
 
   private personName(

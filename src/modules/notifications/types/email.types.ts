@@ -45,3 +45,12 @@ export interface SendEnterpriseInvitePayload {
   invitedByName?: string;
   siteName?: string;
 }
+
+export interface SendSiteAdminAssignedPayload {
+  to: string;
+  name: string;
+  siteName: string;
+  enterpriseName: string;
+  signInUrl?: string;
+  invitedByName?: string;
+}

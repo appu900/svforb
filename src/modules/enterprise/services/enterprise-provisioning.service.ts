@@ -428,6 +428,7 @@ export class EnterpriseProvisioningService {
       this.prisma.enterpriseInvitation.findMany({
         where: { organisationId: { in: orgIds }, status: 'PENDING' },
         orderBy: { sentAt: 'desc' },
+        include: { scopes: { select: { scopeType: true, scopeId: true } } },
       }),
       this.prisma.siteAccess.findMany({
         where: { organisationId: { in: orgIds }, siteRole: 'SITE_ADMIN' },
@@ -455,6 +456,16 @@ export class EnterpriseProvisioningService {
       }),
       invitations: invitations.map((row) => {
         const meta = orgMeta.get(row.organisationId);
+        const siteIds = [
+          ...new Set(
+            [
+              row.siteAdminForSiteId,
+              ...row.scopes
+                .filter((scope) => scope.scopeType === 'SITE' && scope.scopeId != null)
+                .map((scope) => scope.scopeId),
+            ].filter((id): id is number => id != null),
+          ),
+        ];
         return {
           id: row.id,
           organisationId: row.organisationId,
@@ -468,6 +479,12 @@ export class EnterpriseProvisioningService {
           status: 'INVITED' as const,
           invitationSentAt: row.sentAt,
           expiresAt: row.expiresAt,
+          siteAdminForSiteId: row.siteAdminForSiteId,
+          scopes: row.scopes.map((scope) => ({
+            scopeType: scope.scopeType,
+            scopeId: scope.scopeId,
+          })),
+          siteIds,
         };
       }),
     };

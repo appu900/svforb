@@ -60,7 +60,7 @@ export class SitesService {
     const orgIds = enterprises.map((row) => row.organisationId);
     if (!orgIds.length) return { sites: [] };
 
-    const [sites, organisations] = await Promise.all([
+    const [sites, organisations, pendingInvites] = await Promise.all([
       this.prisma.site.findMany({
         where: { organisationId: { in: orgIds } },
         orderBy: [{ organisationId: 'asc' }, { createdAt: 'desc' }],
@@ -82,6 +82,10 @@ export class SitesService {
         where: { id: { in: orgIds } },
         select: { id: true, name: true },
       }),
+      this.prisma.enterpriseInvitation.findMany({
+        where: { organisationId: { in: orgIds }, status: 'PENDING' },
+        include: { scopes: { select: { scopeType: true, scopeId: true } } },
+      }),
     ]);
     if (!sites.length) return { sites: [] };
 
@@ -89,31 +93,63 @@ export class SitesService {
     const enterpriseIdByOrg = new Map(
       enterprises.map((row) => [row.organisationId, row.enterpriseId]),
     );
+    const blank = (value?: string | null) =>
+      !value || value === 'not provided' ? '' : value;
+    const pendingBySite = new Map<number, typeof pendingInvites>();
+    for (const invite of pendingInvites) {
+      const siteIds = new Set<number>();
+      if (invite.siteAdminForSiteId) siteIds.add(invite.siteAdminForSiteId);
+      for (const scope of invite.scopes) {
+        if (scope.scopeType === ScopeType.SITE && scope.scopeId != null) {
+          siteIds.add(scope.scopeId);
+        }
+      }
+      for (const siteId of siteIds) {
+        const list = pendingBySite.get(siteId) ?? [];
+        list.push(invite);
+        pendingBySite.set(siteId, list);
+      }
+    }
 
     return {
-      sites: sites.map((site) => ({
-        id: site.id,
-        organisationId: site.organisationId,
-        organisationName: orgNameById.get(site.organisationId) ?? site.organisationName,
-        enterpriseId: enterpriseIdByOrg.get(site.organisationId) ?? null,
-        siteName: site.name || site.organisationName,
-        siteCode: site.siteCode || this.autoSiteCode(site.id),
-        address: site.address,
-        isActive: site.isActive,
-        createdAt: site.createdAt,
-        activatedAt: site.activatedAt,
-        lastActivityAt: site.lastActivityAt,
-        groupId: site.groupSite?.group.id ?? null,
-        groupName: site.groupSite?.group.name ?? null,
-        clusterId: site.clusterSite?.cluster.id ?? null,
-        clusterName: site.clusterSite?.cluster.name ?? null,
-        territoryId: site.territorySite?.territory.id ?? null,
-        territoryName: site.territorySite?.territory.name ?? null,
-        managers: (site.siteAccesses ?? []).map((access) => ({
+      sites: sites.map((site) => {
+        const accepted = (site.siteAccesses ?? []).map((access) => ({
           userId: access.userId,
           user: access.user,
-        })),
-      })),
+        }));
+        const pending = (pendingBySite.get(site.id) ?? []).map((invite) => ({
+          userId: null as number | null,
+          user: {
+            firstName: invite.firstName,
+            lastName: invite.lastName,
+            email: invite.email,
+            phoneNumber: invite.mobile,
+          },
+        }));
+        return {
+          id: site.id,
+          organisationId: site.organisationId,
+          organisationName: orgNameById.get(site.organisationId) ?? site.organisationName,
+          enterpriseId: enterpriseIdByOrg.get(site.organisationId) ?? null,
+          siteName: site.name || site.organisationName,
+          siteCode: site.siteCode || this.autoSiteCode(site.id),
+          address: site.address,
+          contactName: blank(site.contactName),
+          contactEmail: blank(site.contactEmail),
+          phoneNumber: blank(site.contactMobile),
+          isActive: site.isActive,
+          createdAt: site.createdAt,
+          activatedAt: site.activatedAt,
+          lastActivityAt: site.lastActivityAt,
+          groupId: site.groupSite?.group.id ?? null,
+          groupName: site.groupSite?.group.name ?? null,
+          clusterId: site.clusterSite?.cluster.id ?? null,
+          clusterName: site.clusterSite?.cluster.name ?? null,
+          territoryId: site.territorySite?.territory.id ?? null,
+          territoryName: site.territorySite?.territory.name ?? null,
+          managers: accepted.length ? accepted : pending,
+        };
+      }),
     };
   }
 
@@ -463,6 +499,14 @@ export class SitesService {
         siteName: site.organisationName,
         role: 'Site Manager',
       });
+    } else {
+      await this.notifySiteAdminAssigned({
+        to: dto.email,
+        name: dto.firstName,
+        siteName: site.name?.trim() || site.organisationName,
+        organisationId: caller.orgId!,
+        invitedById: caller.sub,
+      });
     }
 
     const updateSitedata = await this.prisma.site.update({
@@ -598,6 +642,14 @@ export class SitesService {
     this.logger.log(
       `Existing site admin assigned: userId=${dto.userId} siteId=${siteId} by=${caller.sub}`,
     );
+
+    await this.notifySiteAdminAssigned({
+      to: membership.user.email,
+      name: membership.user.firstName,
+      siteName: site.name?.trim() || site.organisationName,
+      organisationId: caller.orgId!,
+      invitedById: caller.sub,
+    });
 
     return {
       message: 'Existing user assigned as Site Admin.',
@@ -1144,6 +1196,42 @@ export class SitesService {
     });
     if (!site) throw new NotFoundException('Site not found in your organisation');
     return site;
+  }
+
+  private async notifySiteAdminAssigned(input: {
+    to: string;
+    name: string;
+    siteName: string;
+    organisationId: number;
+    invitedById: number;
+  }) {
+    const [org, inviter] = await Promise.all([
+      this.prisma.organisation.findUnique({
+        where: { id: input.organisationId },
+        select: { name: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: input.invitedById },
+        select: { firstName: true, lastName: true },
+      }),
+    ]);
+    const invitedByName = `${inviter?.firstName ?? ''} ${inviter?.lastName ?? ''}`
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    try {
+      await this.emailService.sendSiteAdminAssigned({
+        to: input.to,
+        name: input.name,
+        siteName: input.siteName,
+        enterpriseName: org?.name ?? 'your organisation',
+        invitedByName: invitedByName || undefined,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `site admin assigned email failed (${input.to}): ${(err as Error).message}`,
+      );
+    }
   }
 
 }

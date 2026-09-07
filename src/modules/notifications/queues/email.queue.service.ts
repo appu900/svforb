@@ -7,6 +7,7 @@ import {
   SendOtpPayload,
   SendPasswordResetPayload,
   SendEnterpriseInvitePayload,
+  SendSiteAdminAssignedPayload,
   SendStaffInvitePayload,
   SendWelcomePayload,
 } from '../types/email.types';
@@ -47,13 +48,16 @@ export class EmailQueueService {
     await this.queue.add(EmailJobName.SEND_STAFF_INVITE, payload, JOB_OPTIONS);
   }
 
+  /** Invites are time-critical — send now so a Redis worker delay cannot drop them. */
   async sendEnterpriseInvite(
     payload: SendEnterpriseInvitePayload,
   ): Promise<void> {
-    await this.queue.add(
-      EmailJobName.SEND_ENTERPRISE_INVITE,
-      payload,
-      JOB_OPTIONS,
-    );
+    await this.mailer.sendEnterpriseInvite(payload);
+  }
+
+  async sendSiteAdminAssigned(
+    payload: SendSiteAdminAssignedPayload,
+  ): Promise<void> {
+    await this.mailer.sendSiteAdminAssigned(payload);
   }
 }
