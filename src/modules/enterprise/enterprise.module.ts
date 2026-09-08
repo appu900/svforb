@@ -17,6 +17,7 @@ import {
   EnterpriseInvoiceController,
 } from './controllers/enterprise-billing.controller';
 import { EnterpriseReportingController } from './controllers/enterprise-reporting.controller';
+import { AdminEnterpriseStructureController } from './controllers/admin-enterprise-structure.controller';
 import { EnterpriseStructureController } from './controllers/enterprise-structure.controller';
 import { EnterpriseActivationController } from './controllers/enterprise-activation.controller';
 import { EnterpriseProfileController } from './controllers/enterprise-profile.controller';
@@ -33,6 +34,7 @@ import { EnterpriseWorker } from './workers/enterprise.worker';
   imports: [AuthModule, SitesModule, BullModule.registerQueue({ name: ENTERPRISE_QUEUE })],
   controllers: [
     EnterpriseStructureController,
+    AdminEnterpriseStructureController,
     EnterpriseReportingController,
     EnterpriseAdminBillingController,
     EnterpriseInvoiceController,

@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
-import { EnterpriseRole, ScopeType as PrismaScopeType } from '@prisma/client';
+import { EnterpriseRole, PlatformRole, ScopeType as PrismaScopeType } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { ENTERPRISE_ERROR, ENTERPRISE_PLAN_NAME, ScopeType } from '../enterprise.constants';
@@ -299,6 +299,24 @@ export class EnterpriseScopeService {
       });
     }
     return orgId;
+  }
+
+  /** Platform Admin acting on a chosen Enterprise, not their own organisation. */
+  async assertPlatformAdminEnterprise(
+    caller: Jwtpayload,
+    organisationId: number,
+  ): Promise<number> {
+    if (caller.platformRole !== PlatformRole.PLATFORM_ADMIN) {
+      throw new ForbiddenException('Platform admin access required');
+    }
+    if (!(await this.isEnterprise(organisationId))) {
+      throw new ForbiddenException({
+        error: ENTERPRISE_ERROR.NOT_ENTERPRISE,
+        message:
+          'Enterprise features require the Enterprise plan. Contact Saveful to arrange one.',
+      });
+    }
+    return organisationId;
   }
 
   /**

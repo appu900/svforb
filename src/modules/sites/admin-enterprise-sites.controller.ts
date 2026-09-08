@@ -3,6 +3,7 @@ import {
   Controller,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -15,6 +16,7 @@ import { Jwtpayload } from '../auth/interface/jwt.interface';
 import {
   AssignExistingSiteAdminDto,
   CreateSiteDto,
+  UpdateSiteDto,
 } from './dto/sites.dto';
 import { SitesService } from './service/sites.service';
 import { ApiBearerAuth } from '@nestjs/swagger';
@@ -35,6 +37,21 @@ export class AdminEnterpriseSitesController {
     return this.sitesService.createSiteForOrganisation(
       req.user,
       organisationId,
+      dto,
+    );
+  }
+
+  @Patch(':organisationId/sites/:siteId')
+  updateSite(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('organisationId', ParseIntPipe) organisationId: number,
+    @Param('siteId', ParseIntPipe) siteId: number,
+    @Body() dto: UpdateSiteDto,
+  ) {
+    return this.sitesService.updateSiteForOrganisation(
+      req.user,
+      organisationId,
+      siteId,
       dto,
     );
   }

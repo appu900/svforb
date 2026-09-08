@@ -134,9 +134,16 @@ export class SitesService {
           siteName: site.name || site.organisationName,
           siteCode: site.siteCode || this.autoSiteCode(site.id),
           address: site.address,
+          postcode: site.postcode,
+          latitude: site.latitude,
+          longitude: site.longitude,
           contactName: blank(site.contactName),
           contactEmail: blank(site.contactEmail),
           phoneNumber: blank(site.contactMobile),
+          collectionDays: site.collectionDays ?? [],
+          collectionStartTime: site.collectionStartTime,
+          collectionEndTime: site.collectionEndTime,
+          collectionInstructions: site.collectionInstructions,
           isActive: site.isActive,
           createdAt: site.createdAt,
           activatedAt: site.activatedAt,
@@ -164,6 +171,19 @@ export class SitesService {
   ) {
     return this.createSite(
       await this.actingAsOrgAdmin(caller, organisationId),
+      dto,
+    );
+  }
+
+  async updateSiteForOrganisation(
+    caller: Jwtpayload,
+    organisationId: number,
+    siteId: number,
+    dto: UpdateSiteDto,
+  ) {
+    return this.updateSite(
+      await this.actingAsOrgAdmin(caller, organisationId),
+      siteId,
       dto,
     );
   }
@@ -257,17 +277,24 @@ export class SitesService {
     });
     if (!org) throw new NotFoundException('Organisation not found');
 
-    // SITE_ADMIN — return only their site + its staff
-    if (caller.orgRole !== OrgRole.SUPER_ADMIN) {
-      if (!caller.siteId) throw new ForbiddenException('No site assigned to your account');
+    // Site-scoped roles — return every site they can actually operate, not only JWT.siteId.
+    const enterpriseRole = caller.enterpriseRole;
+    const isEnterpriseWide =
+      caller.orgRole === OrgRole.SUPER_ADMIN ||
+      enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
+      enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN;
+    if (!isEnterpriseWide) {
+      const assignedIds = await this.assignedSiteIds(caller);
+      if (!assignedIds.length) throw new ForbiddenException('No site assigned to your account');
 
-      const site = await this.prisma.site.findFirst({
-        where: { id: caller.siteId, organisationId: org.id },
+      const sites = await this.prisma.site.findMany({
+        where: { id: { in: assignedIds }, organisationId: org.id },
+        include: this.sitePlacementInclude(),
       });
-      if (!site) throw new NotFoundException('Site not found');
+      if (!sites.length) throw new NotFoundException('Site not found');
 
       const staff = await this.prisma.siteAccess.findMany({
-        where: { siteId: caller.siteId, organisationId: org.id },
+        where: { siteId: { in: assignedIds }, organisationId: org.id },
         include: {
           user: {
             select: {
@@ -285,7 +312,8 @@ export class SitesService {
 
       return {
         role: caller.siteRole,
-        site: this.formatSite(site),
+        site: this.formatSite(sites[0]),
+        sites: sites.map((site) => this.formatSite(site)),
         staff: staff.map((a) => ({
           userId: a.userId,
           siteRole: a.siteRole,
@@ -374,7 +402,7 @@ export class SitesService {
 
   async getSiteDetails(caller: Jwtpayload, siteId: number) {
     const site = await this.assertSiteInOrg(siteId, caller.orgId!);
-    this.assertSiteAccess(caller, siteId);
+    await this.assertSiteAccess(caller, siteId);
 
     const accesses = await this.prisma.siteAccess.findMany({
       where: { siteId, organisationId: caller.orgId },
@@ -418,7 +446,11 @@ export class SitesService {
   // SUPER_ADMIN gets all sites. SITE_ADMIN/STAFF gets only their assigned site.
 
   async listSites(caller: Jwtpayload) {
-    if (caller.orgRole === OrgRole.SUPER_ADMIN) {
+    const isEnterpriseWide =
+      caller.orgRole === OrgRole.SUPER_ADMIN ||
+      caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
+      caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN;
+    if (isEnterpriseWide) {
       const sites = await this.prisma.site.findMany({
         where: { organisationId: caller.orgId },
         orderBy: { createdAt: 'asc' },
@@ -426,14 +458,13 @@ export class SitesService {
       return sites.map((s) => this.formatSite(s));
     }
 
-    if (caller.siteId) {
-      const site = await this.prisma.site.findFirst({
-        where: { id: caller.siteId, organisationId: caller.orgId },
-      });
-      return site ? [this.formatSite(site)] : [];
-    }
-
-    return [];
+    const assignedIds = await this.assignedSiteIds(caller);
+    if (!assignedIds.length) return [];
+    const sites = await this.prisma.site.findMany({
+      where: { id: { in: assignedIds }, organisationId: caller.orgId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return sites.map((s) => this.formatSite(s));
   }
 
   // ─── Get Site ─────────────────────────────────────────────────────────────────
@@ -443,7 +474,7 @@ export class SitesService {
       where: { id: siteId, organisationId: caller.orgId },
     });
     if (!site) throw new NotFoundException('Site not found');
-    this.assertSiteAccess(caller, siteId);
+    await this.assertSiteAccess(caller, siteId);
     return this.formatSite(site);
   }
 
@@ -668,7 +699,7 @@ export class SitesService {
   // Same findOrCreate pattern as assignSiteManager — upserts the SiteAccess row.
 
   async addStaff(caller: Jwtpayload, siteId: number, dto: AddStaffDto) {
-    this.assertSiteAccess(caller, siteId);
+    await this.assertSiteAccess(caller, siteId);
 
     const site = await this.assertSiteInOrg(siteId, caller.orgId!);
 
@@ -733,7 +764,7 @@ export class SitesService {
 
   async listStaff(caller: Jwtpayload, siteId: number) {
     await this.assertSiteInOrg(siteId, caller.orgId!);
-    this.assertSiteAccess(caller, siteId);
+    await this.assertSiteAccess(caller, siteId);
 
     const accesses = await this.prisma.siteAccess.findMany({
       where: { siteId, organisationId: caller.orgId },
@@ -767,7 +798,7 @@ export class SitesService {
 
   async removeAccess(caller: Jwtpayload, siteId: number, targetUserId: number) {
     await this.assertSiteInOrg(siteId, caller.orgId!);
-    this.assertSiteAccess(caller, siteId);
+    await this.assertSiteAccess(caller, siteId);
 
     const access = await this.prisma.siteAccess.findUnique({
       where: { userId_siteId: { userId: targetUserId, siteId } },
@@ -854,7 +885,7 @@ export class SitesService {
   // SUPER_ADMIN + BUSINESS_MULTI only.
 
   async updateSite(caller: Jwtpayload, siteId: number, dto: UpdateSiteDto) {
-    this.assertCanEditSite(caller, siteId);
+    await this.assertCanEditSite(caller, siteId);
     this.assertMultiBusiness(caller);
 
     await this.assertSiteInOrg(siteId, caller.orgId!);
@@ -1148,7 +1179,7 @@ export class SitesService {
   }
 
   /** Super/Enterprise Admin, or the Site Admin of this site. */
-  private assertCanEditSite(caller: Jwtpayload, siteId: number) {
+  private async assertCanEditSite(caller: Jwtpayload, siteId: number) {
     if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
     if (
       caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
@@ -1156,7 +1187,7 @@ export class SitesService {
     ) {
       return;
     }
-    this.assertSiteAccess(caller, siteId);
+    await this.assertSiteAccess(caller, siteId);
   }
 
   /** Throws 403 if caller is not a SUPER_ADMIN of their org. */
@@ -1179,14 +1210,43 @@ export class SitesService {
    * Throws 403 if the caller does not have access to the given site.
    * SUPER_ADMIN bypasses this check — they can access any site in their org.
    */
-  private assertSiteAccess(caller: Jwtpayload, siteId: number) {
-     console.log("======== this is the test endpoint =============")
-     console.log("siteId",siteId)
-     console.log("caller siteId",caller.siteId)
-     console.log("caller role",caller.siteRole)
-    if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
-    if (caller.siteRole === SiteRole.SITE_ADMIN && caller.siteId === siteId) return;
+  private async assertSiteAccess(caller: Jwtpayload, siteId: number) {
+    if (
+      caller.orgRole === OrgRole.SUPER_ADMIN ||
+      caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
+      caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN
+    ) {
+      return;
+    }
+    if (caller.siteId === siteId) return;
+    const assigned = await this.assignedSiteIds(caller);
+    if (assigned.includes(siteId)) return;
     throw new ForbiddenException('You do not have access to this site');
+  }
+
+  private async assignedSiteIds(caller: Jwtpayload): Promise<number[]> {
+    const ids = new Set<number>();
+    if (caller.siteId) ids.add(caller.siteId);
+    if (!caller.orgId || !caller.sub) return [...ids];
+    const [accesses, scopes] = await Promise.all([
+      this.prisma.siteAccess.findMany({
+        where: { userId: caller.sub, organisationId: caller.orgId },
+        select: { siteId: true },
+      }),
+      this.prisma.userScope.findMany({
+        where: {
+          userId: caller.sub,
+          organisationId: caller.orgId,
+          scopeType: ScopeType.SITE,
+        },
+        select: { scopeId: true },
+      }),
+    ]);
+    for (const row of accesses) ids.add(row.siteId);
+    for (const row of scopes) {
+      if (row.scopeId != null) ids.add(row.scopeId);
+    }
+    return [...ids];
   }
 
   /** Throws 404 if the site doesn't exist or doesn't belong to the org. */

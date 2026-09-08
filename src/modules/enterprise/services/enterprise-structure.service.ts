@@ -74,6 +74,48 @@ export class EnterpriseStructureService {
     return this.create(caller, 'GROUP', dto);
   }
 
+  async createForOrganisation(
+    caller: Jwtpayload,
+    organisationId: number,
+    dimension: Dimension,
+    dto: { name: string; code?: string; description?: string },
+  ) {
+    await this.scope.assertPlatformAdminEnterprise(caller, organisationId);
+    return this.createInOrg(caller, organisationId, dimension, dto);
+  }
+
+  async updateForOrganisation(
+    caller: Jwtpayload,
+    organisationId: number,
+    dimension: Dimension,
+    id: number,
+    dto: { name?: string; code?: string; description?: string },
+  ) {
+    await this.scope.assertPlatformAdminEnterprise(caller, organisationId);
+    return this.updateInOrg(caller, organisationId, dimension, id, dto);
+  }
+
+  async setActiveForOrganisation(
+    caller: Jwtpayload,
+    organisationId: number,
+    dimension: Dimension,
+    id: number,
+    isActive: boolean,
+  ) {
+    await this.scope.assertPlatformAdminEnterprise(caller, organisationId);
+    return this.setActiveInOrg(caller, organisationId, dimension, id, isActive);
+  }
+
+  async removeForOrganisation(
+    caller: Jwtpayload,
+    organisationId: number,
+    dimension: Dimension,
+    id: number,
+  ) {
+    await this.scope.assertPlatformAdminEnterprise(caller, organisationId);
+    return this.removeInOrg(caller, organisationId, dimension, id);
+  }
+
   async listGroups(caller: Jwtpayload, query?: StructureListQueryDto) {
     return this.list(caller, 'GROUP', query);
   }
@@ -190,7 +232,15 @@ export class EnterpriseStructureService {
     dto: { name: string; code?: string; description?: string },
   ) {
     const orgId = await this.scope.assertPermission(caller, PERMISSION.STRUCTURE_CREATE);
+    return this.createInOrg(caller, orgId, dimension, dto);
+  }
 
+  private async createInOrg(
+    caller: Jwtpayload,
+    orgId: number,
+    dimension: Dimension,
+    dto: { name: string; code?: string; description?: string },
+  ) {
     const clash = await this.findByName(dimension, orgId, dto.name);
     if (clash) {
       throw new ConflictException(
@@ -336,6 +386,16 @@ export class EnterpriseStructureService {
     dto: { name?: string; code?: string; description?: string },
   ) {
     const orgId = await this.assertCanManage(caller, dimension, id);
+    return this.updateInOrg(caller, orgId, dimension, id, dto);
+  }
+
+  private async updateInOrg(
+    caller: Jwtpayload,
+    orgId: number,
+    dimension: Dimension,
+    id: number,
+    dto: { name?: string; code?: string; description?: string },
+  ) {
     const before = await this.requireStructure(dimension, id, orgId);
 
     if (dto.name && dto.name !== before.name) {
@@ -395,6 +455,16 @@ export class EnterpriseStructureService {
     isActive: boolean,
   ) {
     const orgId = await this.assertCanManage(caller, dimension, id);
+    return this.setActiveInOrg(caller, orgId, dimension, id, isActive);
+  }
+
+  private async setActiveInOrg(
+    caller: Jwtpayload,
+    orgId: number,
+    dimension: Dimension,
+    id: number,
+    isActive: boolean,
+  ) {
     const before = await this.requireStructure(dimension, id, orgId);
 
     if (before.isActive === isActive) {
@@ -442,6 +512,15 @@ export class EnterpriseStructureService {
    */
   private async remove(caller: Jwtpayload, dimension: Dimension, id: number) {
     const orgId = await this.scope.assertPermission(caller, PERMISSION.STRUCTURE_DELETE);
+    return this.removeInOrg(caller, orgId, dimension, id);
+  }
+
+  private async removeInOrg(
+    caller: Jwtpayload,
+    orgId: number,
+    dimension: Dimension,
+    id: number,
+  ) {
     const row = await this.requireStructure(dimension, id, orgId);
 
     const [history, sites] = await Promise.all([
