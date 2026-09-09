@@ -1077,6 +1077,11 @@ export class SitesService {
     const firstName = parts[0];
     const lastName = parts.slice(1).join(' ');
     const phoneNumber = dto.phoneNumber?.trim() || '';
+    const site = await this.prisma.site.findUnique({
+      where: { id: siteId },
+      select: { contactEmail: true },
+    });
+    const email = (dto.contactEmail ?? site?.contactEmail ?? '').trim().toLowerCase();
 
     const access = await this.prisma.siteAccess.findFirst({
       where: { siteId, siteRole: SiteRole.SITE_ADMIN },
@@ -1084,15 +1089,36 @@ export class SitesService {
       select: { userId: true },
     });
 
-    if (access) {
-      await this.prisma.user.update({
-        where: { id: access.userId },
-        data: {
-          ...(firstName ? { firstName } : {}),
-          ...(name ? { lastName: lastName || '' } : {}),
-          ...(dto.phoneNumber !== undefined ? { phoneNumber } : {}),
+    const userIds = new Set<number>();
+    if (email) {
+      const byEmail = await this.prisma.user.findFirst({
+        where: {
+          email,
+          orgMemeberShips: { some: { organisationId } },
         },
+        select: { id: true },
       });
+      if (byEmail) userIds.add(byEmail.id);
+    }
+    if (access) {
+      const accessUser = await this.prisma.user.findUnique({
+        where: { id: access.userId },
+        select: { id: true, email: true },
+      });
+      if (accessUser && (!email || accessUser.email.toLowerCase() === email)) {
+        userIds.add(accessUser.id);
+      }
+    }
+
+    const data = {
+      ...(firstName ? { firstName } : {}),
+      ...(name ? { lastName: lastName || '' } : {}),
+      ...(dto.phoneNumber !== undefined ? { phoneNumber } : {}),
+    };
+    if (Object.keys(data).length) {
+      for (const userId of userIds) {
+        await this.prisma.user.update({ where: { id: userId }, data });
+      }
     }
 
     const pending = await this.prisma.enterpriseInvitation.findFirst({
@@ -1100,7 +1126,7 @@ export class SitesService {
         organisationId,
         siteAdminForSiteId: siteId,
         status: InvitationStatus.PENDING,
-        ...(dto.contactEmail ? { email: dto.contactEmail.trim().toLowerCase() } : {}),
+        ...(email ? { email } : {}),
       },
       orderBy: { createdAt: 'desc' },
       select: { id: true },
