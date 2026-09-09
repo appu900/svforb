@@ -1076,7 +1076,7 @@ export class SitesService {
     const parts = name.split(/\s+/).filter(Boolean);
     const firstName = parts[0];
     const lastName = parts.slice(1).join(' ');
-    const phoneNumber = dto.phoneNumber?.trim() || null;
+    const phoneNumber = dto.phoneNumber?.trim() || '';
 
     const access = await this.prisma.siteAccess.findFirst({
       where: { siteId, siteRole: SiteRole.SITE_ADMIN },
