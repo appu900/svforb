@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { EnterpriseRole, OrgRole, OrgType, PlatformRole, Prisma, ScopeType, SiteRole } from '@prisma/client';
+import { EnterpriseRole, InvitationStatus, OrgRole, OrgType, PlatformRole, Prisma, ScopeType, SiteRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
@@ -929,6 +929,7 @@ export class SitesService {
     }
 
     await this.placeSite(caller.orgId!, siteId, caller.sub, dto, true);
+    await this.syncSiteAdminContact(siteId, caller.orgId!, dto);
 
     this.logger.log(`Site updated: siteId=${siteId} org=${caller.orgId} by=${caller.sub}`);
 
@@ -1065,6 +1066,56 @@ export class SitesService {
 
   private autoSiteCode(siteId: number) {
     return `SITE-${String(siteId).padStart(6, '0')}`;
+  }
+
+  /** Keep the assigned Site Admin (or pending invite) in sync with edited site-contact fields. */
+  private async syncSiteAdminContact(siteId: number, organisationId: number, dto: UpdateSiteDto) {
+    if (dto.contactName === undefined && dto.phoneNumber === undefined) return;
+
+    const name = dto.contactName?.trim() ?? '';
+    const parts = name.split(/\s+/).filter(Boolean);
+    const firstName = parts[0];
+    const lastName = parts.slice(1).join(' ');
+    const phoneNumber = dto.phoneNumber?.trim() || null;
+
+    const access = await this.prisma.siteAccess.findFirst({
+      where: { siteId, siteRole: SiteRole.SITE_ADMIN },
+      orderBy: { grantedAt: 'desc' },
+      select: { userId: true },
+    });
+
+    if (access) {
+      await this.prisma.user.update({
+        where: { id: access.userId },
+        data: {
+          ...(firstName ? { firstName } : {}),
+          ...(name ? { lastName: lastName || '' } : {}),
+          ...(dto.phoneNumber !== undefined ? { phoneNumber } : {}),
+        },
+      });
+    }
+
+    const pending = await this.prisma.enterpriseInvitation.findFirst({
+      where: {
+        organisationId,
+        siteAdminForSiteId: siteId,
+        status: InvitationStatus.PENDING,
+        ...(dto.contactEmail ? { email: dto.contactEmail.trim().toLowerCase() } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+
+    if (pending && (firstName || dto.phoneNumber !== undefined)) {
+      await this.prisma.enterpriseInvitation.update({
+        where: { id: pending.id },
+        data: {
+          ...(firstName ? { firstName } : {}),
+          ...(name ? { lastName: lastName || '' } : {}),
+          ...(dto.phoneNumber !== undefined ? { mobile: phoneNumber } : {}),
+        },
+      });
+    }
   }
 
   private async assertSiteCodeFree(orgId: number, siteCode: string, excludeSiteId?: number) {
