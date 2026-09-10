@@ -21,7 +21,9 @@ import { AdminEnterpriseStructureController } from './controllers/admin-enterpri
 import { EnterpriseStructureController } from './controllers/enterprise-structure.controller';
 import { EnterpriseActivationController } from './controllers/enterprise-activation.controller';
 import { EnterpriseProfileController } from './controllers/enterprise-profile.controller';
+import { AdminAppUsersController } from './controllers/admin-app-users.controller';
 import { EnterpriseProvisioningController } from './controllers/enterprise-provisioning.controller';
+import { AdminAppUsersService } from './services/admin-app-users.service';
 import {
   EnterpriseInviteController,
   EnterpriseRolesController,
@@ -42,6 +44,7 @@ import { EnterpriseWorker } from './workers/enterprise.worker';
     EnterpriseInviteController,
     EnterpriseRolesController,
     EnterpriseProvisioningController,
+    AdminAppUsersController,
     EnterpriseProfileController,
     // Unauthenticated by design — the invitation token is the credential.
     EnterpriseActivationController,
@@ -56,6 +59,7 @@ import { EnterpriseWorker } from './workers/enterprise.worker';
     EnterpriseImpactService,
     EnterpriseInvitationService,
     EnterpriseProvisioningService,
+    AdminAppUsersService,
     EnterpriseProfileService,
     EnterpriseQueueService,
     EnterpriseWorker,
