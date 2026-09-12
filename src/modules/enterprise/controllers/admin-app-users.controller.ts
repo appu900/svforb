@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { PlatformAdminGuard } from '../../../common/guards/platform-admin.guard';
@@ -15,5 +15,10 @@ export class AdminAppUsersController {
   @Get()
   list() {
     return this.appUsers.list();
+  }
+
+  @Get('organisations/:organisationId')
+  getOrganisation(@Param('organisationId', ParseIntPipe) organisationId: number) {
+    return this.appUsers.getOrganisation(organisationId);
   }
 }
