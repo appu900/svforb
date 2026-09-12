@@ -1,6 +1,7 @@
 import {
   IsEmail,
   IsEnum,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -67,6 +68,11 @@ export class LoginDto {
   @IsString()
   @IsNotEmpty({ message: 'Password is required.' })
   password!: string;
+
+  /** Driver app sends this so we can reject non-drivers before password / reset. */
+  @IsOptional()
+  @IsIn(['driver', 'business'])
+  targetApp?: 'driver' | 'business';
 }
 
 export class VerifyEmailDto {
@@ -84,6 +90,10 @@ export class ResendVerificationDto {
 
 export class ForgotPasswordDto {
   @IsEmail() email!: string;
+
+  @IsOptional()
+  @IsIn(['driver', 'business'])
+  targetApp?: 'driver' | 'business';
 }
 
 export class ResetPasswordDto {

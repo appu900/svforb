@@ -21,6 +21,7 @@ import {
   AcceptPickupDto,
   AssignDriverDto,
   CompletePickupDto,
+  DeclineAvailablePickupDto,
   GoLiveDto,
   GoOfflineDto,
   RespondToPickupDto,
@@ -101,6 +102,15 @@ export class DriverController {
     @Body() dto: AcceptPickupDto,
   ) {
     return this.driverService.acceptPickup(req.user.sub, dto.claimId, dto.listingId);
+  }
+
+  /** Driver declines a broadcast "pickup available" alert (no assignment row yet). */
+  @Post('pickup/decline-available')
+  async declineAvailablePickup(
+    @Req() req: Request & { user: Jwtpayload },
+    @Body() dto: DeclineAvailablePickupDto,
+  ) {
+    return this.driverService.declineAvailablePickup(req.user.sub, dto.claimId);
   }
 
   // ─── Assign Driver (charity-initiated) ────────────────────────────────────

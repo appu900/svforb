@@ -139,38 +139,44 @@ export class MailerService {
     email: string,
     password: string,
     siteName: string,
-    _role: string,
+    role: string,
   ): Promise<void> {
+    const isDriver = role.trim().toLowerCase() === 'driver';
     const appStoreUrl = 'https://apps.apple.com/in/app/saveful-for-business/id6805761562';
     const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.saveful.business.app';
     const businessUrl = 'https://www.saveful.com/business';
 
-    await this.sendMail({
-      to,
-      subject: 'Welcome to Saveful for Business - Your account is ready',
-      html: `
-        <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#333;line-height:1.5;">
-          ${this.logoMarkup(200)}
+    const inviteLine = isDriver
+      ? `You've been invited to join the <strong>${siteName}</strong> team on Saveful for Business as a driver.`
+      : `You've been invited to join the <strong>${siteName}</strong> team on Saveful for Business.`;
 
-          <p style="margin:0 0 16px;">Hello ${name},</p>
+    const startLine = isDriver
+      ? 'To get started, download the Saveful for Business Driver app and sign in using the login details below:'
+      : 'To get started, download the Saveful for Business app and sign in using the login details below:';
 
-          <h2 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#1a1a1a;">
-            Welcome to Saveful for Business
-          </h2>
-
-          <p style="margin:0 0 16px;">
-            You've been invited to join the <strong>${siteName}</strong> team on Saveful for Business.
-          </p>
-
-          <p style="margin:0 0 20px;">
-            Saveful for Business helps organisations recover more surplus food,
-            connect with recovery partners and measure their environmental and social impact.
-          </p>
-
-          <p style="margin:0 0 12px;">
-            To get started, download the Saveful for Business app and sign in using the login details below:
-          </p>
-
+    const storeButtons = isDriver
+      ? `
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px;border-collapse:collapse;">
+            <tr>
+              <td valign="middle" height="48" style="height:48px;padding:0 5px;vertical-align:middle;">
+                <span
+                   style="display:block;box-sizing:border-box;width:156px;height:48px;background:#000000;
+                          color:#ffffff;text-decoration:none;border-radius:8px;text-align:center;">
+                  <span style="display:block;padding:7px 10px 0;font-size:9px;line-height:1;letter-spacing:0.2px;">Download on the</span>
+                  <span style="display:block;padding:3px 10px 0;font-size:16px;line-height:1.1;font-weight:600;">App Store</span>
+                </span>
+              </td>
+              <td valign="middle" height="48" style="height:48px;padding:0 5px;vertical-align:middle;">
+                <span
+                   style="display:block;box-sizing:border-box;width:156px;height:48px;background:#000000;
+                          color:#ffffff;text-decoration:none;border-radius:8px;text-align:center;">
+                  <span style="display:block;padding:7px 10px 0;font-size:9px;line-height:1;letter-spacing:0.2px;">GET IT ON</span>
+                  <span style="display:block;padding:3px 10px 0;font-size:16px;line-height:1.1;font-weight:600;">Google Play</span>
+                </span>
+              </td>
+            </tr>
+          </table>`
+      : `
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px;border-collapse:collapse;">
             <tr>
               <td valign="middle" height="48" style="height:48px;padding:0 5px;vertical-align:middle;">
@@ -190,7 +196,37 @@ export class MailerService {
                 </a>
               </td>
             </tr>
-          </table>
+          </table>`;
+
+    await this.sendMail({
+      to,
+      subject: isDriver
+        ? 'Welcome to Saveful for Business Driver - Your account is ready'
+        : 'Welcome to Saveful for Business - Your account is ready',
+      html: `
+        <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#333;line-height:1.5;">
+          ${this.logoMarkup(200)}
+
+          <p style="margin:0 0 16px;">Hello ${name},</p>
+
+          <h2 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#1a1a1a;">
+            Welcome to Saveful for Business${isDriver ? ' Driver' : ''}
+          </h2>
+
+          <p style="margin:0 0 16px;">
+            ${inviteLine}
+          </p>
+
+          <p style="margin:0 0 20px;">
+            Saveful for Business helps organisations recover more surplus food,
+            connect with recovery partners and measure their environmental and social impact.
+          </p>
+
+          <p style="margin:0 0 12px;">
+            ${startLine}
+          </p>
+
+          ${storeButtons}
 
           <p style="margin:0 0 8px;font-weight:700;">Your login details</p>
           <div style="background:#f4f4f4;padding:20px 24px;border-radius:8px;margin:0 0 28px;">

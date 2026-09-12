@@ -602,6 +602,13 @@ export class AuthService {
         'This account has been deactivated. Please contact your organisation administrator.',
       );
     }
+
+    // Driver app: reject non-drivers before password check so they don't reset
+    // a password for an account they can't use here.
+    if (dto.targetApp === 'driver') {
+      await this.assertDriverAppAccess(user.id);
+    }
+
     const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatch) {
       throw new UnauthorizedException('Incorrect password. Please try again.');
@@ -616,6 +623,9 @@ export class AuthService {
 
     // Platform admins have no org membership — issue token directly
     if (user.platformRole === PlatformRole.PLATFORM_ADMIN) {
+      if (dto.targetApp === 'driver') {
+        throw new ForbiddenException('This account is not registered as a driver.');
+      }
       const accessToken = await this.generateTokens(user);
       this.logger.log(`Platform admin logged in: ${user.email}`);
       return {
@@ -653,13 +663,25 @@ export class AuthService {
           address: string;
         }
       | undefined;
-    const access = await this.prisma.siteAccess.findFirst({
-      where: { userId: user.id, organisationId },
-      include: {
-        site: { select: { organisationName: true, address: true } },
-      },
-      orderBy: { grantedAt: 'asc' },
-    });
+
+    // Prefer DRIVER site when signing in from the driver app.
+    const access =
+      dto.targetApp === 'driver'
+        ? await this.prisma.siteAccess.findFirst({
+            where: { userId: user.id, organisationId, siteRole: SiteRole.DRIVER },
+            include: {
+              site: { select: { organisationName: true, address: true } },
+            },
+            orderBy: { grantedAt: 'asc' },
+          })
+        : await this.prisma.siteAccess.findFirst({
+            where: { userId: user.id, organisationId },
+            include: {
+              site: { select: { organisationName: true, address: true } },
+            },
+            orderBy: { grantedAt: 'asc' },
+          });
+
     if (access) {
       primarySiteAccess = {
         siteId: access.siteId,
@@ -971,11 +993,11 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
+    const email = normalizeEmail(dto.email);
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
     });
 
-    
     if (!user) {
       throw new NotFoundException('No account found with this email.');
     }
@@ -985,19 +1007,20 @@ export class AuthService {
       );
     }
 
+    if (dto.targetApp === 'driver') {
+      await this.assertDriverAppAccess(user.id);
+    }
+
     const otp = GenerateOtp();
-    await this.authCacheManaher.storePasswordResetOtp(
-      dto.email.toLowerCase(),
-      otp,
-    );
+    await this.authCacheManaher.storePasswordResetOtp(email, otp);
 
     await this.emailService.sendPasswordReset({
-      to: dto.email,
+      to: user.email,
       resetToken: otp,
       name: user.firstName,
     });
 
-    this.logger.log(`Password reset OTP sent: ${dto.email}`);
+    this.logger.log(`Password reset OTP sent: ${user.email}`);
     return {
       message: 'A reset code has been sent to your email.',
     };
@@ -1096,6 +1119,16 @@ export class AuthService {
       ...(siteRole !== undefined && { siteRole }),
       ...(grantedAt !== undefined && { grantedAt }),
     };
+  }
+
+  private async assertDriverAppAccess(userId: number): Promise<void> {
+    const driverAccess = await this.prisma.siteAccess.findFirst({
+      where: { userId, siteRole: SiteRole.DRIVER },
+      select: { id: true },
+    });
+    if (!driverAccess) {
+      throw new ForbiddenException('This account is not registered as a driver.');
+    }
   }
 
   private async findUserByEmail(email: string): Promise<User | null> {

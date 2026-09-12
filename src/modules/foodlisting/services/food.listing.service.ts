@@ -12,6 +12,7 @@ import {
   ListingStatus,
   OrgType,
   Prisma,
+  DriverPickupStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
@@ -287,6 +288,36 @@ export class FoodListingService {
         where: { organisationId: orgId, ...(status ? { status } : {}) },
       }),
     ]);
+
+    // Heal: driver already COLLECTED but claim row never flipped (legacy completePickup bug).
+    let healed = false;
+    for (const listing of listings) {
+      for (const claim of listing.foodClaims) {
+        if (claim.status === ClaimStatus.COLLECTED || claim.status === ClaimStatus.CANCELLED) {
+          continue;
+        }
+        const collectedPickup = claim.driverPickups?.find(
+          (p) => p.status === DriverPickupStatus.COLLECTED,
+        );
+        if (!collectedPickup) continue;
+
+        await this.prisma.foodClaim.update({
+          where: { id: claim.id },
+          data: {
+            status: ClaimStatus.COLLECTED,
+            collectedAt: collectedPickup.collectedAt ?? new Date(),
+          },
+        });
+        (claim as { status: ClaimStatus }).status = ClaimStatus.COLLECTED;
+        (claim as { collectedAt: Date | null }).collectedAt =
+          collectedPickup.collectedAt ?? new Date();
+        healed = true;
+      }
+    }
+
+    if (healed) {
+      await this.cache.invalidateOrgPage1(orgId).catch(() => undefined);
+    }
 
     const result = {
       listings,

@@ -350,16 +350,33 @@ export class DriverLocationService {
         claim: {
           include: {
             claimItems: true,
-            listing: { select: { organisationId: true } },
+            listing: { select: { id: true, organisationId: true, remainingQtyKg: true } },
+            claimantOrg: { select: { id: true, name: true } },
           },
         },
       },
     });
 
     if (!pickup) throw new NotFoundException('Pickup not found');
+
+    // Heal inconsistent state: pickup already COLLECTED but claim never flipped.
     if (pickup.status === DriverPickupStatus.COLLECTED) {
+      if (
+        pickup.claim.status !== ClaimStatus.COLLECTED &&
+        pickup.claim.status !== ClaimStatus.CANCELLED
+      ) {
+        await this.prisma.foodClaim.update({
+          where: { id: pickup.claimId },
+          data: {
+            status: ClaimStatus.COLLECTED,
+            collectedAt: pickup.collectedAt ?? new Date(),
+          },
+        });
+        await this.bustCachesAfterDriverCollection(pickup);
+      }
       return pickup;
     }
+
     if (pickup.status !== DriverPickupStatus.ARRIVED) {
       throw new BadRequestException('Mark as ARRIVED before completing the pickup');
     }
@@ -386,65 +403,48 @@ export class DriverLocationService {
         },
       });
 
-      if (claimAlreadyCollected) {
-        return nextPickup;
-      }
-
-      const claimUpdate = await tx.foodClaim.updateMany({
-        where: {
-          id: pickup.claimId,
-          status: { in: [ClaimStatus.PENDING, ClaimStatus.CONFIRMED] },
-        },
-        data: {
-          status: ClaimStatus.COLLECTED,
-          collectedAt,
-          ...(rating !== undefined && { rating }),
-        },
-      });
-
-      if (claimUpdate.count === 0) {
-        return nextPickup;
-      }
-
-      if (rating !== undefined) {
-        const org = await tx.organisation.findUnique({
-          where: { id: pickup.claim.listing.organisationId },
-          select: { ratingAvg: true, ratingCount: true },
+      if (!claimAlreadyCollected && pickup.claim.status !== ClaimStatus.CANCELLED) {
+        // Force claim → COLLECTED so charity/business UIs leave "self-pickup" / Active.
+        await tx.foodClaim.update({
+          where: { id: pickup.claimId },
+          data: {
+            status: ClaimStatus.COLLECTED,
+            collectedAt,
+            ...(rating !== undefined && { rating }),
+          },
         });
-        const newAvg = org
-          ? (org.ratingAvg * org.ratingCount + rating) / (org.ratingCount + 1)
-          : rating;
 
-        await tx.organisation.update({
-          where: { id: pickup.claim.listing.organisationId },
-          data: { ratingAvg: newAvg, ratingCount: { increment: 1 } },
+        if (rating !== undefined) {
+          const org = await tx.organisation.findUnique({
+            where: { id: pickup.claim.listing.organisationId },
+            select: { ratingAvg: true, ratingCount: true },
+          });
+          const newAvg = org
+            ? (org.ratingAvg * org.ratingCount + rating) / (org.ratingCount + 1)
+            : rating;
+
+          await tx.organisation.update({
+            where: { id: pickup.claim.listing.organisationId },
+            data: { ratingAvg: newAvg, ratingCount: { increment: 1 } },
+          });
+        }
+
+        await tx.listingActivity.create({
+          data: {
+            listingId: pickup.listingId,
+            actorOrgId: pickup.claim.claimantOrgId,
+            eventType: 'CLAIM_COLLECTED',
+            message: `${totalQtyKg}kg collected by driver${rating !== undefined ? ` — rated ${rating}/5` : ''}`,
+            qtyKg: totalQtyKg,
+          },
         });
       }
-
-      await tx.listingActivity.create({
-        data: {
-          listingId: pickup.listingId,
-          actorOrgId: pickup.claim.claimantOrgId,
-          eventType: 'CLAIM_COLLECTED',
-          message: `${totalQtyKg}kg collected by driver${rating !== undefined ? ` — rated ${rating}/5` : ''}`,
-          qtyKg: totalQtyKg,
-        },
-      });
 
       return nextPickup;
     });
 
     if (!claimAlreadyCollected) {
-      // Mirror markCollected: bust charity my-claims cache so Updates shows COLLECTED.
-      await Promise.all([
-        this.redis.del(`claims:listing:${pickup.listingId}`),
-        this.redis.del(`claims:org:v3:${pickup.claim.claimantOrgId}:p1`),
-        this.redis.del(`listing:single:${pickup.listingId}`),
-        this.redis.del(`listing:org:v3:${pickup.claim.listing.organisationId}:p1`),
-        this.redis.deleteByPattern('listing:nearby:*'),
-      ]).catch((err) =>
-        this.logger.warn(`completePickup cache bust non-critical error: ${err.message}`),
-      );
+      await this.bustCachesAfterDriverCollection(pickup);
 
       const charityUserIds = await this.getOrgUserIds(pickup.claim.claimantOrgId);
       if (charityUserIds.length > 0) {
@@ -468,31 +468,52 @@ export class DriverLocationService {
             this.logger.warn(`notifyCharityCollected non-critical error: ${err.message}`),
           );
       }
-    }
 
-    if (!claimAlreadyCollected && rating !== undefined) {
       const restaurantUserIds = await this.getOrgUserIds(pickup.claim.listing.organisationId);
       if (restaurantUserIds.length > 0) {
         await this.notificationService
           .send({
-            title: 'Confirm your collection',
-            body: 'Your listing was collected and rated. Please confirm pickup and rate your partner.',
+            title: 'Collection completed',
+            body: rating !== undefined
+              ? 'Your listing was collected and rated. Please confirm pickup and rate your partner.'
+              : `${totalQtyKg}kg was collected by the driver. Please confirm in Updates.`,
             data: {
               claimId: String(pickup.claimId),
               listingId: String(pickup.listingId),
               type: 'provider_feedback',
+              deepLink: 'updates',
             },
             targetUserIds: restaurantUserIds.map(String),
+            targetApp: 'business',
             priority: 'high',
             allowEmptyTargets: true,
           })
           .catch((err) =>
-            this.logger.warn(`notifyProviderFeedback non-critical error: ${err.message}`),
+            this.logger.warn(`notifyProviderCollected non-critical error: ${err.message}`),
           );
       }
     }
 
     return updatedPickup;
+  }
+
+  private async bustCachesAfterDriverCollection(pickup: {
+    listingId: number;
+    claim: {
+      claimantOrgId: number;
+      listing: { organisationId: number };
+    };
+  }): Promise<void> {
+    await Promise.all([
+      this.redis.del(`claims:listing:${pickup.listingId}`),
+      this.redis.deleteByPattern(`claims:org:v3:${pickup.claim.claimantOrgId}:*`),
+      this.redis.del(`listing:single:${pickup.listingId}`),
+      this.redis.deleteByPattern(`listing:org:v3:${pickup.claim.listing.organisationId}:*`),
+      this.redis.deleteByPattern('listing:nearby:*'),
+      this.redis.del('listing:recent:p1'),
+    ]).catch((err) =>
+      this.logger.warn(`completePickup cache bust non-critical error: ${err.message}`),
+    );
   }
 
   // ─── Charity-initiated Driver Assignment ──────────────────────────────────────
@@ -570,12 +591,13 @@ export class DriverLocationService {
     await this.notificationService
       .send({
         title: 'New pickup assigned to you!',
-        body: `Collect ${listing.totalQtyKg}kg from ${listing.organisation.name} at ${listing.pickupAddress}`,
+        body: `Collect ${listing.totalQtyKg}kg from ${listing.organisation.name} for delivery to ${claim.claimantOrg.name}`,
         data: {
           pickupId: String(pickup.id),
           claimId: String(claimId),
           listingId: String(listingId),
           type: 'driver_assigned',
+          restaurantName: listing.organisation.name,
           claimantOrgName: claim.claimantOrg.name,
         },
         targetUserIds: [String(driverId)],
@@ -660,8 +682,11 @@ export class DriverLocationService {
               claimId: String(pickup.claimId),
               type: 'driver_accepted',
               driverName,
+              deepLink: 'updates',
             },
             targetUserIds: notifyUserIds.map(String),
+            targetApp: 'business',
+            allowEmptyTargets: true,
             priority: 'high',
           })
           .catch((err) =>
@@ -678,28 +703,117 @@ export class DriverLocationService {
       data: { status: DriverPickupStatus.CANCELLED, cancelledAt: new Date() },
     });
 
-    const charityUserIds = await this.getOrgUserIds(pickup.claim.claimantOrgId);
-    if (charityUserIds.length > 0) {
-      await this.notificationService
-        .send({
-          title: 'Driver declined the pickup',
-          body: `${driverName} has declined the pickup. Please re-assign a driver.`,
-          data: {
-            pickupId: String(pickupId),
-            claimId: String(pickup.claimId),
-            type: 'driver_rejected',
-            driverName,
-          },
-          targetUserIds: charityUserIds.map(String),
-          priority: 'high',
-        })
-        .catch((err) =>
-          this.logger.warn(`notifyDriverRejected non-critical error: ${err.message}`),
-        );
-    }
+    // Assignment cleared — charity can self-collect or pick another driver.
+    await this.redis
+      .deleteByPattern(`claims:org:v3:${pickup.claim.claimantOrgId}:*`)
+      .catch(() => undefined);
+
+    await this.notifyCharityDriverDeclined({
+      claimantOrgId: pickup.claim.claimantOrgId,
+      claimId: pickup.claimId,
+      pickupId,
+      driverName,
+    });
 
     this.logger.log(`Driver ${driverId} rejected pickup ${pickupId}`);
     return { message: 'Pickup declined. The charity has been notified.' };
+  }
+
+  /**
+   * Broadcast "Pickup available" decline — no DriverPickup row exists yet.
+   * Notifies the charity so they can assign someone else or self-collect.
+   */
+  async declineAvailablePickup(driverId: number, claimId: number) {
+    const claim = await this.prisma.foodClaim.findUnique({
+      where: { id: claimId },
+      select: {
+        id: true,
+        status: true,
+        claimantOrgId: true,
+        claimantSiteId: true,
+      },
+    });
+    if (!claim) throw new NotFoundException('Claim not found');
+    if (claim.status === ClaimStatus.COLLECTED || claim.status === ClaimStatus.CANCELLED) {
+      throw new BadRequestException('This claim is no longer available');
+    }
+
+    const driverAccess = await this.prisma.siteAccess.findFirst({
+      where: {
+        userId: driverId,
+        siteRole: SiteRole.DRIVER,
+        organisationId: claim.claimantOrgId,
+      },
+      select: { id: true },
+    });
+    if (!driverAccess) {
+      throw new ForbiddenException('You can only decline pickups for your organisation');
+    }
+
+    // Already assigned to someone (including this driver) — use respond endpoint instead.
+    const activePickup = await this.prisma.driverPickup.findFirst({
+      where: { claimId, status: { in: CURRENT_STATUSES } },
+      select: { id: true, driverId: true, status: true },
+    });
+    if (activePickup) {
+      if (
+        activePickup.driverId === driverId &&
+        activePickup.status === DriverPickupStatus.ASSIGNED
+      ) {
+        return this.respondToPickupAssignment(activePickup.id, driverId, false);
+      }
+      throw new ConflictException('This claim already has an active driver assignment');
+    }
+
+    const driver = await this.prisma.user.findUnique({
+      where: { id: driverId },
+      select: { firstName: true, lastName: true },
+    });
+    const driverName = driver ? `${driver.firstName} ${driver.lastName}` : 'A driver';
+
+    await this.notifyCharityDriverDeclined({
+      claimantOrgId: claim.claimantOrgId,
+      claimId: claim.id,
+      driverName,
+    });
+
+    this.logger.log(`Driver ${driverId} declined available claim ${claimId}`);
+    return { message: 'Declined. The charity has been notified.' };
+  }
+
+  private async notifyCharityDriverDeclined(params: {
+    claimantOrgId: number;
+    claimId: number;
+    pickupId?: number;
+    driverName: string;
+  }): Promise<void> {
+    const charityUserIds = await this.getOrgUserIds(params.claimantOrgId);
+    if (charityUserIds.length === 0) {
+      this.logger.warn(
+        `notifyCharityDriverDeclined: no users for org=${params.claimantOrgId} claim=${params.claimId}`,
+      );
+      return;
+    }
+
+    await this.notificationService
+      .send({
+        title: 'Driver declined',
+        body: 'Your nominated driver has declined — choose another or pick up myself',
+        data: {
+          ...(params.pickupId != null ? { pickupId: String(params.pickupId) } : {}),
+          claimId: String(params.claimId),
+          type: 'driver_rejected',
+          driverName: params.driverName,
+          deepLink: 'available',
+        },
+        targetUserIds: charityUserIds.map(String),
+        targetApp: 'business',
+        allowEmptyTargets: true,
+        priority: 'high',
+      })
+      .catch((err) =>
+        this.logger.warn(`notifyDriverRejected non-critical error: ${err.message}`),
+      );
   }
 
   /**

@@ -39,7 +39,7 @@ export class ClaimsCacheManager {
   }
 
   async invalidateMyClaims(orgId: number): Promise<void> {
-    await this.redis.del(K.MY_CLAIMS(orgId, 1));
+    await this.redis.deleteByPattern(`claims:org:v3:${orgId}:*`);
   }
 
   async invalidateListing(listingId: number): Promise<void> {
@@ -50,9 +50,9 @@ export class ClaimsCacheManager {
     await this.redis.del(K.RECENT_PAGE1());
   }
 
-  /** Bust restaurant org listings page 1 (provider feedback / claim changes). */
+  /** Bust restaurant org listings (provider feedback / claim changes). */
   async invalidateOrgListings(orgId: number): Promise<void> {
-    await this.redis.del(`listing:org:v3:${orgId}:p1`);
+    await this.redis.deleteByPattern(`listing:org:v3:${orgId}:*`);
   }
 
   /** Bust all nearby Available Food caches after claim mutations. */

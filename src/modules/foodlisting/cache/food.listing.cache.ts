@@ -40,9 +40,9 @@ export class FoodListingCacheManager {
     await this.redis.setJson(K.ORG_PAGE(orgId, page), data, TTL.ORG_PAGE);
   }
 
-  // On create/update invalidate page 1 only — further pages go stale by TTL
+  // Invalidate all cached org listing pages after claim/collection mutations.
   async invalidateOrgPage1(orgId: number): Promise<void> {
-    await this.redis.del(K.ORG_PAGE(orgId, 1));
+    await this.redis.deleteByPattern(`listing:org:v3:${orgId}:*`);
   }
 
   async getRecentPage<T>(page: number): Promise<T | null> {

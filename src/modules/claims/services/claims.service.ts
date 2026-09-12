@@ -302,6 +302,7 @@ export class ClaimsService {
             organisation: { select: { name: true } },
           },
         },
+        claimantOrg: { select: { name: true } },
       },
     });
 
@@ -361,15 +362,19 @@ export class ClaimsService {
     const totalClaimedKg = claim.claimItems.reduce((sum, item) => sum + item.qtyKg, 0);
 
     if (liveUserIds.length) {
+      const restaurantName = claim.listing.organisation.name;
+      const charityName = claim.claimantOrg.name;
       await this.notificationService
         .send({
           title: 'Pickup available!',
-          body: `${totalClaimedKg}kg ready for collection from ${claim.listing.organisation.name}`,
+          body: `${totalClaimedKg}kg ready for collection from ${restaurantName} for delivery to ${charityName}`,
           data: {
             claimId: String(claim.id),
             listingId: String(claim.listing.id),
             type: 'pickup_available',
             claimMode: claim.claimMode,
+            restaurantName,
+            claimantOrgName: charityName,
           },
           targetUserIds: liveUserIds.map(String),
           targetApp: 'driver',
@@ -1106,6 +1111,34 @@ export class ClaimsService {
       }),
       this.prisma.foodClaim.count({ where }),
     ]);
+
+    // Heal: driver already COLLECTED but claim row never flipped (legacy completePickup bug).
+    let healed = false;
+    for (const claim of claims) {
+      if (claim.status === ClaimStatus.COLLECTED || claim.status === ClaimStatus.CANCELLED) {
+        continue;
+      }
+      const collectedPickup = claim.driverPickups.find(
+        (p) => p.status === DriverPickupStatus.COLLECTED,
+      );
+      if (!collectedPickup) continue;
+
+      await this.prisma.foodClaim.update({
+        where: { id: claim.id },
+        data: {
+          status: ClaimStatus.COLLECTED,
+          collectedAt: collectedPickup.collectedAt ?? new Date(),
+        },
+      });
+      (claim as { status: ClaimStatus }).status = ClaimStatus.COLLECTED;
+      (claim as { collectedAt: Date | null }).collectedAt =
+        collectedPickup.collectedAt ?? new Date();
+      healed = true;
+    }
+
+    if (healed) {
+      await this.cache.invalidateMyClaims(caller.orgId!).catch(() => undefined);
+    }
 
     const result = { claims, total, page, limit, totalPages: Math.ceil(total / limit) };
 

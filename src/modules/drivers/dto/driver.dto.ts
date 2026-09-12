@@ -42,6 +42,11 @@ export class AcceptPickupDto {
   listingId!: number;
 }
 
+export class DeclineAvailablePickupDto {
+  @IsNumber()
+  claimId!: number;
+}
+
 export class UpdatePickupStatusDto {
   @IsEnum(DriverPickupStatus)
   status!: DriverPickupStatus;
