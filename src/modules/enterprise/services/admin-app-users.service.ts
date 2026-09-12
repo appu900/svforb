@@ -179,15 +179,21 @@ export class AdminAppUsersService {
             select: {
               id: true,
               status: true,
+              listingType: true,
+              totalQtyKg: true,
+              remainingQtyKg: true,
               pickupAddress: true,
+              pickupPostcode: true,
               pickupFromTime: true,
               pickupByTime: true,
-              organisation: { select: { id: true, name: true } },
-              site: { select: { id: true, name: true, organisationName: true } },
-              foodItems: { select: { name: true } },
+              bestBefore: true,
+              createdAt: true,
+              organisation: { select: { id: true, name: true, organizationType: true } },
+              site: { select: { id: true, name: true, organisationName: true, address: true } },
+              foodItems: { select: { name: true, totalQtyKg: true } },
             },
           },
-          claimItems: true,
+          claimItems: { include: { foodItem: { select: { name: true, unit: true } } } },
           driverPickups: {
             orderBy: { createdAt: 'desc' },
             take: 1,
@@ -321,16 +327,22 @@ export class AdminAppUsersService {
     createdAt: Date;
     collectedAt: Date | null;
     confirmedAt: Date | null;
-    claimItems: Array<{ qtyKg: number }>;
+    claimItems: Array<{ qtyKg: number; foodItem?: { name: string; unit: string | null } | null }>;
     listing: {
       id: number;
       status: string;
+      listingType: string;
+      totalQtyKg: number;
+      remainingQtyKg: number;
       pickupAddress: string;
+      pickupPostcode: string | null;
       pickupFromTime: Date | null;
       pickupByTime: Date | null;
-      organisation: { id: number; name: string };
-      site: { id: number; name: string | null; organisationName: string };
-      foodItems: Array<{ name: string }>;
+      bestBefore: Date;
+      createdAt: Date;
+      organisation: { id: number; name: string; organizationType: OrgType };
+      site: { id: number; name: string | null; organisationName: string; address: string };
+      foodItems: Array<{ name: string; totalQtyKg: number }>;
     };
     driverPickups: Array<{
       status: string;
@@ -338,16 +350,31 @@ export class AdminAppUsersService {
       driver: { id: number; firstName: string; lastName: string; email: string; phoneNumber: string };
     }>;
   }) {
+    const items = claim.claimItems.length
+      ? claim.claimItems.map((item) => ({
+          name: item.foodItem?.name || 'Item',
+          totalQtyKg: item.qtyKg,
+        }))
+      : claim.listing.foodItems.map((item) => ({ name: item.name, totalQtyKg: item.totalQtyKg }));
     return {
       ...this.shapeClaim(claim),
       listingId: claim.listing.id,
       listingStatus: claim.listing.status,
+      listingType: claim.listing.listingType,
+      listingCreatedAt: claim.listing.createdAt,
+      bestBefore: claim.listing.bestBefore,
+      listingTotalKg: claim.listing.totalQtyKg,
+      listingRemainingKg: claim.listing.remainingQtyKg,
       providerName: claim.listing.organisation.name,
+      providerType: TYPE_LABEL[claim.listing.organisation.organizationType],
       pickupAddress: claim.listing.pickupAddress,
+      pickupPostcode: claim.listing.pickupPostcode,
       pickupFromTime: claim.listing.pickupFromTime,
       pickupByTime: claim.listing.pickupByTime,
-      food: claim.listing.foodItems.map((item) => item.name).filter(Boolean).join(', ') || 'Listing',
+      food: items.map((item) => item.name).filter(Boolean).join(', ') || 'Listing',
       siteName: claim.listing.site.name || claim.listing.site.organisationName,
+      siteAddress: claim.listing.site.address,
+      items,
     };
   }
 
