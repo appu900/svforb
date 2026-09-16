@@ -6,6 +6,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -34,6 +35,18 @@ export class S3Service {
     );
 
     return `https://${this.bucket}.s3.${this.configService.get('AWS_REGION')}.amazonaws.com/${key}`;
+  }
+
+  async createPresignedPut(folder: string, contentType: string, ext: string) {
+    const key = `${folder}/${randomUUID()}.${ext}`;
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ContentType: contentType,
+    });
+    const uploadUrl = await getSignedUrl(this.s3Client, command, { expiresIn: 300 });
+    const url = `https://${this.bucket}.s3.${this.configService.get('AWS_REGION')}.amazonaws.com/${key}`;
+    return { uploadUrl, url };
   }
 
   async deleteFile(fileUrl: string): Promise<void> {

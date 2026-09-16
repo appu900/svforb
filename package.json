@@ -24,7 +24,8 @@
     "docs:openapi": "nest build && node dist/scripts/generate-openapi.js"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1025.0",
+    "@aws-sdk/client-s3": "^3.1133.0",
+    "@aws-sdk/s3-request-presigner": "^3.1133.0",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",

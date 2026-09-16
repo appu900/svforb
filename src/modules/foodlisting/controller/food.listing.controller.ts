@@ -17,7 +17,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
-import { CreateFoodListingDto } from '../dto/food.listing.dto';
+import { CreateFoodListingDto, PresignListingPhotoDto } from '../dto/food.listing.dto';
 import { FoodListingService } from '../services/food.listing.service';
 import { SiteNotificationService } from '../services/site.notification.service';
 import { ListingStatus } from '@prisma/client';
@@ -31,6 +31,11 @@ export class FoodListingController {
     private readonly service: FoodListingService,
     private readonly notificationService: SiteNotificationService,
   ) {}
+
+  @Post('photos')
+  presignPhoto(@Body() dto: PresignListingPhotoDto) {
+    return this.service.presignListingPhoto(dto.contentType);
+  }
 
   @Post()
   @UseInterceptors(FilesInterceptor('photos', 5))

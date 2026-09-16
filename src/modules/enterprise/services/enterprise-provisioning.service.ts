@@ -406,7 +406,7 @@ export class EnterpriseProvisioningService {
       ]),
     );
 
-    const [memberships, invitations, siteAccesses] = await Promise.all([
+    const [memberships, invitations, siteAccesses, userScopes] = await Promise.all([
       this.prisma.orgMemeberShip.findMany({
         where: { organisationId: { in: orgIds } },
         orderBy: [{ organisationId: 'asc' }, { joinedAt: 'asc' }],
@@ -431,27 +431,51 @@ export class EnterpriseProvisioningService {
         include: { scopes: { select: { scopeType: true, scopeId: true } } },
       }),
       this.prisma.siteAccess.findMany({
-        where: { organisationId: { in: orgIds }, siteRole: 'SITE_ADMIN' },
-        select: { userId: true, siteId: true },
+        where: { organisationId: { in: orgIds } },
+        select: { userId: true, siteId: true, organisationId: true },
+      }),
+      this.prisma.userScope.findMany({
+        where: { organisationId: { in: orgIds } },
+        select: { userId: true, organisationId: true, scopeType: true, scopeId: true },
       }),
     ]);
 
-    const sitesByUser = new Map<number, number[]>();
+    const sitesByUser = new Map<string, number[]>();
     for (const row of siteAccesses) {
-      const list = sitesByUser.get(row.userId) ?? [];
+      const key = `${row.userId}:${row.organisationId}`;
+      const list = sitesByUser.get(key) ?? [];
       list.push(row.siteId);
-      sitesByUser.set(row.userId, list);
+      sitesByUser.set(key, list);
+    }
+
+    const scopesByUser = new Map<string, Array<{ scopeType: string; scopeId: number | null }>>();
+    for (const row of userScopes) {
+      const key = `${row.userId}:${row.organisationId}`;
+      const list = scopesByUser.get(key) ?? [];
+      list.push({ scopeType: row.scopeType, scopeId: row.scopeId });
+      scopesByUser.set(key, list);
     }
 
     return {
       users: memberships.map((membership) => {
         const meta = orgMeta.get(membership.organisationId);
+        const key = `${membership.user.id}:${membership.organisationId}`;
+        const scopes = scopesByUser.get(key) ?? [];
+        const siteIds = [
+          ...new Set([
+            ...(sitesByUser.get(key) ?? []),
+            ...scopes
+              .filter((scope) => scope.scopeType === 'SITE' && scope.scopeId != null)
+              .map((scope) => scope.scopeId as number),
+          ]),
+        ];
         return {
           ...this.shapeMember(membership),
           organisationId: membership.organisationId,
           organisationName: meta?.name ?? '',
           enterpriseId: meta?.enterpriseId ?? null,
-          siteIds: sitesByUser.get(membership.user.id) ?? [],
+          scopes,
+          siteIds,
         };
       }),
       invitations: invitations.map((row) => {
@@ -474,6 +498,7 @@ export class EnterpriseProvisioningService {
           firstName: row.firstName,
           lastName: row.lastName,
           email: row.email,
+          mobile: row.mobile,
           role: row.enterpriseRole,
           roleLabel: this.roleLabel(row.enterpriseRole),
           status: 'INVITED' as const,

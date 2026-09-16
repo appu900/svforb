@@ -53,6 +53,25 @@ export class FoodListingService {
     private readonly enterpriseScope: EnterpriseScopeService,
   ) {}
 
+  async presignListingPhoto(contentType: string) {
+    const mime = String(contentType || '').trim().toLowerCase();
+    const allowed: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
+      'image/gif': 'gif',
+    };
+    const ext = allowed[mime];
+    if (!ext) {
+      throw new BadRequestException('Only image uploads are allowed');
+    }
+    const type = mime === 'image/jpg' ? 'image/jpeg' : mime;
+    return this.s3.createPresignedPut(PHOTO_FOLDER, type, ext);
+  }
+
   async createListing(
     caller: Jwtpayload,
     dto: CreateFoodListingDto,

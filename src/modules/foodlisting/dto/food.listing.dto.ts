@@ -127,3 +127,9 @@ export class CreateFoodListingDto {
   @Type(() => CreateFoodItemDto)
   foodItems!: CreateFoodItemDto[];
 }
+
+export class PresignListingPhotoDto {
+  @IsString()
+  @IsNotEmpty()
+  contentType!: string;
+}
