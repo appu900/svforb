@@ -69,6 +69,8 @@ export const BILLING_ERROR = {
   /// change-plan was called by an org with nothing to change from — use checkout
   NO_ACTIVE_SUBSCRIPTION: 'NO_ACTIVE_SUBSCRIPTION',
   ALREADY_ON_PLAN: 'ALREADY_ON_PLAN',
+  /// Upgrading off a card-less free trial — collect a card before charging
+  PAYMENT_METHOD_REQUIRED: 'PAYMENT_METHOD_REQUIRED',
   SITE_LIMIT_REACHED: 'SITE_LIMIT_REACHED',
   USER_LIMIT_REACHED: 'USER_LIMIT_REACHED',
   FEATURE_NOT_IN_PLAN: 'FEATURE_NOT_IN_PLAN',
