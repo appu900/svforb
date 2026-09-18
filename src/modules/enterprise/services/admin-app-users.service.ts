@@ -57,7 +57,23 @@ export class AdminAppUsersService {
       orderBy: { joinedAt: 'desc' },
     });
 
-    const users = memberships.map((row) => {
+    const accesses = memberships.length
+      ? await this.prisma.siteAccess.findMany({
+          where: {
+            organisationId: { in: [...new Set(memberships.map((row) => row.organisationId))] },
+            userId: { in: [...new Set(memberships.map((row) => row.user.id))] },
+          },
+          select: { userId: true, organisationId: true, siteRole: true },
+        })
+      : [];
+    const siteRoleByMember = new Map<string, string>();
+    for (const row of accesses) {
+      const key = `${row.userId}:${row.organisationId}`;
+      const current = siteRoleByMember.get(key);
+      if (row.siteRole === 'DRIVER' || !current) siteRoleByMember.set(key, row.siteRole);
+    }
+
+    const members = memberships.map((row) => {
       const status = !row.user.isActive
         ? 'Deactivated'
         : row.user.lastLoginAt
@@ -65,6 +81,7 @@ export class AdminAppUsersService {
           : row.user.emailVerified
             ? 'Never signed in'
             : 'Unverified';
+      const siteRole = siteRoleByMember.get(`${row.user.id}:${row.organisation.id}`) ?? null;
       return {
         id: row.user.id,
         firstName: row.user.firstName,
@@ -79,6 +96,7 @@ export class AdminAppUsersService {
         createdAt: row.user.createdAt,
         joinedAt: row.joinedAt,
         orgRole: row.orgRole,
+        siteRole,
         organisationId: row.organisation.id,
         organisationName: row.organisation.name,
         organisationType: row.organisation.organizationType,
@@ -90,6 +108,7 @@ export class AdminAppUsersService {
       };
     });
 
+    const users = this.directoryUsers(members);
     const counts = {
       all: users.length,
       business_single: users.filter((row) => row.organisationType === 'BUSINESS_SINGLE').length,
@@ -102,7 +121,76 @@ export class AdminAppUsersService {
       farmer_consumer: users.filter((row) => row.organisationType === 'FARMER_CONSUMER').length,
     };
 
-    return { users, counts };
+    const appOrgs = await this.prisma.organisation.findMany({
+      where: { enterpriseProfile: { is: null } },
+      select: {
+        id: true,
+        name: true,
+        organizationType: true,
+        region: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const appOrgIds = appOrgs.map((row) => row.id);
+    const appSites = appOrgIds.length
+      ? await this.prisma.site.findMany({
+          where: { organisationId: { in: appOrgIds } },
+          select: {
+            id: true,
+            organisationId: true,
+            name: true,
+            organisationName: true,
+            address: true,
+            postcode: true,
+            isActive: true,
+            createdAt: true,
+            lastActivityAt: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        })
+      : [];
+    const sitesByOrg = new Map<number, typeof appSites>();
+    for (const site of appSites) {
+      const list = sitesByOrg.get(site.organisationId) ?? [];
+      list.push(site);
+      sitesByOrg.set(site.organisationId, list);
+    }
+    const usersByOrg = new Map<number, number>();
+    for (const row of members) {
+      usersByOrg.set(row.organisationId, (usersByOrg.get(row.organisationId) ?? 0) + 1);
+    }
+
+    const organisations = appOrgs.map((row) => {
+      const sites = sitesByOrg.get(row.id) ?? [];
+      return {
+        id: row.id,
+        name: row.name,
+        organisationType: row.organizationType,
+        organisationTypeLabel: TYPE_LABEL[row.organizationType],
+        region: row.region,
+        createdAt: row.createdAt,
+        users: usersByOrg.get(row.id) ?? 0,
+        siteCount: sites.length,
+        activeSiteCount: sites.filter((site) => site.isActive).length,
+      };
+    });
+
+    return {
+      users,
+      counts,
+      organisations,
+      sites: appSites.map((site) => ({
+        id: site.id,
+        organisationId: site.organisationId,
+        name: site.name || site.organisationName,
+        address: site.address,
+        postcode: site.postcode,
+        isActive: site.isActive,
+        createdAt: site.createdAt,
+        lastActivityAt: site.lastActivityAt,
+      })),
+    };
   }
 
   async getOrganisation(organisationId: number) {
@@ -110,6 +198,7 @@ export class AdminAppUsersService {
       where: { id: organisationId, enterpriseProfile: { is: null } },
       include: {
         subscription: { select: { status: true, plan: { select: { displayName: true } } } },
+        siteAccesses: { select: { userId: true, siteRole: true } },
         orgMemeberShips: {
           include: {
             user: {
@@ -229,22 +318,30 @@ export class AdminAppUsersService {
         plan: organisation.subscription?.plan.displayName ?? null,
         subscriptionStatus: organisation.subscription?.status ?? null,
       },
-      members: organisation.orgMemeberShips.map((row) => ({
-        id: row.user.id,
-        name: `${row.user.firstName} ${row.user.lastName}`.trim(),
-        email: row.user.email,
-        mobile: row.user.phoneNumber,
-        orgRole: row.orgRole,
-        status: !row.user.isActive
-          ? 'Deactivated'
-          : row.user.lastLoginAt
-            ? 'Active'
-            : row.user.emailVerified
-              ? 'Never signed in'
-              : 'Unverified',
-        lastLoginAt: row.user.lastLoginAt,
-        joinedAt: row.joinedAt,
-      })),
+      members: organisation.orgMemeberShips.map((row) => {
+        const siteRole =
+          organisation.siteAccesses.find((access) => access.userId === row.user.id && access.siteRole === 'DRIVER')
+            ?.siteRole ??
+          organisation.siteAccesses.find((access) => access.userId === row.user.id)?.siteRole ??
+          null;
+        return {
+          id: row.user.id,
+          name: `${row.user.firstName} ${row.user.lastName}`.trim(),
+          email: row.user.email,
+          mobile: row.user.phoneNumber,
+          orgRole: row.orgRole,
+          siteRole,
+          status: !row.user.isActive
+            ? 'Deactivated'
+            : row.user.lastLoginAt
+              ? 'Active'
+              : row.user.emailVerified
+                ? 'Never signed in'
+                : 'Unverified',
+          lastLoginAt: row.user.lastLoginAt,
+          joinedAt: row.joinedAt,
+        };
+      }),
       sites: sites.map((site) => ({
         id: site.id,
         name: site.name || site.organisationName,
@@ -421,5 +518,35 @@ export class AdminAppUsersService {
           }
         : null,
     };
+  }
+
+  private directoryUsers<T extends { organisationId: number; orgRole: string; siteRole?: string | null; joinedAt?: Date | string | null }>(
+    members: T[],
+  ): T[] {
+    const accountHolders = members.filter((row) => this.isAccountHolder(row.orgRole, row.siteRole));
+    const covered = new Set(accountHolders.map((row) => row.organisationId));
+    const fallbacks = new Map<number, T>();
+    for (const row of members) {
+      if (covered.has(row.organisationId) || this.isDriver(row.siteRole)) continue;
+      const current = fallbacks.get(row.organisationId);
+      if (!current) {
+        fallbacks.set(row.organisationId, row);
+        continue;
+      }
+      const currentJoined = current.joinedAt ? new Date(current.joinedAt).getTime() : Number.POSITIVE_INFINITY;
+      const nextJoined = row.joinedAt ? new Date(row.joinedAt).getTime() : Number.POSITIVE_INFINITY;
+      if (nextJoined < currentJoined) fallbacks.set(row.organisationId, row);
+    }
+    return [...accountHolders, ...fallbacks.values()];
+  }
+
+  private isAccountHolder(orgRole?: string | null, siteRole?: string | null) {
+    if (this.isDriver(siteRole)) return false;
+    const role = (orgRole || '').toUpperCase();
+    return role === 'SUPER_ADMIN' || role === 'ORG_ADMIN';
+  }
+
+  private isDriver(siteRole?: string | null) {
+    return (siteRole || '').toUpperCase() === 'DRIVER';
   }
 }
