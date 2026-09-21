@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { plainToInstance, Transform, Type } from 'class-transformer';
@@ -114,6 +115,12 @@ export class CreateFoodListingDto {
   @IsString({ each: true })
   @IsOptional()
   allergens?: string[];
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  collectionNotes?: string;
 
   @ParseJsonIfString()
   @IsArray()

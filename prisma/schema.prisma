@@ -630,6 +630,7 @@ model FoodListing {
   needsReheating     Boolean  @default(false)
   isSafeForDonation  Boolean  @default(true)
   allergens          String[] @default([])
+  collectionNotes    String?
 
   photoUrls String[]      @default([])
   status    ListingStatus @default(ACTIVE)

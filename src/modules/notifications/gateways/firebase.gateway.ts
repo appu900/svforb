@@ -15,6 +15,18 @@ const FIREBASE_APP_NAMES: Record<NotificationTargetApp, string> = {
   driver: 'saveful-b-driver',
 };
 
+/** Long pickup alarm — new orders only. Reviews and other alerts use the system sound. */
+const DRIVER_ORDER_ALERT_TYPES = new Set([
+  'claim_made_driver',
+  'pickup_available',
+  'driver_assigned',
+]);
+
+function isDriverOrderAlert(payload: FirebaseMessagePayload): boolean {
+  const type = payload.data?.type;
+  return !!type && DRIVER_ORDER_ALERT_TYPES.has(type);
+}
+
 @Injectable()
 export class FirebaseGateway implements OnModuleInit {
   private readonly logger = new Logger(FirebaseGateway.name);
@@ -139,6 +151,8 @@ export class FirebaseGateway implements OnModuleInit {
       invalidTokens: [],
     };
 
+    const useOrderAlarm = target === 'driver' && isDriverOrderAlert(payload);
+
     const message: admin.messaging.MulticastMessage = {
       tokens,
       notification: {
@@ -150,16 +164,16 @@ export class FirebaseGateway implements OnModuleInit {
       android: {
         priority: payload.android?.priority === 'normal' ? 'normal' : 'high',
         notification: {
-          // Driver app listens on pickup_alarm_v3 with custom pickup_alert sound.
+          // Long alarm only for new orders. Reviews and other driver alerts use the system sound.
           channelId:
             payload.android?.channelId ??
-            (target === 'driver' ? 'pickup_alarm_v3' : 'default'),
+            (useOrderAlarm ? 'pickup_alarm_v3' : 'default'),
           sound:
             payload.android?.sound ??
-            (target === 'driver' ? 'pickup_alert' : 'default'),
+            (useOrderAlarm ? 'pickup_alert' : 'default'),
           icon: 'notification_icon',
           color: target === 'driver' ? '#1B5E20' : '#4B2176',
-          ...(target === 'driver'
+          ...(useOrderAlarm
             ? { defaultVibrateTimings: true, priority: 'high' as const }
             : {}),
         },
@@ -169,7 +183,7 @@ export class FirebaseGateway implements OnModuleInit {
           aps: {
             sound:
               payload.apns?.sound ??
-              (target === 'driver' ? 'pickup_alert.wav' : 'default'),
+              (useOrderAlarm ? 'pickup_alert.wav' : 'default'),
             ...(payload.apns?.badge !== undefined ? { badge: payload.apns.badge } : {}),
             ...(payload.apns?.category ? { category: payload.apns.category } : {}),
           },

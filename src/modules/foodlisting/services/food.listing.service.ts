@@ -126,6 +126,7 @@ export class FoodListingService {
           needsReheating: dto.needsReheating ?? false,
           isSafeForDonation: dto.isSafeForDonation ?? true,
           allergens: dto.allergens ?? [],
+          collectionNotes: dto.collectionNotes?.trim() || null,
           photoUrls: uploadedUrls,
         },
       });
