@@ -17,6 +17,11 @@ export class AdminAppUsersController {
     return this.appUsers.list();
   }
 
+  @Get('activity')
+  listActivity() {
+    return this.appUsers.listActivity();
+  }
+
   @Get('organisations/:organisationId')
   getOrganisation(@Param('organisationId', ParseIntPipe) organisationId: number) {
     return this.appUsers.getOrganisation(organisationId);

@@ -520,6 +520,276 @@ export class AdminAppUsersService {
     };
   }
 
+  async listActivity() {
+    const orgs = await this.prisma.organisation.findMany({
+      where: { enterpriseProfile: { is: null } },
+      select: { id: true, name: true, organizationType: true, createdAt: true },
+    });
+    const orgIds = orgs.map((row) => row.id);
+    if (!orgIds.length) return { activity: [] };
+
+    const orgById = new Map(orgs.map((row) => [row.id, row]));
+    const [listings, claims, memberships, sites] = await Promise.all([
+      this.prisma.foodListing.findMany({
+        where: { organisationId: { in: orgIds } },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        select: {
+          id: true,
+          siteId: true,
+          status: true,
+          createdAt: true,
+          organisationId: true,
+          listingType: true,
+          recoveryPathway: true,
+          totalQtyKg: true,
+          remainingQtyKg: true,
+          pickupAddress: true,
+          pickupPostcode: true,
+          pickupFromTime: true,
+          pickupByTime: true,
+          bestBefore: true,
+          site: { select: { name: true, organisationName: true } },
+          foodItems: { select: { name: true, totalQtyKg: true }, take: 8 },
+        },
+      }),
+      this.prisma.foodClaim.findMany({
+        where: {
+          OR: [{ claimantOrgId: { in: orgIds } }, { listing: { organisationId: { in: orgIds } } }],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          collectedAt: true,
+          confirmedAt: true,
+          claimantOrgId: true,
+          claimItems: { select: { qtyKg: true, foodItem: { select: { name: true } } } },
+          listing: {
+            select: {
+              id: true,
+              siteId: true,
+              organisationId: true,
+              totalQtyKg: true,
+              remainingQtyKg: true,
+              listingType: true,
+              recoveryPathway: true,
+              site: { select: { name: true } },
+              foodItems: { select: { name: true, totalQtyKg: true }, take: 8 },
+              organisation: { select: { name: true } },
+            },
+          },
+          claimantOrg: { select: { id: true, name: true, organizationType: true } },
+        },
+      }),
+      this.prisma.orgMemeberShip.findMany({
+        where: {
+          organisationId: { in: orgIds },
+          user: { platformRole: { not: PlatformRole.PLATFORM_ADMIN } },
+        },
+        select: {
+          organisationId: true,
+          orgRole: true,
+          joinedAt: true,
+          user: {
+            select: { id: true, firstName: true, lastName: true, lastLoginAt: true },
+          },
+        },
+      }),
+      this.prisma.site.findMany({
+        where: { organisationId: { in: orgIds } },
+        select: { id: true, organisationId: true, name: true, organisationName: true, createdAt: true },
+      }),
+    ]);
+
+    const foodLabel = (items: Array<{ name: string }>) =>
+      items.map((item) => item.name).filter(Boolean).join(', ') || 'Food listing';
+    const pathwayOf = (listingType?: string | null, recoveryPathway?: string | null) => {
+      if (recoveryPathway === 'LIVESTOCK_FEED') return 'livestock';
+      if (recoveryPathway === 'CIRCULAR_RECOVERY') return 'circular';
+      if (recoveryPathway === 'BIOENERGY') return 'bioenergy';
+      if ((listingType || '').toUpperCase() === 'ANIMAL') return 'livestock';
+      return 'people';
+    };
+
+    const activity: Array<{
+      id: string;
+      at: Date;
+      kind: string;
+      detail: string;
+      organisationId: number;
+      organisationName: string;
+      organisationType: string;
+    }> = [];
+
+    for (const org of orgs) {
+      activity.push({
+        id: `app-org-${org.id}`,
+        at: org.createdAt,
+        kind: 'Organisation created',
+        detail: `${org.name} · ${TYPE_LABEL[org.organizationType]}`,
+        organisationId: org.id,
+        organisationName: org.name,
+        organisationType: org.organizationType,
+      });
+    }
+
+    for (const site of sites) {
+      const org = orgById.get(site.organisationId);
+      if (!org) continue;
+      activity.push({
+        id: `app-site-${site.id}`,
+        at: site.createdAt,
+        kind: 'Site added',
+        detail: `${site.name || site.organisationName} · ${org.name}`,
+        organisationId: org.id,
+        organisationName: org.name,
+        organisationType: org.organizationType,
+      });
+    }
+
+    for (const row of memberships) {
+      const org = orgById.get(row.organisationId);
+      if (!org) continue;
+      const name = `${row.user.firstName} ${row.user.lastName}`.trim() || 'User';
+      activity.push({
+        id: `app-user-${row.user.id}-${org.id}`,
+        at: row.joinedAt,
+        kind: row.orgRole === 'SUPER_ADMIN' ? 'Account owner added' : 'User added',
+        detail: `${name} · ${TYPE_LABEL[org.organizationType]}`,
+        organisationId: org.id,
+        organisationName: org.name,
+        organisationType: org.organizationType,
+      });
+      if (row.user.lastLoginAt) {
+        activity.push({
+          id: `app-login-${row.user.id}-${org.id}`,
+          at: row.user.lastLoginAt,
+          kind: 'User signed in',
+          detail: `${name} · ${TYPE_LABEL[org.organizationType]}`,
+          organisationId: org.id,
+          organisationName: org.name,
+          organisationType: org.organizationType,
+        });
+      }
+    }
+
+    for (const listing of listings) {
+      const org = orgById.get(listing.organisationId);
+      if (!org) continue;
+      const status = listing.status;
+      const kind =
+        status === 'EXPIRED'
+          ? 'Listing expired'
+          : status === 'CLAIMED' || status === 'PARTIAL'
+            ? 'Listing claimed'
+            : status === 'CANCELLED'
+              ? 'Listing cancelled'
+              : 'Listing published';
+      activity.push({
+        id: `app-list-${listing.id}`,
+        at: listing.createdAt,
+        kind,
+        detail: `${listing.site?.name || listing.site?.organisationName || org.name} · ${foodLabel(listing.foodItems)}`,
+        organisationId: org.id,
+        organisationName: org.name,
+        organisationType: org.organizationType,
+      });
+    }
+
+    for (const claim of claims) {
+      const claimant = claim.claimantOrg;
+      const provider = orgById.get(claim.listing.organisationId);
+      const at = claim.collectedAt ?? claim.confirmedAt ?? claim.createdAt;
+      const food = foodLabel(claim.listing.foodItems);
+      const siteName = claim.listing.site?.name || claim.listing.organisation.name;
+      if (claimant && orgById.has(claimant.id)) {
+        const kind =
+          claim.status === 'COLLECTED'
+            ? 'Collection completed'
+            : claim.status === 'CONFIRMED'
+              ? 'Collection confirmed'
+              : claim.status === 'CANCELLED'
+                ? 'Collection cancelled'
+                : 'Collection claimed';
+        activity.push({
+          id: `app-col-${claim.id}-${claimant.id}`,
+          at,
+          kind,
+          detail: `${siteName} · ${food}`,
+          organisationId: claimant.id,
+          organisationName: claimant.name,
+          organisationType: claimant.organizationType,
+        });
+      }
+      if (provider && provider.id !== claimant?.id) {
+        const kind = claim.status === 'COLLECTED' ? 'Listing collected' : 'Listing claimed';
+        activity.push({
+          id: `app-col-${claim.id}-${provider.id}`,
+          at,
+          kind,
+          detail: `${claimant?.name || 'Recipient'} · ${food}`,
+          organisationId: provider.id,
+          organisationName: provider.name,
+          organisationType: provider.organizationType,
+        });
+      }
+    }
+
+    return {
+      activity: activity
+        .filter((row) => row.at)
+        .sort((left, right) => right.at.getTime() - left.at.getTime())
+        .slice(0, 400)
+        .map((row) => ({
+          ...row,
+          at: row.at.toISOString(),
+        })),
+      listings: listings.map((listing) => ({
+        id: listing.id,
+        organisationId: listing.organisationId,
+        siteId: listing.siteId,
+        status: listing.status,
+        createdAt: listing.createdAt,
+        listingType: listing.listingType,
+        recoveryPathway: listing.recoveryPathway,
+        totalQtyKg: listing.totalQtyKg,
+        remainingQtyKg: listing.remainingQtyKg,
+        pickupAddress: listing.pickupAddress,
+        pickupPostcode: listing.pickupPostcode,
+        pickupFromTime: listing.pickupFromTime,
+        pickupByTime: listing.pickupByTime,
+        bestBefore: listing.bestBefore,
+        food: foodLabel(listing.foodItems),
+        foodItems: listing.foodItems,
+      })),
+      collections: claims.map((claim) => {
+        const kg = claim.claimItems.reduce((sum, item) => sum + (item.qtyKg ?? 0), 0);
+        return {
+          id: claim.id,
+          listingId: claim.listing.id,
+          organisationId: claim.listing.organisationId,
+          siteId: claim.listing.siteId,
+          recipientOrgId: claim.claimantOrgId,
+          recipientName: claim.claimantOrg?.name || 'Recipient',
+          status: claim.status,
+          createdAt: claim.createdAt,
+          collectedAt: claim.collectedAt,
+          confirmedAt: claim.confirmedAt,
+          quantityKg: kg || claim.listing.totalQtyKg || 0,
+          listingTotalKg: claim.listing.totalQtyKg,
+          listingRemainingKg: claim.listing.remainingQtyKg,
+          food: foodLabel(claim.listing.foodItems.length ? claim.listing.foodItems : claim.claimItems.map((item) => ({ name: item.foodItem?.name || 'Item' }))),
+          pathway: pathwayOf(claim.listing.listingType, claim.listing.recoveryPathway),
+          providerName: claim.listing.organisation.name,
+          siteName: claim.listing.site?.name || claim.listing.organisation.name,
+        };
+      }),
+    };
+  }
+
   private directoryUsers<T extends { organisationId: number; orgRole: string; siteRole?: string | null; joinedAt?: Date | string | null }>(
     members: T[],
   ): T[] {
