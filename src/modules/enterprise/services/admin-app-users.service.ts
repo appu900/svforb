@@ -198,7 +198,7 @@ export class AdminAppUsersService {
       where: { id: organisationId, enterpriseProfile: { is: null } },
       include: {
         subscription: { select: { status: true, plan: { select: { displayName: true } } } },
-        siteAccesses: { select: { userId: true, siteRole: true } },
+        siteAccesses: { select: { userId: true, siteId: true, siteRole: true } },
         orgMemeberShips: {
           include: {
             user: {
@@ -248,6 +248,7 @@ export class AdminAppUsersService {
           foodClaims: {
             include: {
               claimantOrg: { select: { id: true, name: true, organizationType: true } },
+              claimantSite: { select: { id: true, name: true, organisationName: true } },
               claimItems: true,
               driverPickups: {
                 orderBy: { createdAt: 'desc' },
@@ -264,6 +265,7 @@ export class AdminAppUsersService {
         where: { claimantOrgId: organisationId },
         orderBy: { createdAt: 'desc' },
         include: {
+          claimantSite: { select: { id: true, name: true, organisationName: true } },
           listing: {
             select: {
               id: true,
@@ -319,10 +321,10 @@ export class AdminAppUsersService {
         subscriptionStatus: organisation.subscription?.status ?? null,
       },
       members: organisation.orgMemeberShips.map((row) => {
+        const access = organisation.siteAccesses.filter((item) => item.userId === row.user.id);
         const siteRole =
-          organisation.siteAccesses.find((access) => access.userId === row.user.id && access.siteRole === 'DRIVER')
-            ?.siteRole ??
-          organisation.siteAccesses.find((access) => access.userId === row.user.id)?.siteRole ??
+          access.find((item) => item.siteRole === 'DRIVER')?.siteRole ??
+          access[0]?.siteRole ??
           null;
         return {
           id: row.user.id,
@@ -331,6 +333,7 @@ export class AdminAppUsersService {
           mobile: row.user.phoneNumber,
           orgRole: row.orgRole,
           siteRole,
+          siteIds: [...new Set(access.map((item) => item.siteId))],
           status: !row.user.isActive
             ? 'Deactivated'
             : row.user.lastLoginAt
@@ -381,6 +384,7 @@ export class AdminAppUsersService {
       collectedAt: Date | null;
       confirmedAt: Date | null;
       claimantOrg: { id: number; name: string; organizationType: OrgType };
+      claimantSite?: { id: number; name: string | null; organisationName: string } | null;
       claimItems: Array<{ qtyKg: number }>;
       driverPickups: Array<{
         status: string;
@@ -483,6 +487,7 @@ export class AdminAppUsersService {
     collectedAt: Date | null;
     confirmedAt: Date | null;
     claimantOrg?: { id: number; name: string; organizationType: OrgType };
+    claimantSite?: { id: number; name: string | null; organisationName: string } | null;
     claimItems: Array<{ qtyKg: number }>;
     driverPickups: Array<{
       status: string;
@@ -507,7 +512,12 @@ export class AdminAppUsersService {
             type: TYPE_LABEL[claim.claimantOrg.organizationType],
           }
         : null,
-      collectedBy: claim.claimantOrg?.name ?? null,
+      claimantSiteId: claim.claimantSite?.id ?? null,
+      collectedBy:
+        claim.claimantSite?.name ||
+        claim.claimantSite?.organisationName ||
+        claim.claimantOrg?.name ||
+        null,
       driver: driver
         ? {
             id: driver.driver.id,
@@ -566,6 +576,7 @@ export class AdminAppUsersService {
           collectedAt: true,
           confirmedAt: true,
           claimantOrgId: true,
+          claimantSite: { select: { id: true, name: true, organisationName: true } },
           claimItems: { select: { qtyKg: true, foodItem: { select: { name: true } } } },
           listing: {
             select: {
@@ -773,7 +784,11 @@ export class AdminAppUsersService {
           organisationId: claim.listing.organisationId,
           siteId: claim.listing.siteId,
           recipientOrgId: claim.claimantOrgId,
-          recipientName: claim.claimantOrg?.name || 'Recipient',
+          recipientName:
+            claim.claimantSite?.name ||
+            claim.claimantSite?.organisationName ||
+            claim.claimantOrg?.name ||
+            'Recipient',
           status: claim.status,
           createdAt: claim.createdAt,
           collectedAt: claim.collectedAt,
