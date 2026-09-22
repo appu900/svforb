@@ -276,6 +276,12 @@ export class BillingService {
     // anchors the first paid period to today, so billing_cycle_anchor would
     // conflict with the still-open trial_end.
     const isTrialing = stripeSub.status === 'trialing';
+
+    // Ending a trial bills immediately, and the trial was started without a
+    // card. Say so here rather than quoting a price the customer cannot pay —
+    // otherwise the client renders a confirm button that is certain to fail.
+    const needsCard = isTrialing && !(await this.hasPaymentMethod(stripeSub));
+
     const subscriptionDetails: Stripe.InvoiceCreatePreviewParams.SubscriptionDetails =
       isTrialing
         ? {
@@ -309,7 +315,60 @@ export class BillingService {
       nextBillingDate: preview.period_end ? new Date(preview.period_end * 1000) : null,
       planDisplayName: newPlan.displayName,
       billingCycle: targetCycle,
+      /** True when the org must add a card before this change can be confirmed. */
+      requiresPaymentMethod: needsCard,
+      endsTrialEarly: isTrialing,
     };
+  }
+
+
+  /**
+   * Whether Stripe has something it can actually charge.
+   *
+   * The free trial is deliberately started without a card
+   * (`payment_method_collection: 'if_required'`), so a trialing org routinely
+   * has none. Ending that trial to bill them immediately fails at Stripe with
+   * `resource_missing` — this lets the caller say so before the customer is
+   * shown a price and a confirm button.
+   */
+  private async hasPaymentMethod(sub: Stripe.Subscription): Promise<boolean> {
+    if (sub.default_payment_method) return true;
+
+    const customerId =
+      typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
+    if (!customerId) return false;
+
+    try {
+      const customer = await this.stripeService.stripe.customers.retrieve(customerId);
+      if (customer.deleted) return false;
+      if (customer.invoice_settings?.default_payment_method) return true;
+      if (customer.default_source) return true;
+
+      const methods = await this.stripeService.stripe.paymentMethods.list({
+        customer: customerId,
+        limit: 1,
+      });
+      return methods.data.length > 0;
+    } catch (err) {
+      // Never block an upgrade because the lookup itself failed — let the
+      // update attempt proceed and surface Stripe's own answer.
+      this.logger.warn(
+        `Could not read payment methods for ${customerId}: ${(err as Error).message}`,
+      );
+      return true;
+    }
+  }
+
+  /** Sent when a trial upgrade needs a card first. */
+  private paymentMethodRequired(): never {
+    throw new BadRequestException({
+      statusCode: HttpStatus.BAD_REQUEST,
+      error: BILLING_ERROR.PAYMENT_METHOD_REQUIRED,
+      message:
+        'Add a payment method to upgrade. Your free trial started without one, ' +
+        'so there is no card to charge yet.',
+      action: 'OPEN_BILLING_PORTAL',
+    });
   }
 
   /** Drops a scheduled downgrade so the org stays on its current plan. */
@@ -344,6 +403,13 @@ export class BillingService {
     const itemId = stripeSub.items?.data?.[0]?.id;
     if (!itemId) {
       throw new BadRequestException('Your subscription has no billable item to change.');
+    }
+
+    // Refuse before the trial is ended rather than after. Stripe would reject
+    // the update anyway, but its message reads as a declined card, which is
+    // misleading for someone who never had one.
+    if (stripeSub.status === 'trialing' && !(await this.hasPaymentMethod(stripeSub))) {
+      this.paymentMethodRequired();
     }
 
     // Ending a trial anchors the first paid period to today on its own, so
@@ -838,6 +904,22 @@ export class BillingService {
       throw new BadRequestException(
         'We could not change your plan while your free trial is still active. Please try again, or contact support if this keeps happening.',
       );
+    }
+    // Checked before the generic card branch: "no attached payment source"
+    // contains the word "payment", and would otherwise be reported as a
+    // decline to someone who has never entered a card.
+    if (
+      lower.includes('no attached payment source') ||
+      lower.includes('no payment source') ||
+      lower.includes('default payment method')
+    ) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: BILLING_ERROR.PAYMENT_METHOD_REQUIRED,
+        message:
+          'Add a payment method to continue. There is no card on file to charge yet.',
+        action: 'OPEN_BILLING_PORTAL',
+      });
     }
     if (lower.includes('card') || lower.includes('payment') || lower.includes('insufficient')) {
       throw new BadRequestException(

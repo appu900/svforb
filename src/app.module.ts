@@ -21,6 +21,7 @@ import { ImpactModule } from './modules/impact/impact.module';
 import { FarmerConsumerModule } from './modules/farmer-consumer/farmer-consumer.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { EnterpriseModule } from './modules/enterprise/enterprise.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { EnterpriseModule } from './modules/enterprise/enterprise.module';
     FarmerConsumerModule,
     BillingModule,
     EnterpriseModule,
+    HealthModule
   ],
   controllers: [AppController],
   providers: [AppService],
