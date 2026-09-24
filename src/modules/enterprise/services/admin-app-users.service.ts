@@ -70,7 +70,7 @@ export class AdminAppUsersService {
     for (const row of accesses) {
       const key = `${row.userId}:${row.organisationId}`;
       const current = siteRoleByMember.get(key);
-      if (row.siteRole === 'DRIVER' || !current) siteRoleByMember.set(key, row.siteRole);
+      if (!current || current === 'DRIVER') siteRoleByMember.set(key, row.siteRole);
     }
 
     const members = memberships.map((row) => {
@@ -323,7 +323,7 @@ export class AdminAppUsersService {
       members: organisation.orgMemeberShips.map((row) => {
         const access = organisation.siteAccesses.filter((item) => item.userId === row.user.id);
         const siteRole =
-          access.find((item) => item.siteRole === 'DRIVER')?.siteRole ??
+          access.find((item) => item.siteRole !== 'DRIVER')?.siteRole ??
           access[0]?.siteRole ??
           null;
         return {
@@ -812,7 +812,7 @@ export class AdminAppUsersService {
     const covered = new Set(accountHolders.map((row) => row.organisationId));
     const fallbacks = new Map<number, T>();
     for (const row of members) {
-      if (covered.has(row.organisationId) || this.isDriver(row.siteRole)) continue;
+      if (covered.has(row.organisationId)) continue;
       const current = fallbacks.get(row.organisationId);
       if (!current) {
         fallbacks.set(row.organisationId, row);
@@ -825,13 +825,9 @@ export class AdminAppUsersService {
     return [...accountHolders, ...fallbacks.values()];
   }
 
-  private isAccountHolder(orgRole?: string | null, siteRole?: string | null) {
-    if (this.isDriver(siteRole)) return false;
+  private isAccountHolder(orgRole?: string | null, _siteRole?: string | null) {
     const role = (orgRole || '').toUpperCase();
     return role === 'SUPER_ADMIN' || role === 'ORG_ADMIN';
   }
 
-  private isDriver(siteRole?: string | null) {
-    return (siteRole || '').toUpperCase() === 'DRIVER';
-  }
 }

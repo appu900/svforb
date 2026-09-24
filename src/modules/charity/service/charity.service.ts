@@ -530,11 +530,19 @@ export class CharityService {
       where: { email: dto.email.toLowerCase() },
     });
 
+    if (dto.role === CharityMemberRole.DRIVER && existingUser) {
+      throw new ConflictException(
+        'This email already has an account. A driver must use a different email so the owner stays the site admin.',
+      );
+    }
+
+    let existingMembership: { orgRole: OrgRole } | null = null;
     if (existingUser) {
-      const membership = await this.prisma.orgMemeberShip.findFirst({
+      existingMembership = await this.prisma.orgMemeberShip.findFirst({
         where: { userId: existingUser.id, organisationId: caller.orgId },
+        select: { orgRole: true },
       });
-      if (!membership) {
+      if (!existingMembership) {
         throw new ConflictException(
           'This email is already registered and does not belong to your organisation',
         );
@@ -576,7 +584,13 @@ export class CharityService {
             },
           },
           create: { userId: user.id, organisationId: caller.orgId!, orgRole },
-          update: { orgRole },
+          // A location role must not replace the account owner. Login stays
+          // on this same user; owner and driver are not two accounts.
+          update:
+            existingMembership?.orgRole === OrgRole.SUPER_ADMIN ||
+            existingMembership?.orgRole === OrgRole.ORG_ADMIN
+              ? {}
+              : { orgRole },
         });
 
         await tx.user.update({
@@ -586,6 +600,13 @@ export class CharityService {
       }
 
       if (siteRole && dto.locationId) {
+        const currentAccess = await tx.siteAccess.findUnique({
+          where: { userId_siteId: { userId: user.id, siteId: dto.locationId } },
+          select: { siteRole: true },
+        });
+        const keepAdmin =
+          currentAccess?.siteRole === SiteRole.SITE_ADMIN &&
+          siteRole === SiteRole.DRIVER;
         await tx.siteAccess.upsert({
           where: { userId_siteId: { userId: user.id, siteId: dto.locationId } },
           create: {
@@ -596,11 +617,13 @@ export class CharityService {
             grantedBy: caller.sub,
             canClaimPickupsDirectly: dto.canClaimPickupsDirectly ?? false,
           },
-          update: {
-            siteRole,
-            grantedBy: caller.sub,
-            canClaimPickupsDirectly: dto.canClaimPickupsDirectly ?? false,
-          },
+          update: keepAdmin
+            ? { canClaimPickupsDirectly: dto.canClaimPickupsDirectly ?? false }
+            : {
+                siteRole,
+                grantedBy: caller.sub,
+                canClaimPickupsDirectly: dto.canClaimPickupsDirectly ?? false,
+              },
         });
       }
 
