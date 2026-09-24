@@ -228,6 +228,11 @@ export class ProximityService {
       WHERE
         fl.status IN ('ACTIVE', 'PARTIAL')
         AND o.region = ${region}::"Region"
+        -- This endpoint is unauthenticated and its results are cached by
+        -- location alone, so there is no viewer to compare against. Reserved
+        -- collections are excluded outright rather than risk one charity's
+        -- cached page showing another's exclusive listing.
+        AND fl."exclusiveToOrgId" IS NULL
         AND fl."bestBefore" > NOW()
         AND (fl."pickupByTime" IS NULL OR fl."pickupByTime" > NOW())
         AND fl."pickupLat" IS NOT NULL

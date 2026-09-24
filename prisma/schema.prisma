@@ -383,6 +383,9 @@ model Organisation {
   enterpriseReports     EnterpriseReport[]
   siteImportJobs        SiteImportJob[]
   groupSites            GroupSite[]
+  donorConnections      Connection[] @relation("DonorOrgConnections")
+  receiverConnections   Connection[] @relation("ReceiverOrgConnections")
+  exclusiveListings     FoodListing[] @relation("ExclusiveToOrg")
 
   @@index([region])
   @@index([organizationType])
@@ -527,6 +530,11 @@ model Site {
   collectionEndTime      String?
   collectionInstructions String?
 
+  /// IANA zone, e.g. "Australia/Brisbane". Scheduled collections are resolved
+  /// in the site's own local time: a 4pm window is a different UTC instant in
+  /// Brisbane, Adelaide and Perth.
+  timezone String?
+
   /// Site Status is Active/Deactivated only — never derived from activity
   activatedAt    DateTime?
   deactivatedAt  DateTime?
@@ -537,6 +545,10 @@ model Site {
   updatedAt         DateTime           @updatedAt
   siteAccesses      siteAccess[]
   foodListings      FoodListing[]
+  /// Connections where this site is the food donor
+  donorConnections    Connection[] @relation("DonorSiteConnections")
+  /// Connections where this site is the collecting charity
+  receiverConnections Connection[] @relation("ReceiverSiteConnections")
   foodClaims        FoodClaim[]        @relation("ClaimantSiteClaims")
   siteNotifications SiteNotification[]
   clusterSite       ClusterSite?
@@ -641,6 +653,21 @@ model FoodListing {
 
   uniqueClaimantCount Int @default(0)
 
+  /// ─── Preferred Charity exclusivity ───────────────────────────────────────
+  /// A listing is exclusive while exclusiveToOrgId is set and releasedAt is
+  /// null. Every discovery path and the claim guard test that, so nothing else
+  /// in the network can see or take it until it is released.
+  connectionId     Int?
+  connection       Connection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  exclusiveToOrgId Int?
+  exclusiveToOrg   Organisation? @relation("ExclusiveToOrg", fields: [exclusiveToOrgId], references: [id], onDelete: SetNull)
+  exclusiveToSiteId Int?
+  /// Advisory deadline shown to the charity; the cut-off sweep is what acts.
+  exclusiveUntil   DateTime?
+  /// Set the moment it becomes an ordinary public listing. Never unset.
+  releasedAt       DateTime?
+  releasedReason   ListingReleaseReason?
+
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   foodItems         FoodItem[]
@@ -663,6 +690,8 @@ model FoodListing {
   @@index([snapshotClusterId])
   @@index([snapshotTerritoryId])
   @@index([pickupPostcode])
+  @@index([connectionId])
+  @@index([exclusiveToOrgId, releasedAt])
   @@index([status], map: "food_listings_active_idx", where: raw("(status = ANY (ARRAY['ACTIVE'::\"ListingStatus\", 'PARTIAL'::\"ListingStatus\"]))"))
   @@map("food_listings")
 }
@@ -1528,4 +1557,164 @@ model ImpactFactor {
   @@unique([key, pathway, effectiveFrom])
   @@index([key, effectiveFrom])
   @@map("impact_factors")
+}
+
+// ─── Preferred Charity / Connections ─────────────────────────────────────────
+
+enum ConnectionStatus {
+  /// Invitation sent, awaiting the other side
+  PENDING
+  ACTIVE
+  /// Temporarily suspended (holidays, closure). Schedule and stats survive.
+  PAUSED
+  DECLINED
+  /// Invitation was never answered
+  EXPIRED
+  ENDED
+}
+
+/// Who sent the invitation. Business-initiated is the only flow built today;
+/// the field exists so charity-initiated can be added without a migration.
+enum ConnectionInitiator {
+  BUSINESS
+  CHARITY
+}
+
+/// Display label for the schedule. `daysOfWeek` is always the source of truth.
+enum ConnectionFrequency {
+  DAILY
+  WEEKLY
+  SELECT_DAYS
+}
+
+/// Why an exclusive listing became public.
+enum ListingReleaseReason {
+  /// Charity tapped "Can't collect today"
+  CHARITY_DECLINED
+  /// Business answered the cut-off prompt
+  BUSINESS_RELEASED
+  /// Nobody answered; released automatically at the window start
+  AUTO_RELEASED
+  /// Preferred charity took part of it; the remainder went to the network
+  PARTIAL_REMAINDER
+}
+
+/// What happened on one scheduled day. Doubles as the reliability ledger.
+enum ConnectionDayOutcome {
+  /// Business was prompted; no surplus entered yet
+  PROMPTED
+  /// Listing published, exclusive to the charity
+  PUBLISHED
+  /// Business declared there is nothing today
+  NO_SURPLUS
+  /// Charity confirmed and collected
+  COLLECTED
+  /// Charity said no, or went silent, and it went to the network
+  RELEASED
+  /// Nobody acted and the window passed
+  MISSED
+}
+
+/// A standing agreement that one business site offers its surplus to one
+/// charity site first, on a schedule.
+///
+/// Deliberately per-site on both ends: the charity has to be local to that
+/// kitchen, each site finishes service at a different hour, and a multi-site
+/// business runs a different relationship in every city.
+model Connection {
+  id Int @id @default(autoincrement())
+
+  /// The food donor
+  donorSiteId Int
+  donorSite   Site @relation("DonorSiteConnections", fields: [donorSiteId], references: [id], onDelete: Cascade)
+  donorOrgId  Int
+  donorOrg    Organisation @relation("DonorOrgConnections", fields: [donorOrgId], references: [id], onDelete: Cascade)
+
+  /// The collecting charity
+  receiverSiteId Int
+  receiverSite   Site @relation("ReceiverSiteConnections", fields: [receiverSiteId], references: [id], onDelete: Cascade)
+  receiverOrgId  Int
+  receiverOrg    Organisation @relation("ReceiverOrgConnections", fields: [receiverOrgId], references: [id], onDelete: Cascade)
+
+  status      ConnectionStatus    @default(PENDING)
+  initiatedBy ConnectionInitiator @default(BUSINESS)
+
+  frequency ConnectionFrequency @default(SELECT_DAYS)
+  /// ISO weekdays, 1 = Monday … 7 = Sunday. Always populated, whatever the
+  /// frequency label says.
+  daysOfWeek Int[]
+
+  /// Local minutes from midnight at the donor site: 16:00 is 960. Storing
+  /// wall-clock rather than an instant is what makes a 4pm window mean 4pm in
+  /// every timezone the business operates in.
+  windowStartMinutes Int
+  windowEndMinutes   Int
+
+  /// How long before the window opens the business is asked what is available.
+  leadTimeMinutes Int @default(60)
+  /// How long before the window opens an unconfirmed listing escalates.
+  cutoffMinutes Int @default(30)
+
+  /// Free text shown on the invitation, e.g. "Prepared meals & bakery".
+  typicalSurplus String?
+  notes          String?
+
+  invitedByUserId   Int?
+  respondedByUserId Int?
+  respondedAt       DateTime?
+  pausedAt          DateTime?
+  endedAt           DateTime?
+  endedByUserId     Int?
+  /// Invitations that are never answered expire rather than sitting forever.
+  invitationExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  days     ConnectionDay[]
+  listings FoodListing[]
+
+  @@index([donorSiteId, status])
+  @@index([receiverSiteId, status])
+  @@index([donorOrgId])
+  @@index([receiverOrgId])
+  @@index([status])
+  @@map("connections")
+}
+
+/// One scheduled day of a Connection.
+///
+/// Created when the business is prompted, and updated as the day resolves. The
+/// unique constraint is what stops the five-minute sweep prompting twice, in
+/// the same way the invoice sweep uses (contractId, periodStart).
+model ConnectionDay {
+  id           Int        @id @default(autoincrement())
+  connectionId Int
+  connection   Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  /// The local calendar date at the donor site, normalised to UTC midnight.
+  scheduledDate DateTime
+  /// Resolved absolute instants for this specific day.
+  windowStartAt DateTime
+  windowEndAt   DateTime
+  cutoffAt      DateTime
+
+  outcome ConnectionDayOutcome @default(PROMPTED)
+
+  promptedAt  DateTime?
+  publishedAt DateTime?
+  respondedAt DateTime?
+  releasedAt  DateTime?
+
+  listingId Int?
+  /// Kilograms actually collected by the preferred charity on this day.
+  collectedKg Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([connectionId, scheduledDate])
+  @@index([outcome, cutoffAt])
+  @@index([outcome, windowStartAt])
+  @@map("connection_days")
 }

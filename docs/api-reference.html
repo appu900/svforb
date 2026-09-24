@@ -154,29 +154,34 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 </style>
-<div class="topbar"><div class="tb-inner"><span class="brand">Saveful <b>API</b></span><input id="filter" type="search" placeholder="Filter endpoints — try &ldquo;groups&rdquo; or &ldquo;POST&rdquo;" autocomplete="off" spellcheck="false"><span class="count" id="count">202 endpoints</span></div></div>
+<div class="topbar"><div class="tb-inner"><span class="brand">Saveful <b>API</b></span><input id="filter" type="search" placeholder="Filter endpoints — try &ldquo;groups&rdquo; or &ldquo;POST&rdquo;" autocomplete="off" spellcheck="false"><span class="count" id="count">243 endpoints</span></div></div>
 <div class="shell"><nav class="side"><p class="nav-h">Areas</p>
 <a href="#admin-sites" data-nav="admin-sites"><span>Admin · Sites</span><em>1</em></a>
+<a href="#adminappusers" data-nav="adminappusers"><span>AdminAppUsers</span><em>3</em></a>
+<a href="#adminenterprisestructure" data-nav="adminenterprisestructure"><span>AdminEnterpriseStructure</span><em>15</em></a>
 <a href="#auth" data-nav="auth"><span>Auth</span><em>12</em></a>
 <a href="#billing" data-nav="billing"><span>Billing</span><em>10</em></a>
 <a href="#charity" data-nav="charity"><span>Charity</span><em>15</em></a>
-<a href="#claims" data-nav="claims"><span>Claims</span><em>10</em></a>
-<a href="#driver" data-nav="driver"><span>Driver</span><em>12</em></a>
+<a href="#charityconnection" data-nav="charityconnection"><span>CharityConnection</span><em>6</em></a>
+<a href="#claims" data-nav="claims"><span>Claims</span><em>11</em></a>
+<a href="#connection" data-nav="connection"><span>Connection</span><em>10</em></a>
+<a href="#driver" data-nav="driver"><span>Driver</span><em>13</em></a>
 <a href="#driver-search" data-nav="driver-search"><span>Driver Search</span><em>2</em></a>
 <a href="#enterprise-activation-public" data-nav="enterprise-activation-public"><span>Enterprise · Activation (public)</span><em>2</em></a>
 <a href="#enterprise-contracts-invoices-admin" data-nav="enterprise-contracts-invoices-admin"><span>Enterprise · Contracts &amp; Invoices (admin)</span><em>9</em></a>
 <a href="#enterprise-invitations" data-nav="enterprise-invitations"><span>Enterprise · Invitations</span><em>3</em></a>
 <a href="#enterprise-invoices-customer" data-nav="enterprise-invoices-customer"><span>Enterprise · Invoices (customer)</span><em>1</em></a>
 <a href="#enterprise-organisation-profile" data-nav="enterprise-organisation-profile"><span>Enterprise · Organisation Profile</span><em>2</em></a>
-<a href="#enterprise-provisioning-saveful-admin" data-nav="enterprise-provisioning-saveful-admin"><span>Enterprise · Provisioning (Saveful admin)</span><em>10</em></a>
+<a href="#enterprise-provisioning-saveful-admin" data-nav="enterprise-provisioning-saveful-admin"><span>Enterprise · Provisioning (Saveful admin)</span><em>12</em></a>
 <a href="#enterprise-reporting" data-nav="enterprise-reporting"><span>Enterprise · Reporting</span><em>10</em></a>
 <a href="#enterprise-roles-permissions" data-nav="enterprise-roles-permissions"><span>Enterprise · Roles &amp; Permissions</span><em>1</em></a>
-<a href="#enterprise-sites-saveful-admin" data-nav="enterprise-sites-saveful-admin"><span>Enterprise · Sites (Saveful admin)</span><em>2</em></a>
+<a href="#enterprise-sites-saveful-admin" data-nav="enterprise-sites-saveful-admin"><span>Enterprise · Sites (Saveful admin)</span><em>3</em></a>
 <a href="#enterprise-structure" data-nav="enterprise-structure"><span>Enterprise · Structure</span><em>28</em></a>
 <a href="#enterprise-users" data-nav="enterprise-users"><span>Enterprise · Users</span><em>8</em></a>
 <a href="#farmer-consumer" data-nav="farmer-consumer"><span>Farmer &amp; Consumer</span><em>8</em></a>
-<a href="#food-listings" data-nav="food-listings"><span>Food Listings</span><em>10</em></a>
+<a href="#food-listings" data-nav="food-listings"><span>Food Listings</span><em>11</em></a>
 <a href="#geo-search" data-nav="geo-search"><span>Geo Search</span><em>1</em></a>
+<a href="#health" data-nav="health"><span>Health</span><em>1</em></a>
 <a href="#health" data-nav="health"><span>Health</span><em>1</em></a>
 <a href="#impact" data-nav="impact"><span>Impact</span><em>8</em></a>
 <a href="#notification" data-nav="notification"><span>Notification</span><em>12</em></a>
@@ -186,7 +191,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <a href="#stripe-webhook" data-nav="stripe-webhook"><span>Stripe Webhook</span><em>1</em></a>
 <a href="#subscriptions" data-nav="subscriptions"><span>Subscriptions</span><em>7</em></a>
 </nav><main class="main">
-<header class="hero"><p class="kick">Reference · generated from the running application</p><h1>Saveful for Business API</h1><p class="lede">202 endpoints across 29 areas. 177 require a bearer token, 25 are public. Every path below is prefixed <code>/api/v1</code>.</p><div class="howto"><p><b>Authenticate</b> — call <code>POST /auth/login</code>, then send the token on every other request:</p><pre><code>Authorization: Bearer &lt;token&gt;</code></pre><p><b>Enterprise endpoints</b> also require the organisation to be on the Enterprise plan and check the caller&rsquo;s role and scope. A <code>403</code> carrying <code>MISSING_PERMISSION</code> means the role is wrong; <code>OUTSIDE_SCOPE</code> means the role is right but the target is outside what the caller can reach.</p></div></header>
+<header class="hero"><p class="kick">Reference · generated from the running application</p><h1>Saveful for Business API</h1><p class="lede">243 endpoints across 34 areas. 217 require a bearer token, 26 are public. Every path below is prefixed <code>/api/v1</code>.</p><div class="howto"><p><b>Authenticate</b> — call <code>POST /auth/login</code>, then send the token on every other request:</p><pre><code>Authorization: Bearer &lt;token&gt;</code></pre><p><b>Enterprise endpoints</b> also require the organisation to be on the Enterprise plan and check the caller&rsquo;s role and scope. A <code>403</code> carrying <code>MISSING_PERMISSION</code> means the role is wrong; <code>OUTSIDE_SCOPE</code> means the role is right but the target is outside what the caller can reach.</p></div></header>
 <section class="grp" id="admin-sites">
 <h2>Admin · Sites <em>1</em></h2>
 <details class="ep" data-hay="get /api/v1/admin/sites list">
@@ -194,6 +199,194 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <div class="body">
 <p class="auth">Bearer token required</p>
 <p class="none">No parameters or request body.</p>
+</div></details>
+</section>
+<section class="grp" id="adminappusers">
+<h2>AdminAppUsers <em>3</em></h2>
+<details class="ep" data-hay="get /api/v1/admin/app-users list">
+<summary><span class="verb v-get">GET</span><code class="path">/api/v1/admin/app-users</code><span class="desc">List</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="none">No parameters or request body.</p>
+</div></details>
+<details class="ep" data-hay="get /api/v1/admin/app-users/activity list activity">
+<summary><span class="verb v-get">GET</span><code class="path">/api/v1/admin/app-users/activity</code><span class="desc">List activity</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="none">No parameters or request body.</p>
+</div></details>
+<details class="ep" data-hay="get /api/v1/admin/app-users/organisations/{organisationid} get organisation">
+<summary><span class="verb v-get">GET</span><code class="path">/api/v1/admin/app-users/organisations/{organisationId}</code><span class="desc">Get organisation</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+</section>
+<section class="grp" id="adminenterprisestructure">
+<h2>AdminEnterpriseStructure <em>15</em></h2>
+<details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/clusters create cluster">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/clusters</code><span class="desc">Create cluster</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>string</code></td><td>yes</td><td>max length 120</td></tr>
+<tr><td><code>code</code></td><td><code>string</code></td><td>no</td><td>max length 40</td></tr>
+<tr><td><code>description</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="patch /api/v1/admin/enterprise/{organisationid}/clusters/{id} update cluster">
+<summary><span class="verb v-patch">PATCH</span><code class="path">/api/v1/admin/enterprise/{organisationId}/clusters/{id}</code><span class="desc">Update cluster</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>string</code></td><td>no</td><td>max length 120</td></tr>
+<tr><td><code>code</code></td><td><code>string</code></td><td>no</td><td>max length 40</td></tr>
+<tr><td><code>description</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="delete /api/v1/admin/enterprise/{organisationid}/clusters/{id} delete cluster">
+<summary><span class="verb v-delete">DELETE</span><code class="path">/api/v1/admin/enterprise/{organisationId}/clusters/{id}</code><span class="desc">Delete cluster</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/clusters/{id}/deactivate deactivate cluster">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/clusters/{id}/deactivate</code><span class="desc">Deactivate cluster</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/clusters/{id}/reactivate reactivate cluster">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/clusters/{id}/reactivate</code><span class="desc">Reactivate cluster</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/groups create group">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/groups</code><span class="desc">Create group</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>string</code></td><td>yes</td><td>max length 120</td></tr>
+<tr><td><code>code</code></td><td><code>string</code></td><td>no</td><td>max length 40</td></tr>
+<tr><td><code>description</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="patch /api/v1/admin/enterprise/{organisationid}/groups/{id} update group">
+<summary><span class="verb v-patch">PATCH</span><code class="path">/api/v1/admin/enterprise/{organisationId}/groups/{id}</code><span class="desc">Update group</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>string</code></td><td>no</td><td>max length 120</td></tr>
+<tr><td><code>code</code></td><td><code>string</code></td><td>no</td><td>max length 40</td></tr>
+<tr><td><code>description</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="delete /api/v1/admin/enterprise/{organisationid}/groups/{id} delete group">
+<summary><span class="verb v-delete">DELETE</span><code class="path">/api/v1/admin/enterprise/{organisationId}/groups/{id}</code><span class="desc">Delete group</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/groups/{id}/deactivate deactivate group">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/groups/{id}/deactivate</code><span class="desc">Deactivate group</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/groups/{id}/reactivate reactivate group">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/groups/{id}/reactivate</code><span class="desc">Reactivate group</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/territories create territory">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/territories</code><span class="desc">Create territory</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>string</code></td><td>yes</td><td>max length 120</td></tr>
+<tr><td><code>code</code></td><td><code>string</code></td><td>no</td><td>max length 40</td></tr>
+<tr><td><code>description</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="patch /api/v1/admin/enterprise/{organisationid}/territories/{id} update territory">
+<summary><span class="verb v-patch">PATCH</span><code class="path">/api/v1/admin/enterprise/{organisationId}/territories/{id}</code><span class="desc">Update territory</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>string</code></td><td>no</td><td>max length 120</td></tr>
+<tr><td><code>code</code></td><td><code>string</code></td><td>no</td><td>max length 40</td></tr>
+<tr><td><code>description</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="delete /api/v1/admin/enterprise/{organisationid}/territories/{id} delete territory">
+<summary><span class="verb v-delete">DELETE</span><code class="path">/api/v1/admin/enterprise/{organisationId}/territories/{id}</code><span class="desc">Delete territory</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/territories/{id}/deactivate deactivate territory">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/territories/{id}/deactivate</code><span class="desc">Deactivate territory</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/territories/{id}/reactivate reactivate territory">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/territories/{id}/reactivate</code><span class="desc">Reactivate territory</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
 </div></details>
 </section>
 <section class="grp" id="auth">
@@ -204,6 +397,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <p class="auth">No authentication — public endpoint</p>
 <p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
 <tr><td><code>email</code></td><td><code>string (email)</code></td><td>yes</td><td>—</td></tr>
+<tr><td><code>targetApp</code></td><td><code>driver | business</code></td><td>no</td><td>—</td></tr>
 </tbody></table></div>
 </div></details>
 <details class="ep" data-hay="post /api/v1/auth/login login">
@@ -213,6 +407,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
 <tr><td><code>email</code></td><td><code>string (email)</code></td><td>yes</td><td>—</td></tr>
 <tr><td><code>password</code></td><td><code>string</code></td><td>yes</td><td>—</td></tr>
+<tr><td><code>targetApp</code></td><td><code>driver | business</code></td><td>no</td><td>—</td></tr>
 </tbody></table></div>
 </div></details>
 <details class="ep" data-hay="get /api/v1/auth/profile get profile">
@@ -592,8 +787,57 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 </tbody></table></div>
 </div></details>
 </section>
+<section class="grp" id="charityconnection">
+<h2>CharityConnection <em>6</em></h2>
+<details class="ep" data-hay="get /api/v1/charity/connections invitations and active relationships for this charity.">
+<summary><span class="verb v-get">GET</span><code class="path">/api/v1/charity/connections</code><span class="desc">Invitations and active relationships for this charity.</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="none">No parameters or request body.</p>
+</div></details>
+<details class="ep" data-hay="post /api/v1/charity/connections/days/{dayid}/cannot-collect &quot;can&#x27;t collect today&quot; — releases that day&#x27;s surplus to the network.">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/charity/connections/days/{dayId}/cannot-collect</code><span class="desc">&quot;Can&#x27;t collect today&quot; — releases that day&#x27;s surplus to the network.</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>dayId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="delete /api/v1/charity/connections/{id} end">
+<summary><span class="verb v-delete">DELETE</span><code class="path">/api/v1/charity/connections/{id}</code><span class="desc">End</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/charity/connections/{id}/accept accept">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/charity/connections/{id}/accept</code><span class="desc">Accept</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/charity/connections/{id}/decline decline">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/charity/connections/{id}/decline</code><span class="desc">Decline</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/charity/connections/{id}/pause pause">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/charity/connections/{id}/pause</code><span class="desc">Pause</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+</section>
 <section class="grp" id="claims">
-<h2>Claims <em>10</em></h2>
+<h2>Claims <em>11</em></h2>
 <details class="ep" data-hay="post /api/v1/claims claim">
 <summary><span class="verb v-post">POST</span><code class="path">/api/v1/claims</code><span class="desc">Claim</span></summary>
 <div class="body">
@@ -660,6 +904,18 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
 </tbody></table></div>
 </div></details>
+<details class="ep" data-hay="patch /api/v1/claims/{id}/driver-rating charity/farmer or food business rates the driver after delivery.">
+<summary><span class="verb v-patch">PATCH</span><code class="path">/api/v1/claims/{id}/driver-rating</code><span class="desc">Charity/farmer or food business rates the driver after delivery.</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>rating</code></td><td><code>number</code></td><td>yes</td><td>min 1, max 5</td></tr>
+<tr><td><code>ratingNote</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
+</tbody></table></div>
+</div></details>
 <details class="ep" data-hay="patch /api/v1/claims/{id}/provider-feedback restaurant confirms collection and rates the charity/farmer.">
 <summary><span class="verb v-patch">PATCH</span><code class="path">/api/v1/claims/{id}/provider-feedback</code><span class="desc">Restaurant confirms collection and rates the charity/farmer.</span></summary>
 <div class="body">
@@ -694,8 +950,115 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 </tbody></table></div>
 </div></details>
 </section>
+<section class="grp" id="connection">
+<h2>Connection <em>10</em></h2>
+<details class="ep" data-hay="post /api/v1/connections invite a charity to collect regularly from one site.">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/connections</code><span class="desc">Invite a charity to collect regularly from one site.</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>donorSiteId</code></td><td><code>number</code></td><td>yes</td><td>—</td></tr>
+<tr><td><code>receiverSiteId</code></td><td><code>number</code></td><td>yes</td><td>—</td></tr>
+<tr><td><code>daysOfWeek</code></td><td><code>number[]</code></td><td>yes</td><td>min 1 item(s)</td></tr>
+<tr><td><code>windowStart</code></td><td><code>string</code></td><td>yes</td><td>—</td></tr>
+<tr><td><code>windowEnd</code></td><td><code>string</code></td><td>yes</td><td>—</td></tr>
+<tr><td><code>leadTimeMinutes</code></td><td><code>number</code></td><td>no</td><td>min 0</td></tr>
+<tr><td><code>cutoffMinutes</code></td><td><code>number</code></td><td>no</td><td>min 0</td></tr>
+<tr><td><code>typicalSurplus</code></td><td><code>string</code></td><td>no</td><td>max length 200</td></tr>
+<tr><td><code>notes</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/connections/days/{dayid}/no-surplus nothing today — the charity is told rather than left waiting.">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/connections/days/{dayId}/no-surplus</code><span class="desc">Nothing today — the charity is told rather than left waiting.</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>dayId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/connections/days/{dayid}/release the business answering the cut-off prompt.">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/connections/days/{dayId}/release</code><span class="desc">The business answering the cut-off prompt.</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>dayId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/connections/days/{dayid}/surplus add surplus">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/connections/days/{dayId}/surplus</code><span class="desc">Add surplus</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>dayId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>items</code></td><td><code>SurplusItemDto[]</code></td><td>yes</td><td>min 1 item(s)</td></tr>
+<tr><td><code>items[].name</code></td><td><code>string</code></td><td>yes</td><td>max length 120</td></tr>
+<tr><td><code>items[].quantityKg</code></td><td><code>number</code></td><td>yes</td><td>min 0</td></tr>
+<tr><td><code>items[].category</code></td><td><code>string</code></td><td>no</td><td>max length 120</td></tr>
+<tr><td><code>collectionNotes</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="get /api/v1/connections/site/{siteid} every connection on a site, with its running totals.">
+<summary><span class="verb v-get">GET</span><code class="path">/api/v1/connections/site/{siteId}</code><span class="desc">Every Connection on a site, with its running totals.</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>siteId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="get /api/v1/connections/{id} get one">
+<summary><span class="verb v-get">GET</span><code class="path">/api/v1/connections/{id}</code><span class="desc">Get one</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="patch /api/v1/connections/{id} changing days or window returns the connection to pending re-acceptance.">
+<summary><span class="verb v-patch">PATCH</span><code class="path">/api/v1/connections/{id}</code><span class="desc">Changing days or window returns the Connection to pending re-acceptance.</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>daysOfWeek</code></td><td><code>number[]</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>windowStart</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>windowEnd</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>leadTimeMinutes</code></td><td><code>number</code></td><td>no</td><td>min 0</td></tr>
+<tr><td><code>cutoffMinutes</code></td><td><code>number</code></td><td>no</td><td>min 0</td></tr>
+<tr><td><code>typicalSurplus</code></td><td><code>string</code></td><td>no</td><td>max length 200</td></tr>
+<tr><td><code>notes</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="delete /api/v1/connections/{id} end">
+<summary><span class="verb v-delete">DELETE</span><code class="path">/api/v1/connections/{id}</code><span class="desc">End</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/connections/{id}/pause pause">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/connections/{id}/pause</code><span class="desc">Pause</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/connections/{id}/resume resume">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/connections/{id}/resume</code><span class="desc">Resume</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+</section>
 <section class="grp" id="driver">
-<h2>Driver <em>12</em></h2>
+<h2>Driver <em>13</em></h2>
 <details class="ep" data-hay="post /api/v1/drivers/live go live">
 <summary><span class="verb v-post">POST</span><code class="path">/api/v1/drivers/live</code><span class="desc">Go live</span></summary>
 <div class="body">
@@ -722,6 +1085,14 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
 <tr><td><code>claimId</code></td><td><code>number</code></td><td>yes</td><td>—</td></tr>
 <tr><td><code>listingId</code></td><td><code>number</code></td><td>yes</td><td>—</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/drivers/pickup/decline-available driver declines a broadcast &quot;pickup available&quot; alert (no assignment row yet).">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/drivers/pickup/decline-available</code><span class="desc">Driver declines a broadcast &quot;pickup available&quot; alert (no assignment row yet).</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>claimId</code></td><td><code>number</code></td><td>yes</td><td>—</td></tr>
 </tbody></table></div>
 </div></details>
 <details class="ep" data-hay="get /api/v1/drivers/pickups get my pickups">
@@ -781,7 +1152,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <tr><td><code>id</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
 </tbody></table></div>
 <p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
-<tr><td><code>status</code></td><td><code>CANCELLED | COLLECTED | ASSIGNED | ACCEPTED | EN_ROUTE | ARRIVED</code></td><td>yes</td><td>—</td></tr>
+<tr><td><code>status</code></td><td><code>CANCELLED | ACCEPTED | COLLECTED | ASSIGNED | EN_ROUTE | ARRIVED</code></td><td>yes</td><td>—</td></tr>
 </tbody></table></div>
 </div></details>
 <details class="ep" data-hay="get /api/v1/drivers/site/{siteid}/drivers all drivers for a site with online/offline status.">
@@ -1002,12 +1373,24 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 </div></details>
 </section>
 <section class="grp" id="enterprise-provisioning-saveful-admin">
-<h2>Enterprise · Provisioning (Saveful admin) <em>10</em></h2>
+<h2>Enterprise · Provisioning (Saveful admin) <em>12</em></h2>
 <details class="ep" data-hay="get /api/v1/admin/enterprise list">
 <summary><span class="verb v-get">GET</span><code class="path">/api/v1/admin/enterprise</code><span class="desc">List</span></summary>
 <div class="body">
 <p class="auth">Bearer token required</p>
 <p class="none">No parameters or request body.</p>
+</div></details>
+<details class="ep" data-hay="get /api/v1/admin/enterprise/audit list audit">
+<summary><span class="verb v-get">GET</span><code class="path">/api/v1/admin/enterprise/audit</code><span class="desc">List audit</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>search</code></td><td>query</td><td>no</td><td><code>string</code></td></tr>
+<tr><td><code>area</code></td><td>query</td><td>no</td><td><code>string</code></td></tr>
+<tr><td><code>organisationId</code></td><td>query</td><td>no</td><td><code>number</code></td></tr>
+<tr><td><code>limit</code></td><td>query</td><td>no</td><td><code>any</code></td></tr>
+<tr><td><code>page</code></td><td>query</td><td>no</td><td><code>any</code></td></tr>
+</tbody></table></div>
 </div></details>
 <details class="ep" data-hay="post /api/v1/admin/enterprise/logo upload logo">
 <summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/logo</code><span class="desc">Upload logo</span></summary>
@@ -1053,6 +1436,18 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <p class="auth">Bearer token required</p>
 <p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
 <tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="get /api/v1/admin/enterprise/{organisationid}/audit list organisation audit">
+<summary><span class="verb v-get">GET</span><code class="path">/api/v1/admin/enterprise/{organisationId}/audit</code><span class="desc">List organisation audit</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>search</code></td><td>query</td><td>no</td><td><code>string</code></td></tr>
+<tr><td><code>area</code></td><td>query</td><td>no</td><td><code>string</code></td></tr>
+<tr><td><code>limit</code></td><td>query</td><td>no</td><td><code>any</code></td></tr>
+<tr><td><code>page</code></td><td>query</td><td>no</td><td><code>any</code></td></tr>
 </tbody></table></div>
 </div></details>
 <details class="ep" data-hay="patch /api/v1/admin/enterprise/{organisationid}/provisioning account status, country, timezone, currency and units.">
@@ -1217,7 +1612,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 </div></details>
 </section>
 <section class="grp" id="enterprise-sites-saveful-admin">
-<h2>Enterprise · Sites (Saveful admin) <em>2</em></h2>
+<h2>Enterprise · Sites (Saveful admin) <em>3</em></h2>
 <details class="ep" data-hay="post /api/v1/admin/enterprise/{organisationid}/sites create site">
 <summary><span class="verb v-post">POST</span><code class="path">/api/v1/admin/enterprise/{organisationId}/sites</code><span class="desc">Create site</span></summary>
 <div class="body">
@@ -1235,6 +1630,33 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <tr><td><code>phoneNumber</code></td><td><code>string</code></td><td>no</td><td>max length 30</td></tr>
 <tr><td><code>latitude</code></td><td><code>number</code></td><td>yes</td><td>—</td></tr>
 <tr><td><code>longitude</code></td><td><code>number</code></td><td>yes</td><td>—</td></tr>
+<tr><td><code>collectionDays</code></td><td><code>mon | tue | wed | thu | fri | sat | sun[]</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>collectionStartTime</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>collectionEndTime</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>collectionInstructions</code></td><td><code>string</code></td><td>no</td><td>max length 500</td></tr>
+<tr><td><code>groupId</code></td><td><code>number</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>clusterId</code></td><td><code>number</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>territoryId</code></td><td><code>number</code></td><td>no</td><td>—</td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="patch /api/v1/admin/enterprise/{organisationid}/sites/{siteid} update site">
+<summary><span class="verb v-patch">PATCH</span><code class="path">/api/v1/admin/enterprise/{organisationId}/sites/{siteId}</code><span class="desc">Update site</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>organisationId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+<tr><td><code>siteId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
+</tbody></table></div>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>siteName</code></td><td><code>string</code></td><td>no</td><td>max length 160</td></tr>
+<tr><td><code>address</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>postcode</code></td><td><code>string</code></td><td>no</td><td>max length 20</td></tr>
+<tr><td><code>siteCode</code></td><td><code>string</code></td><td>no</td><td>max length 40</td></tr>
+<tr><td><code>contactName</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>contactEmail</code></td><td><code>string (email)</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>phoneNumber</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>latitude</code></td><td><code>number</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>longitude</code></td><td><code>number</code></td><td>no</td><td>—</td></tr>
 <tr><td><code>collectionDays</code></td><td><code>mon | tue | wed | thu | fri | sat | sun[]</code></td><td>no</td><td>—</td></tr>
 <tr><td><code>collectionStartTime</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
 <tr><td><code>collectionEndTime</code></td><td><code>string</code></td><td>no</td><td>—</td></tr>
@@ -1688,7 +2110,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 </div></details>
 </section>
 <section class="grp" id="food-listings">
-<h2>Food Listings <em>10</em></h2>
+<h2>Food Listings <em>11</em></h2>
 <details class="ep" data-hay="post /api/v1/food-listings create">
 <summary><span class="verb v-post">POST</span><code class="path">/api/v1/food-listings</code><span class="desc">Create</span></summary>
 <div class="body">
@@ -1710,6 +2132,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <tr><td><code>needsReheating</code></td><td><code>boolean</code></td><td>no</td><td>—</td></tr>
 <tr><td><code>isSafeForDonation</code></td><td><code>boolean</code></td><td>no</td><td>—</td></tr>
 <tr><td><code>allergens</code></td><td><code>string[]</code></td><td>no</td><td>—</td></tr>
+<tr><td><code>collectionNotes</code></td><td><code>string</code></td><td>no</td><td>max length 300</td></tr>
 <tr><td><code>photoUrls</code></td><td><code>string[]</code></td><td>no</td><td>—</td></tr>
 <tr><td><code>foodItems</code></td><td><code>CreateFoodItemDto[]</code></td><td>yes</td><td>—</td></tr>
 <tr><td><code>foodItems[].name</code></td><td><code>string</code></td><td>yes</td><td>—</td></tr>
@@ -1758,8 +2181,17 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <p class="lbl">Parameters</p><div class="tw"><table><thead><tr><th>Name</th><th>In</th><th>Required</th><th>Type</th></tr></thead><tbody>
 <tr><td><code>orgId</code></td><td>path</td><td>yes</td><td><code>number</code></td></tr>
 <tr><td><code>status</code></td><td>query</td><td>no</td><td><code>string</code></td></tr>
+<tr><td><code>fresh</code></td><td>query</td><td>no</td><td><code>string</code></td></tr>
 <tr><td><code>limit</code></td><td>query</td><td>no</td><td><code>any</code></td></tr>
 <tr><td><code>page</code></td><td>query</td><td>no</td><td><code>any</code></td></tr>
+</tbody></table></div>
+</div></details>
+<details class="ep" data-hay="post /api/v1/food-listings/photos presign photo">
+<summary><span class="verb v-post">POST</span><code class="path">/api/v1/food-listings/photos</code><span class="desc">Presign photo</span></summary>
+<div class="body">
+<p class="auth">Bearer token required</p>
+<p class="lbl">Request body</p><div class="tw"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Constraints</th></tr></thead><tbody>
+<tr><td><code>contentType</code></td><td><code>string</code></td><td>yes</td><td>—</td></tr>
 </tbody></table></div>
 </div></details>
 <details class="ep" data-hay="get /api/v1/food-listings/recent get recent">
@@ -1812,6 +2244,15 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 4px;
 <h2>Health <em>1</em></h2>
 <details class="ep" data-hay="get /api/v1 get hello">
 <summary><span class="verb v-get">GET</span><code class="path">/api/v1</code><span class="desc">Get hello</span><span class="pub">public</span></summary>
+<div class="body">
+<p class="auth">No authentication — public endpoint</p>
+<p class="none">No parameters or request body.</p>
+</div></details>
+</section>
+<section class="grp" id="health">
+<h2>Health <em>1</em></h2>
+<details class="ep" data-hay="get /api/v1/health get health">
+<summary><span class="verb v-get">GET</span><code class="path">/api/v1/health</code><span class="desc">Get health</span><span class="pub">public</span></summary>
 <div class="body">
 <p class="auth">No authentication — public endpoint</p>
 <p class="none">No parameters or request body.</p>

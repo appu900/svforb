@@ -22,6 +22,7 @@ import { ListingQueueService, resolveListingExpiryAt } from '../queues/listing.q
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 import { resolveCallerSiteId } from '../utils/resolve-caller-site';
+import { canAccessListing, ExclusivityView } from '../../connections/connection.rules';
 
 const PHOTO_FOLDER = 'food-listing-photos';
 const DEFAULT_LIMIT = 20;
@@ -40,6 +41,20 @@ type NearbyDistanceRow = {
   distanceKm: number;
 };
 
+
+/**
+ * A reserved Preferred Charity collection reads as not found to everyone but
+ * the charity it was offered to — an outsider should not be able to confirm
+ * that a listing exists by its id alone.
+ */
+function assertCanAccessListing(
+  listing: ExclusivityView,
+  viewerOrgId?: number | null,
+): void {
+  if (!canAccessListing(listing, viewerOrgId)) {
+    throw new NotFoundException('Listing not found');
+  }
+}
 
 @Injectable()
 export class FoodListingService {
@@ -352,9 +367,17 @@ export class FoodListingService {
     return result;
   }
 
-  async getListingById(id: number) {
+  /**
+   * `viewerOrgId` gates Preferred Charity collections: a reserved listing is
+   * readable only by the charity it was offered to, until it is released.
+   * Passing nothing means an anonymous viewer, who sees public listings only.
+   */
+  async getListingById(id: number, viewerOrgId?: number | null) {
     const cached = await this.cache.getListing(id);
-    if (cached) return cached;
+    if (cached) {
+      assertCanAccessListing(cached as ExclusivityView, viewerOrgId);
+      return cached;
+    }
 
     const listing = await this.prisma.foodListing.findUnique({
       where: { id },
@@ -388,6 +411,7 @@ export class FoodListingService {
     });
 
     if (!listing) throw new NotFoundException('Listing not found');
+    assertCanAccessListing(listing, viewerOrgId);
 
     await this.cache.setListing(id, listing);
     return listing;
@@ -517,6 +541,12 @@ export class FoodListingService {
           fl.status IN ('ACTIVE', 'PARTIAL')
           AND o.region = ${region}::"Region"
           AND fl."organisationId" <> ${claimantOrgId}
+          -- Preferred Charity: hide collections reserved for someone else.
+          AND (
+            fl."exclusiveToOrgId" IS NULL
+            OR fl."releasedAt" IS NOT NULL
+            OR fl."exclusiveToOrgId" = ${claimantOrgId}
+          )
           AND fl."listingType" IN (${typeFilter})
           AND fl."bestBefore" > NOW()
           AND (fl."pickupByTime" IS NULL OR fl."pickupByTime" > NOW())
@@ -545,6 +575,12 @@ export class FoodListingService {
           fl.status IN ('ACTIVE', 'PARTIAL')
           AND o.region = ${region}::"Region"
           AND fl."organisationId" <> ${claimantOrgId}
+          -- Preferred Charity: hide collections reserved for someone else.
+          AND (
+            fl."exclusiveToOrgId" IS NULL
+            OR fl."releasedAt" IS NOT NULL
+            OR fl."exclusiveToOrgId" = ${claimantOrgId}
+          )
           AND fl."listingType" IN (${typeFilter})
           AND fl."bestBefore" > NOW()
           AND (fl."pickupByTime" IS NULL OR fl."pickupByTime" > NOW())

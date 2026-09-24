@@ -21,7 +21,9 @@ import { ImpactModule } from './modules/impact/impact.module';
 import { FarmerConsumerModule } from './modules/farmer-consumer/farmer-consumer.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { EnterpriseModule } from './modules/enterprise/enterprise.module';
+import { QueueDashboardModule } from './modules/admin/queue-dashboard.module';
 import { HealthModule } from './modules/health/health.module';
+import { ConnectionsModule } from './modules/connections/connections.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { HealthModule } from './modules/health/health.module';
     FarmerConsumerModule,
     BillingModule,
     EnterpriseModule,
+    QueueDashboardModule,
+    ConnectionsModule,
     HealthModule
   ],
   controllers: [AppController],

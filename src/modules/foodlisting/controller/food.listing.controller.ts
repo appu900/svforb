@@ -114,8 +114,11 @@ export class FoodListingController {
   
 
   @Get(':id')
-  getOne(@Param('id', ParseIntPipe) id: number) {
-    return this.service.getListingById(id);
+  getOne(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.getListingById(id, req.user?.orgId);
   }
 
   @Delete(':id')

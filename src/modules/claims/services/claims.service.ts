@@ -23,6 +23,7 @@ import { DriverLocationService } from '../../drivers/service/driver.location.ser
 import { ClaimsCacheManager } from '../cache/claims.cachemanager';
 import { CreateClaimDto, MarkCollectedDto, ProviderFeedbackDto, RateClaimDto, RateDriverDto } from '../dto/claims.dto';
 import { resolveCallerSiteId } from '../../foodlisting/utils/resolve-caller-site';
+import { assertCanClaim } from '../../connections/connection.rules';
 
 const DEFAULT_LIMIT = 20;
 
@@ -84,6 +85,10 @@ export class ClaimsService {
       if (listing.organisationId === caller.orgId) {
         throw new ForbiddenException('Cannot claim your own listing');
       }
+
+      // A Preferred Charity collection is reserved until it is released, so
+      // nobody else can take it out from under the charity it was offered to.
+      assertCanClaim(listing, caller.orgId);
 
       const eligible = CLAIMANT_TYPES[listing.listingType];
       if (!eligible.includes(caller.orgType!)) {

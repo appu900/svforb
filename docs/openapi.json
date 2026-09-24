@@ -192,6 +192,43 @@
         ]
       }
     },
+    "/api/v1/drivers/pickup/decline-available": {
+      "post": {
+        "operationId": "DriverController_declineAvailablePickup",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineAvailablePickupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Driver declines a broadcast \"pickup available\" alert (no assignment row yet).",
+        "tags": [
+          "Driver"
+        ]
+      }
+    },
     "/api/v1/drivers/pickups/assign": {
       "post": {
         "operationId": "DriverController_assignDriver",
@@ -731,6 +768,45 @@
           }
         ],
         "summary": "Restaurant confirms collection and rates the charity/farmer.",
+        "tags": [
+          "Claims"
+        ]
+      }
+    },
+    "/api/v1/claims/{id}/driver-rating": {
+      "patch": {
+        "operationId": "ClaimsController_rateDriver",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RateDriverDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Charity/farmer or food business rates the driver after delivery.",
         "tags": [
           "Claims"
         ]
@@ -1611,6 +1687,576 @@
         ],
         "tags": [
           "EnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/groups": {
+      "post": {
+        "operationId": "AdminEnterpriseStructureController_createGroup",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGroupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/groups/{id}": {
+      "patch": {
+        "operationId": "AdminEnterpriseStructureController_updateGroup",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGroupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      },
+      "delete": {
+        "operationId": "AdminEnterpriseStructureController_deleteGroup",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/groups/{id}/deactivate": {
+      "post": {
+        "operationId": "AdminEnterpriseStructureController_deactivateGroup",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/groups/{id}/reactivate": {
+      "post": {
+        "operationId": "AdminEnterpriseStructureController_reactivateGroup",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/clusters": {
+      "post": {
+        "operationId": "AdminEnterpriseStructureController_createCluster",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClusterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/clusters/{id}": {
+      "patch": {
+        "operationId": "AdminEnterpriseStructureController_updateCluster",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateClusterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      },
+      "delete": {
+        "operationId": "AdminEnterpriseStructureController_deleteCluster",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/clusters/{id}/deactivate": {
+      "post": {
+        "operationId": "AdminEnterpriseStructureController_deactivateCluster",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/clusters/{id}/reactivate": {
+      "post": {
+        "operationId": "AdminEnterpriseStructureController_reactivateCluster",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/territories": {
+      "post": {
+        "operationId": "AdminEnterpriseStructureController_createTerritory",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTerritoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/territories/{id}": {
+      "patch": {
+        "operationId": "AdminEnterpriseStructureController_updateTerritory",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTerritoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      },
+      "delete": {
+        "operationId": "AdminEnterpriseStructureController_deleteTerritory",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/territories/{id}/deactivate": {
+      "post": {
+        "operationId": "AdminEnterpriseStructureController_deactivateTerritory",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/territories/{id}/reactivate": {
+      "post": {
+        "operationId": "AdminEnterpriseStructureController_reactivateTerritory",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseStructure"
         ]
       }
     },
@@ -2845,6 +3491,62 @@
         ]
       }
     },
+    "/api/v1/admin/enterprise/audit": {
+      "get": {
+        "operationId": "EnterpriseProvisioningController_listAudit",
+        "parameters": [
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "area",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "organisationId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {}
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "EnterpriseProvisioning"
+        ]
+      }
+    },
     "/api/v1/admin/enterprise/{organisationId}/structure": {
       "get": {
         "operationId": "EnterpriseProvisioningController_getStructure",
@@ -2937,6 +3639,62 @@
         ]
       }
     },
+    "/api/v1/admin/enterprise/{organisationId}/audit": {
+      "get": {
+        "operationId": "EnterpriseProvisioningController_listOrganisationAudit",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "area",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {}
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "EnterpriseProvisioning"
+        ]
+      }
+    },
     "/api/v1/admin/enterprise/{organisationId}": {
       "get": {
         "operationId": "EnterpriseProvisioningController_getOne",
@@ -3001,6 +3759,79 @@
         "summary": "Account status, country, timezone, currency and units.",
         "tags": [
           "EnterpriseProvisioning"
+        ]
+      }
+    },
+    "/api/v1/admin/app-users": {
+      "get": {
+        "operationId": "AdminAppUsersController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminAppUsers"
+        ]
+      }
+    },
+    "/api/v1/admin/app-users/activity": {
+      "get": {
+        "operationId": "AdminAppUsersController_listActivity",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminAppUsers"
+        ]
+      }
+    },
+    "/api/v1/admin/app-users/organisations/{organisationId}": {
+      "get": {
+        "operationId": "AdminAppUsersController_getOrganisation",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminAppUsers"
         ]
       }
     },
@@ -3940,6 +4771,52 @@
         },
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AdminEnterpriseSites"
+        ]
+      }
+    },
+    "/api/v1/admin/enterprise/{organisationId}/sites/{siteId}": {
+      "patch": {
+        "operationId": "AdminEnterpriseSitesController_updateSite",
+        "parameters": [
+          {
+            "name": "organisationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "siteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSiteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
             "description": ""
           }
         },
@@ -5355,6 +6232,35 @@
         ]
       }
     },
+    "/api/v1/food-listings/photos": {
+      "post": {
+        "operationId": "FoodListingController_presignPhoto",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresignListingPhotoDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "FoodListing"
+        ]
+      }
+    },
     "/api/v1/food-listings": {
       "post": {
         "operationId": "FoodListingController_create",
@@ -5405,6 +6311,14 @@
           },
           {
             "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fresh",
             "required": false,
             "in": "query",
             "schema": {
@@ -6265,6 +7179,705 @@
           "FarmerConsumer"
         ]
       }
+    },
+    "/api/v1/connections": {
+      "post": {
+        "operationId": "ConnectionController_invite",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConnectionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Invite a charity to collect regularly from one site.",
+        "tags": [
+          "Connection"
+        ]
+      }
+    },
+    "/api/v1/connections/site/{siteId}": {
+      "get": {
+        "operationId": "ConnectionController_listForSite",
+        "parameters": [
+          {
+            "name": "siteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Every Connection on a site, with its running totals.",
+        "tags": [
+          "Connection"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}": {
+      "get": {
+        "operationId": "ConnectionController_getOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Connection"
+        ]
+      },
+      "patch": {
+        "operationId": "ConnectionController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateConnectionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Changing days or window returns the Connection to pending re-acceptance.",
+        "tags": [
+          "Connection"
+        ]
+      },
+      "delete": {
+        "operationId": "ConnectionController_end",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Connection"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}/pause": {
+      "post": {
+        "operationId": "ConnectionController_pause",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Connection"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}/resume": {
+      "post": {
+        "operationId": "ConnectionController_resume",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Connection"
+        ]
+      }
+    },
+    "/api/v1/connections/days/{dayId}/surplus": {
+      "post": {
+        "operationId": "ConnectionController_addSurplus",
+        "parameters": [
+          {
+            "name": "dayId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddDailySurplusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Connection"
+        ]
+      }
+    },
+    "/api/v1/connections/days/{dayId}/no-surplus": {
+      "post": {
+        "operationId": "ConnectionController_noSurplus",
+        "parameters": [
+          {
+            "name": "dayId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Nothing today — the charity is told rather than left waiting.",
+        "tags": [
+          "Connection"
+        ]
+      }
+    },
+    "/api/v1/connections/days/{dayId}/release": {
+      "post": {
+        "operationId": "ConnectionController_release",
+        "parameters": [
+          {
+            "name": "dayId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The business answering the cut-off prompt.",
+        "tags": [
+          "Connection"
+        ]
+      }
+    },
+    "/api/v1/charity/connections": {
+      "get": {
+        "operationId": "CharityConnectionController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Invitations and active relationships for this charity.",
+        "tags": [
+          "CharityConnection"
+        ]
+      }
+    },
+    "/api/v1/charity/connections/{id}/accept": {
+      "post": {
+        "operationId": "CharityConnectionController_accept",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "CharityConnection"
+        ]
+      }
+    },
+    "/api/v1/charity/connections/{id}/decline": {
+      "post": {
+        "operationId": "CharityConnectionController_decline",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "CharityConnection"
+        ]
+      }
+    },
+    "/api/v1/charity/connections/{id}/pause": {
+      "post": {
+        "operationId": "CharityConnectionController_pause",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "CharityConnection"
+        ]
+      }
+    },
+    "/api/v1/charity/connections/{id}": {
+      "delete": {
+        "operationId": "CharityConnectionController_end",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "CharityConnection"
+        ]
+      }
+    },
+    "/api/v1/charity/connections/days/{dayId}/cannot-collect": {
+      "post": {
+        "operationId": "CharityConnectionController_cannotCollect",
+        "parameters": [
+          {
+            "name": "dayId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "\"Can't collect today\" — releases that day's surplus to the network.",
+        "tags": [
+          "CharityConnection"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "operationId": "HealthController_getHealth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The Health Check is successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "degraded"
+                      ],
+                      "example": "ok"
+                    },
+                    "info": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up",
+                          "responseTime": 12
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "up",
+                              "degraded",
+                              "down"
+                            ]
+                          },
+                          "responseTime": {
+                            "type": "number",
+                            "description": "Time the health indicator took to respond, in ms"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "example": {},
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "up",
+                              "degraded",
+                              "down"
+                            ]
+                          },
+                          "responseTime": {
+                            "type": "number",
+                            "description": "Time the health indicator took to respond, in ms"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "details": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up",
+                          "responseTime": 12
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "up",
+                              "degraded",
+                              "down"
+                            ]
+                          },
+                          "responseTime": {
+                            "type": "number",
+                            "description": "Time the health indicator took to respond, in ms"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Health Check is not successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "error",
+                        "shutting_down"
+                      ],
+                      "example": "error"
+                    },
+                    "info": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up",
+                          "responseTime": 12
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "up",
+                              "degraded",
+                              "down"
+                            ]
+                          },
+                          "responseTime": {
+                            "type": "number",
+                            "description": "Time the health indicator took to respond, in ms"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "example": {
+                        "redis": {
+                          "status": "down",
+                          "message": "Could not connect",
+                          "responseTime": 3005
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "up",
+                              "degraded",
+                              "down"
+                            ]
+                          },
+                          "responseTime": {
+                            "type": "number",
+                            "description": "Time the health indicator took to respond, in ms"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "details": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up",
+                          "responseTime": 12
+                        },
+                        "redis": {
+                          "status": "down",
+                          "message": "Could not connect",
+                          "responseTime": 3005
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "up",
+                              "degraded",
+                              "down"
+                            ]
+                          },
+                          "responseTime": {
+                            "type": "number",
+                            "description": "Time the health indicator took to respond, in ms"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
     }
   },
   "info": {
@@ -6393,6 +8006,17 @@
           "listingId"
         ]
       },
+      "DeclineAvailablePickupDto": {
+        "type": "object",
+        "properties": {
+          "claimId": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "claimId"
+        ]
+      },
       "AssignDriverDto": {
         "type": "object",
         "properties": {
@@ -6430,9 +8054,9 @@
             "type": "string",
             "enum": [
               "CANCELLED",
+              "ACCEPTED",
               "COLLECTED",
               "ASSIGNED",
-              "ACCEPTED",
               "EN_ROUTE",
               "ARRIVED"
             ]
@@ -6542,6 +8166,22 @@
         },
         "required": [
           "didCollect"
+        ]
+      },
+      "RateDriverDto": {
+        "type": "object",
+        "properties": {
+          "rating": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "ratingNote": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rating"
         ]
       },
       "CreateGroupDto": {
@@ -7443,6 +9083,14 @@
           },
           "password": {
             "type": "string"
+          },
+          "targetApp": {
+            "type": "string",
+            "description": "Driver app sends this so we can reject non-drivers before password / reset.",
+            "enum": [
+              "driver",
+              "business"
+            ]
           }
         },
         "required": [
@@ -7483,6 +9131,13 @@
           "email": {
             "type": "string",
             "format": "email"
+          },
+          "targetApp": {
+            "type": "string",
+            "enum": [
+              "driver",
+              "business"
+            ]
           }
         },
         "required": [
@@ -8017,7 +9672,7 @@
           },
           "isPerSite": {
             "type": "boolean",
-            "description": "Bills per location; the Stripe quantity tracks site count."
+            "description": "When true, Stripe quantity tracks site count. Multi Site is a flat fee (false)."
           },
           "contactSalesOnly": {
             "type": "boolean",
@@ -8331,6 +9986,17 @@
           }
         }
       },
+      "PresignListingPhotoDto": {
+        "type": "object",
+        "properties": {
+          "contentType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contentType"
+        ]
+      },
       "CreateFoodItemDto": {
         "type": "object",
         "properties": {
@@ -8411,6 +10077,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "collectionNotes": {
+            "type": "string",
+            "maxLength": 300
           },
           "photoUrls": {
             "type": "array",
@@ -8502,6 +10172,130 @@
         },
         "required": [
           "newPassword"
+        ]
+      },
+      "CreateConnectionDto": {
+        "type": "object",
+        "properties": {
+          "donorSiteId": {
+            "type": "number",
+            "description": "The business site offering surplus."
+          },
+          "receiverSiteId": {
+            "type": "number",
+            "description": "The charity site that will collect — not just the charity organisation."
+          },
+          "daysOfWeek": {
+            "description": "ISO weekdays, 1 = Monday … 7 = Sunday.",
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "windowStart": {
+            "type": "string",
+            "description": "Local wall-clock at the donor site, 24-hour HH:MM."
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "leadTimeMinutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cutoffMinutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "typicalSurplus": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "donorSiteId",
+          "receiverSiteId",
+          "daysOfWeek",
+          "windowStart",
+          "windowEnd"
+        ]
+      },
+      "UpdateConnectionDto": {
+        "type": "object",
+        "properties": {
+          "daysOfWeek": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "leadTimeMinutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cutoffMinutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "typicalSurplus": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "SurplusItemDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "quantityKg": {
+            "type": "number",
+            "minimum": 0
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "name",
+          "quantityKg"
+        ]
+      },
+      "AddDailySurplusDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SurplusItemDto"
+            }
+          },
+          "collectionNotes": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "items"
         ]
       }
     }

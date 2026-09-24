@@ -1,6 +1,6 @@
 # Saveful for Business — API Reference
 
-202 endpoints across 29 areas. 177 require a bearer token; 25 are public.
+243 endpoints across 34 areas. 217 require a bearer token; 26 are public.
 
 All paths are prefixed `/api/v1`. Authenticate with `Authorization: Bearer <token>` from `POST /auth/login`.
 
@@ -10,26 +10,31 @@ All paths are prefixed `/api/v1`. Authenticate with `Authorization: Bearer <toke
 ## Contents
 
 - [Admin · Sites](#admin-sites) — 1 endpoints
+- [AdminAppUsers](#adminappusers) — 3 endpoints
+- [AdminEnterpriseStructure](#adminenterprisestructure) — 15 endpoints
 - [Auth](#auth) — 12 endpoints
 - [Billing](#billing) — 10 endpoints
 - [Charity](#charity) — 15 endpoints
-- [Claims](#claims) — 10 endpoints
-- [Driver](#driver) — 12 endpoints
+- [CharityConnection](#charityconnection) — 6 endpoints
+- [Claims](#claims) — 11 endpoints
+- [Connection](#connection) — 10 endpoints
+- [Driver](#driver) — 13 endpoints
 - [Driver Search](#driver-search) — 2 endpoints
 - [Enterprise · Activation (public)](#enterprise-activation-public) — 2 endpoints
 - [Enterprise · Contracts & Invoices (admin)](#enterprise-contracts-invoices-admin) — 9 endpoints
 - [Enterprise · Invitations](#enterprise-invitations) — 3 endpoints
 - [Enterprise · Invoices (customer)](#enterprise-invoices-customer) — 1 endpoints
 - [Enterprise · Organisation Profile](#enterprise-organisation-profile) — 2 endpoints
-- [Enterprise · Provisioning (Saveful admin)](#enterprise-provisioning-saveful-admin) — 10 endpoints
+- [Enterprise · Provisioning (Saveful admin)](#enterprise-provisioning-saveful-admin) — 12 endpoints
 - [Enterprise · Reporting](#enterprise-reporting) — 10 endpoints
 - [Enterprise · Roles & Permissions](#enterprise-roles-permissions) — 1 endpoints
-- [Enterprise · Sites (Saveful admin)](#enterprise-sites-saveful-admin) — 2 endpoints
+- [Enterprise · Sites (Saveful admin)](#enterprise-sites-saveful-admin) — 3 endpoints
 - [Enterprise · Structure](#enterprise-structure) — 28 endpoints
 - [Enterprise · Users](#enterprise-users) — 8 endpoints
 - [Farmer & Consumer](#farmer-consumer) — 8 endpoints
-- [Food Listings](#food-listings) — 10 endpoints
+- [Food Listings](#food-listings) — 11 endpoints
 - [Geo Search](#geo-search) — 1 endpoints
+- [Health](#health) — 1 endpoints
 - [Health](#health) — 1 endpoints
 - [Impact](#impact) — 8 endpoints
 - [Notification](#notification) — 12 endpoints
@@ -52,6 +57,318 @@ All paths are prefixed `/api/v1`. Authenticate with `Authorization: Bearer <toke
 List
 
 **Auth:** Bearer token required
+
+
+## AdminAppUsers
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/admin/app-users` | Bearer | List |
+| `GET` | `/api/v1/admin/app-users/activity` | Bearer | List activity |
+| `GET` | `/api/v1/admin/app-users/organisations/{organisationId}` | Bearer | Get organisation |
+
+
+### `GET` /api/v1/admin/app-users
+
+List
+
+**Auth:** Bearer token required
+
+
+### `GET` /api/v1/admin/app-users/activity
+
+List activity
+
+**Auth:** Bearer token required
+
+
+### `GET` /api/v1/admin/app-users/organisations/{organisationId}
+
+Get organisation
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+
+
+## AdminEnterpriseStructure
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/admin/enterprise/{organisationId}/clusters` | Bearer | Create cluster |
+| `PATCH` | `/api/v1/admin/enterprise/{organisationId}/clusters/{id}` | Bearer | Update cluster |
+| `DELETE` | `/api/v1/admin/enterprise/{organisationId}/clusters/{id}` | Bearer | Delete cluster |
+| `POST` | `/api/v1/admin/enterprise/{organisationId}/clusters/{id}/deactivate` | Bearer | Deactivate cluster |
+| `POST` | `/api/v1/admin/enterprise/{organisationId}/clusters/{id}/reactivate` | Bearer | Reactivate cluster |
+| `POST` | `/api/v1/admin/enterprise/{organisationId}/groups` | Bearer | Create group |
+| `PATCH` | `/api/v1/admin/enterprise/{organisationId}/groups/{id}` | Bearer | Update group |
+| `DELETE` | `/api/v1/admin/enterprise/{organisationId}/groups/{id}` | Bearer | Delete group |
+| `POST` | `/api/v1/admin/enterprise/{organisationId}/groups/{id}/deactivate` | Bearer | Deactivate group |
+| `POST` | `/api/v1/admin/enterprise/{organisationId}/groups/{id}/reactivate` | Bearer | Reactivate group |
+| `POST` | `/api/v1/admin/enterprise/{organisationId}/territories` | Bearer | Create territory |
+| `PATCH` | `/api/v1/admin/enterprise/{organisationId}/territories/{id}` | Bearer | Update territory |
+| `DELETE` | `/api/v1/admin/enterprise/{organisationId}/territories/{id}` | Bearer | Delete territory |
+| `POST` | `/api/v1/admin/enterprise/{organisationId}/territories/{id}/deactivate` | Bearer | Deactivate territory |
+| `POST` | `/api/v1/admin/enterprise/{organisationId}/territories/{id}/reactivate` | Bearer | Reactivate territory |
+
+
+### `POST` /api/v1/admin/enterprise/{organisationId}/clusters
+
+Create cluster
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `name` | `string` | yes | max length 120 |
+| `code` | `string` | no | max length 40 |
+| `description` | `string` | no | max length 500 |
+
+
+### `PATCH` /api/v1/admin/enterprise/{organisationId}/clusters/{id}
+
+Update cluster
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `name` | `string` | no | max length 120 |
+| `code` | `string` | no | max length 40 |
+| `description` | `string` | no | max length 500 |
+
+
+### `DELETE` /api/v1/admin/enterprise/{organisationId}/clusters/{id}
+
+Delete cluster
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/admin/enterprise/{organisationId}/clusters/{id}/deactivate
+
+Deactivate cluster
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/admin/enterprise/{organisationId}/clusters/{id}/reactivate
+
+Reactivate cluster
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/admin/enterprise/{organisationId}/groups
+
+Create group
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `name` | `string` | yes | max length 120 |
+| `code` | `string` | no | max length 40 |
+| `description` | `string` | no | max length 500 |
+
+
+### `PATCH` /api/v1/admin/enterprise/{organisationId}/groups/{id}
+
+Update group
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `name` | `string` | no | max length 120 |
+| `code` | `string` | no | max length 40 |
+| `description` | `string` | no | max length 500 |
+
+
+### `DELETE` /api/v1/admin/enterprise/{organisationId}/groups/{id}
+
+Delete group
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/admin/enterprise/{organisationId}/groups/{id}/deactivate
+
+Deactivate group
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/admin/enterprise/{organisationId}/groups/{id}/reactivate
+
+Reactivate group
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/admin/enterprise/{organisationId}/territories
+
+Create territory
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `name` | `string` | yes | max length 120 |
+| `code` | `string` | no | max length 40 |
+| `description` | `string` | no | max length 500 |
+
+
+### `PATCH` /api/v1/admin/enterprise/{organisationId}/territories/{id}
+
+Update territory
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `name` | `string` | no | max length 120 |
+| `code` | `string` | no | max length 40 |
+| `description` | `string` | no | max length 500 |
+
+
+### `DELETE` /api/v1/admin/enterprise/{organisationId}/territories/{id}
+
+Delete territory
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/admin/enterprise/{organisationId}/territories/{id}/deactivate
+
+Deactivate territory
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/admin/enterprise/{organisationId}/territories/{id}/reactivate
+
+Reactivate territory
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `id` | path | yes | number |
 
 
 ## Auth
@@ -83,6 +400,7 @@ Forgot password
 | Field | Type | Required | Constraints |
 |---|---|---|---|
 | `email` | `string (email)` | yes | — |
+| `targetApp` | `driver | business` | no | — |
 
 
 ### `POST` /api/v1/auth/login
@@ -97,6 +415,7 @@ Login
 |---|---|---|---|
 | `email` | `string (email)` | yes | — |
 | `password` | `string` | yes | — |
+| `targetApp` | `driver | business` | no | — |
 
 
 ### `GET` /api/v1/auth/profile
@@ -658,6 +977,90 @@ Resend invite
 | `newPassword` | `string` | yes | min length 8 |
 
 
+## CharityConnection
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/charity/connections` | Bearer | Invitations and active relationships for this charity. |
+| `POST` | `/api/v1/charity/connections/days/{dayId}/cannot-collect` | Bearer | "Can't collect today" — releases that day's surplus to the network. |
+| `DELETE` | `/api/v1/charity/connections/{id}` | Bearer | End |
+| `POST` | `/api/v1/charity/connections/{id}/accept` | Bearer | Accept |
+| `POST` | `/api/v1/charity/connections/{id}/decline` | Bearer | Decline |
+| `POST` | `/api/v1/charity/connections/{id}/pause` | Bearer | Pause |
+
+
+### `GET` /api/v1/charity/connections
+
+Invitations and active relationships for this charity.
+
+**Auth:** Bearer token required
+
+
+### `POST` /api/v1/charity/connections/days/{dayId}/cannot-collect
+
+"Can't collect today" — releases that day's surplus to the network.
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `dayId` | path | yes | number |
+
+
+### `DELETE` /api/v1/charity/connections/{id}
+
+End
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/charity/connections/{id}/accept
+
+Accept
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/charity/connections/{id}/decline
+
+Decline
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/charity/connections/{id}/pause
+
+Pause
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+
 ## Claims
 
 | Method | Path | Auth | Description |
@@ -669,6 +1072,7 @@ Resend invite
 | `DELETE` | `/api/v1/claims/{id}` | Bearer | Cancel |
 | `PATCH` | `/api/v1/claims/{id}/collected` | Bearer | Mark collected |
 | `PATCH` | `/api/v1/claims/{id}/confirm` | Bearer | Confirm |
+| `PATCH` | `/api/v1/claims/{id}/driver-rating` | Bearer | Charity/farmer or food business rates the driver after delivery. |
 | `PATCH` | `/api/v1/claims/{id}/provider-feedback` | Bearer | Restaurant confirms collection and rates the charity/farmer. |
 | `PATCH` | `/api/v1/claims/{id}/rating` | Bearer | Submit / update feedback for a collected claim. |
 | `POST` | `/api/v1/claims/{id}/request-driver` | Bearer | Request driver |
@@ -778,6 +1182,26 @@ Confirm
 | `id` | path | yes | number |
 
 
+### `PATCH` /api/v1/claims/{id}/driver-rating
+
+Charity/farmer or food business rates the driver after delivery.
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `rating` | `number` | yes | min 1, max 5 |
+| `ratingNote` | `string` | no | — |
+
+
 ### `PATCH` /api/v1/claims/{id}/provider-feedback
 
 Restaurant confirms collection and rates the charity/farmer.
@@ -832,6 +1256,182 @@ Request driver
 | `id` | path | yes | number |
 
 
+## Connection
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/connections` | Bearer | Invite a charity to collect regularly from one site. |
+| `POST` | `/api/v1/connections/days/{dayId}/no-surplus` | Bearer | Nothing today — the charity is told rather than left waiting. |
+| `POST` | `/api/v1/connections/days/{dayId}/release` | Bearer | The business answering the cut-off prompt. |
+| `POST` | `/api/v1/connections/days/{dayId}/surplus` | Bearer | Add surplus |
+| `GET` | `/api/v1/connections/site/{siteId}` | Bearer | Every Connection on a site, with its running totals. |
+| `GET` | `/api/v1/connections/{id}` | Bearer | Get one |
+| `PATCH` | `/api/v1/connections/{id}` | Bearer | Changing days or window returns the Connection to pending re-acceptance. |
+| `DELETE` | `/api/v1/connections/{id}` | Bearer | End |
+| `POST` | `/api/v1/connections/{id}/pause` | Bearer | Pause |
+| `POST` | `/api/v1/connections/{id}/resume` | Bearer | Resume |
+
+
+### `POST` /api/v1/connections
+
+Invite a charity to collect regularly from one site.
+
+**Auth:** Bearer token required
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `donorSiteId` | `number` | yes | — |
+| `receiverSiteId` | `number` | yes | — |
+| `daysOfWeek` | `number[]` | yes | min 1 item(s) |
+| `windowStart` | `string` | yes | — |
+| `windowEnd` | `string` | yes | — |
+| `leadTimeMinutes` | `number` | no | min 0 |
+| `cutoffMinutes` | `number` | no | min 0 |
+| `typicalSurplus` | `string` | no | max length 200 |
+| `notes` | `string` | no | max length 500 |
+
+
+### `POST` /api/v1/connections/days/{dayId}/no-surplus
+
+Nothing today — the charity is told rather than left waiting.
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `dayId` | path | yes | number |
+
+
+### `POST` /api/v1/connections/days/{dayId}/release
+
+The business answering the cut-off prompt.
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `dayId` | path | yes | number |
+
+
+### `POST` /api/v1/connections/days/{dayId}/surplus
+
+Add surplus
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `dayId` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `items` | `SurplusItemDto[]` | yes | min 1 item(s) |
+| `items[].name` | `string` | yes | max length 120 |
+| `items[].quantityKg` | `number` | yes | min 0 |
+| `items[].category` | `string` | no | max length 120 |
+| `collectionNotes` | `string` | no | max length 500 |
+
+
+### `GET` /api/v1/connections/site/{siteId}
+
+Every Connection on a site, with its running totals.
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `siteId` | path | yes | number |
+
+
+### `GET` /api/v1/connections/{id}
+
+Get one
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+
+### `PATCH` /api/v1/connections/{id}
+
+Changing days or window returns the Connection to pending re-acceptance.
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `daysOfWeek` | `number[]` | no | — |
+| `windowStart` | `string` | no | — |
+| `windowEnd` | `string` | no | — |
+| `leadTimeMinutes` | `number` | no | min 0 |
+| `cutoffMinutes` | `number` | no | min 0 |
+| `typicalSurplus` | `string` | no | max length 200 |
+| `notes` | `string` | no | max length 500 |
+
+
+### `DELETE` /api/v1/connections/{id}
+
+End
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/connections/{id}/pause
+
+Pause
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+
+### `POST` /api/v1/connections/{id}/resume
+
+Resume
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `id` | path | yes | number |
+
+
 ## Driver
 
 | Method | Path | Auth | Description |
@@ -839,6 +1439,7 @@ Request driver
 | `POST` | `/api/v1/drivers/live` | Bearer | Go live |
 | `DELETE` | `/api/v1/drivers/live` | Bearer | Go offline |
 | `POST` | `/api/v1/drivers/pickup/accept` | Bearer | Accept pickup |
+| `POST` | `/api/v1/drivers/pickup/decline-available` | Bearer | Driver declines a broadcast "pickup available" alert (no assignment row yet). |
 | `GET` | `/api/v1/drivers/pickups` | Bearer | Get my pickups |
 | `POST` | `/api/v1/drivers/pickups/assign` | Bearer | Assign driver |
 | `GET` | `/api/v1/drivers/pickups/{id}` | Bearer | Get pickup details |
@@ -891,6 +1492,19 @@ Accept pickup
 |---|---|---|---|
 | `claimId` | `number` | yes | — |
 | `listingId` | `number` | yes | — |
+
+
+### `POST` /api/v1/drivers/pickup/decline-available
+
+Driver declines a broadcast "pickup available" alert (no assignment row yet).
+
+**Auth:** Bearer token required
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `claimId` | `number` | yes | — |
 
 
 ### `GET` /api/v1/drivers/pickups
@@ -989,7 +1603,7 @@ Update status
 
 | Field | Type | Required | Constraints |
 |---|---|---|---|
-| `status` | `CANCELLED | COLLECTED | ASSIGNED | ACCEPTED | EN_ROUTE | ARRIVED` | yes | — |
+| `status` | `CANCELLED | ACCEPTED | COLLECTED | ASSIGNED | EN_ROUTE | ARRIVED` | yes | — |
 
 
 ### `GET` /api/v1/drivers/site/{siteId}/drivers
@@ -1341,11 +1955,13 @@ Update
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/api/v1/admin/enterprise` | Bearer | List |
+| `GET` | `/api/v1/admin/enterprise/audit` | Bearer | List audit |
 | `POST` | `/api/v1/admin/enterprise/logo` | Bearer | Upload logo |
 | `POST` | `/api/v1/admin/enterprise/provision` | Bearer | Creates the Enterprise and invites its first Super Admin. |
 | `GET` | `/api/v1/admin/enterprise/sites` | Bearer | List sites |
 | `GET` | `/api/v1/admin/enterprise/users` | Bearer | List all users |
 | `GET` | `/api/v1/admin/enterprise/{organisationId}` | Bearer | Get one |
+| `GET` | `/api/v1/admin/enterprise/{organisationId}/audit` | Bearer | List organisation audit |
 | `PATCH` | `/api/v1/admin/enterprise/{organisationId}/provisioning` | Bearer | Account status, country, timezone, currency and units. |
 | `GET` | `/api/v1/admin/enterprise/{organisationId}/structure` | Bearer | Get structure |
 | `GET` | `/api/v1/admin/enterprise/{organisationId}/users` | Bearer | List users |
@@ -1357,6 +1973,23 @@ Update
 List
 
 **Auth:** Bearer token required
+
+
+### `GET` /api/v1/admin/enterprise/audit
+
+List audit
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `search` | query | no | string |
+| `area` | query | no | string |
+| `organisationId` | query | no | number |
+| `limit` | query | no | any |
+| `page` | query | no | any |
 
 
 ### `POST` /api/v1/admin/enterprise/logo
@@ -1416,6 +2049,23 @@ Get one
 | Name | In | Required | Type |
 |---|---|---|---|
 | `organisationId` | path | yes | number |
+
+
+### `GET` /api/v1/admin/enterprise/{organisationId}/audit
+
+List organisation audit
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `search` | query | no | string |
+| `area` | query | no | string |
+| `limit` | query | no | any |
+| `page` | query | no | any |
 
 
 ### `PATCH` /api/v1/admin/enterprise/{organisationId}/provisioning
@@ -1677,6 +2327,7 @@ List
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/v1/admin/enterprise/{organisationId}/sites` | Bearer | Create site |
+| `PATCH` | `/api/v1/admin/enterprise/{organisationId}/sites/{siteId}` | Bearer | Update site |
 | `POST` | `/api/v1/admin/enterprise/{organisationId}/sites/{siteId}/assign-admin` | Bearer | Assign existing site admin |
 
 
@@ -1705,6 +2356,41 @@ Create site
 | `phoneNumber` | `string` | no | max length 30 |
 | `latitude` | `number` | yes | — |
 | `longitude` | `number` | yes | — |
+| `collectionDays` | `mon | tue | wed | thu | fri | sat | sun[]` | no | — |
+| `collectionStartTime` | `string` | no | — |
+| `collectionEndTime` | `string` | no | — |
+| `collectionInstructions` | `string` | no | max length 500 |
+| `groupId` | `number` | no | — |
+| `clusterId` | `number` | no | — |
+| `territoryId` | `number` | no | — |
+
+
+### `PATCH` /api/v1/admin/enterprise/{organisationId}/sites/{siteId}
+
+Update site
+
+**Auth:** Bearer token required
+
+**Parameters**
+
+| Name | In | Required | Type |
+|---|---|---|---|
+| `organisationId` | path | yes | number |
+| `siteId` | path | yes | number |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `siteName` | `string` | no | max length 160 |
+| `address` | `string` | no | — |
+| `postcode` | `string` | no | max length 20 |
+| `siteCode` | `string` | no | max length 40 |
+| `contactName` | `string` | no | — |
+| `contactEmail` | `string (email)` | no | — |
+| `phoneNumber` | `string` | no | — |
+| `latitude` | `number` | no | — |
+| `longitude` | `number` | no | — |
 | `collectionDays` | `mon | tue | wed | thu | fri | sat | sun[]` | no | — |
 | `collectionStartTime` | `string` | no | — |
 | `collectionEndTime` | `string` | no | — |
@@ -2469,6 +3155,7 @@ Resend invite
 | `PATCH` | `/api/v1/food-listings/notifications/read-all` | Bearer | Mark all read |
 | `PATCH` | `/api/v1/food-listings/notifications/{id}/read` | Bearer | Mark read |
 | `GET` | `/api/v1/food-listings/org/{orgId}` | Bearer | Get by org |
+| `POST` | `/api/v1/food-listings/photos` | Bearer | Presign photo |
 | `GET` | `/api/v1/food-listings/recent` | Bearer | Get recent |
 | `GET` | `/api/v1/food-listings/site` | Bearer | Get listing by site id |
 | `GET` | `/api/v1/food-listings/{id}` | Bearer | Get one |
@@ -2501,6 +3188,7 @@ Create
 | `needsReheating` | `boolean` | no | — |
 | `isSafeForDonation` | `boolean` | no | — |
 | `allergens` | `string[]` | no | — |
+| `collectionNotes` | `string` | no | max length 300 |
 | `photoUrls` | `string[]` | no | — |
 | `foodItems` | `CreateFoodItemDto[]` | yes | — |
 | `foodItems[].name` | `string` | yes | — |
@@ -2570,8 +3258,22 @@ Get by org
 |---|---|---|---|
 | `orgId` | path | yes | number |
 | `status` | query | no | string |
+| `fresh` | query | no | string |
 | `limit` | query | no | any |
 | `page` | query | no | any |
+
+
+### `POST` /api/v1/food-listings/photos
+
+Presign photo
+
+**Auth:** Bearer token required
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `contentType` | `string` | yes | — |
 
 
 ### `GET` /api/v1/food-listings/recent
@@ -2654,6 +3356,20 @@ Get nearby charities
 ### `GET` /api/v1
 
 Get hello
+
+**Auth:** Public — no token
+
+
+## Health
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/health` | Public | Get health |
+
+
+### `GET` /api/v1/health
+
+Get health
 
 **Auth:** Public — no token
 
