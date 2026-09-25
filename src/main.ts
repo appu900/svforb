@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import * as basicAuth from 'express-basic-auth';
+import * as compression from 'compression';
 import { setupFoodRedirectionSwagger, setupSwagger } from './swagger';
 
 
@@ -10,6 +11,14 @@ async function bootstrap() {
   // rawBody is required by the Stripe webhook — signature verification runs
   // against the exact bytes Stripe sent, not the re-serialised JSON.
   const app = await NestFactory.create(AppModule, { rawBody: true });
+
+  // gzip every response. The Swagger UI bundle alone is 1.5 MB uncompressed
+  // and the docs page ships 2.27 MB in total, which is most of why it was slow
+  // to open over a real network. Applies to API responses as well — large
+  // listing and report payloads compress just as well.
+  //
+  // Response-only, so the Stripe webhook's raw request body is untouched.
+  app.use(compression());
 
   // The queue dashboard exposes raw job payloads — including OTP codes — so it
   // is gated before anything else can route to it.
