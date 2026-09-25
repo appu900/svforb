@@ -19,6 +19,7 @@ import { PlatformAdminGuard } from '../../../common/guards/platform-admin.guard'
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import {
+  InviteSiteUserDto,
   InviteUserDto,
   ProvisionEnterpriseDto,
   UpdateProvisioningDto,
@@ -125,6 +126,16 @@ export class EnterpriseProvisioningController {
       search,
       area,
     });
+  }
+
+  @Post(':organisationId/sites/:siteId/users')
+  inviteSiteUser(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('organisationId', ParseIntPipe) organisationId: number,
+    @Param('siteId', ParseIntPipe) siteId: number,
+    @Body() dto: InviteSiteUserDto,
+  ) {
+    return this.users.inviteSiteUser(req.user, siteId, dto, organisationId);
   }
 
   @Post(':organisationId/users')

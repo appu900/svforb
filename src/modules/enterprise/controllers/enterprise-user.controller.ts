@@ -6,7 +6,7 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import {
-  InviteUserDto, SetUserScopesDto, UpdateEnterpriseUserDto, UserListQueryDto,
+  InviteSiteUserDto, InviteUserDto, SetUserScopesDto, UpdateEnterpriseUserDto, UserListQueryDto,
 } from '../dto/enterprise.dto';
 import { EnterpriseUserService } from '../services/enterprise-user.service';
 import { ApiBearerAuth } from '@nestjs/swagger';
@@ -24,6 +24,16 @@ export class EnterpriseUserController {
   @Post()
   invite(@Req() req: Request & { user: Jwtpayload }, @Body() dto: InviteUserDto) {
     return this.users.inviteUser(req.user, dto);
+  }
+
+  /** Site user for one site. Organisation owner or that site's admin. */
+  @Post('sites/:siteId/users')
+  inviteSiteUser(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('siteId', ParseIntPipe) siteId: number,
+    @Body() dto: InviteSiteUserDto,
+  ) {
+    return this.users.inviteSiteUser(req.user, siteId, dto);
   }
 
   /**

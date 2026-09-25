@@ -271,6 +271,7 @@ export class MailerService {
     expiresInHours: number;
     invitedByName?: string;
     siteName?: string;
+    siteUser?: boolean;
   }): Promise<void> {
     const {
       to,
@@ -281,15 +282,17 @@ export class MailerService {
       expiresInHours,
       invitedByName,
       siteName,
+      siteUser,
     } = payload;
     const possessive = /s$/i.test(enterpriseName.trim())
       ? `${enterpriseName}'`
       : `${enterpriseName}'s`;
     const isSiteInvite = Boolean(siteName);
+    const siteAction = siteUser ? 'join' : 'manage';
     const intro = isSiteInvite
       ? invitedByName
-        ? `You've been invited by ${invitedByName} of ${possessive} Enterprise Account to manage ${siteName}.`
-        : `You've been invited to manage ${siteName} for ${possessive} Enterprise Account.`
+        ? `You've been invited by ${invitedByName} of ${possessive} Enterprise Account to ${siteAction} ${siteName}.`
+        : `You've been invited to ${siteAction} ${siteName} for ${possessive} Enterprise Account.`
       : `You've been invited to manage ${possessive} Enterprise account.`;
     const subjectTarget = isSiteInvite ? siteName! : enterpriseName;
     const contextLabel = isSiteInvite ? 'Site' : 'Enterprise';
@@ -319,9 +322,9 @@ export class MailerService {
           <p>Hello <strong>${name}</strong>,</p>
           <p>${
             isSiteInvite && invitedByName
-              ? `You&rsquo;ve been invited by <strong>${invitedByName}</strong> of <strong>${possessive}</strong> Enterprise Account to manage <strong>${siteName}</strong>.`
+              ? `You&rsquo;ve been invited by <strong>${invitedByName}</strong> of <strong>${possessive}</strong> Enterprise Account to ${siteUser ? 'join' : 'manage'} <strong>${siteName}</strong>.`
               : isSiteInvite
-                ? `You&rsquo;ve been invited to manage <strong>${siteName}</strong> for <strong>${possessive}</strong> Enterprise Account.`
+                ? `You&rsquo;ve been invited to ${siteUser ? 'join' : 'manage'} <strong>${siteName}</strong> for <strong>${possessive}</strong> Enterprise Account.`
                 : `You&rsquo;ve been invited to manage <strong>${possessive}</strong> Enterprise account.`
           }</p>
 

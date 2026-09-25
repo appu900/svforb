@@ -255,6 +255,14 @@ export class InviteUserDto {
   @Type(() => Number) @IsInt() @IsOptional() siteAdminForSiteId?: number;
 }
 
+/** A site user for one site. They set their own password from the invitation. */
+export class InviteSiteUserDto {
+  @IsString() @IsNotEmpty() @MaxLength(80) firstName!: string;
+  @IsString() @IsNotEmpty() @MaxLength(80) lastName!: string;
+  @IsEmail() email!: string;
+  @IsString() @IsOptional() @MaxLength(30) mobile?: string;
+}
+
 export class AcceptInvitationDto {
   @IsString() @MinLength(10) @MaxLength(128) password!: string;
   @IsBoolean() acceptTerms!: boolean;

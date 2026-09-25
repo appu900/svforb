@@ -473,10 +473,16 @@ export class EnterpriseInvitationService {
             userId: account.id,
             siteId,
             organisationId: invitation.organisationId,
-            siteRole: SiteRole.SITE_ADMIN,
+            siteRole:
+              invitation.enterpriseRole === EnterpriseRole.SITE_USER
+                ? SiteRole.STAFF
+                : SiteRole.SITE_ADMIN,
             grantedBy: invitation.invitedBy,
           },
-          update: { siteRole: SiteRole.SITE_ADMIN },
+          update:
+            invitation.enterpriseRole === EnterpriseRole.SITE_USER
+              ? {}
+              : { siteRole: SiteRole.SITE_ADMIN },
         });
       }
 
@@ -625,6 +631,7 @@ export class EnterpriseInvitationService {
       expiresInHours: INVITATION_TTL_HOURS,
       invitedByName: invitedByName || undefined,
       siteName,
+      siteUser: meta.role === EnterpriseRole.SITE_USER,
     });
   }
 

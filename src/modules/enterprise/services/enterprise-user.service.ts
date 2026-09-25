@@ -18,6 +18,7 @@ import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { EmailQueueService } from '../../notifications/queues/email.queue.service';
 import {
+  InviteSiteUserDto,
   InviteUserDto,
   ScopeGrantDto,
   SetUserScopesDto,
@@ -77,6 +78,34 @@ export class EnterpriseUserService {
     });
     if (!org) throw new NotFoundException('Enterprise not found');
     return this.issueInvite(caller, organisationId, dto);
+  }
+
+  /**
+   * Invites a site user for one site. They are not a site admin.
+   * Platform admin, the organisation super admin, and that site's admin may do this.
+   */
+  async inviteSiteUser(
+    caller: Jwtpayload,
+    siteId: number,
+    dto: InviteSiteUserDto,
+    organisationId?: number,
+  ) {
+    const site = await this.prisma.site.findFirst({
+      where: { id: siteId, ...(organisationId != null ? { organisationId } : {}) },
+      select: { id: true, organisationId: true },
+    });
+    if (!site) throw new NotFoundException('Site not found');
+    this.assertCanInviteSiteUser(caller, site.organisationId, site.id);
+    await this.assertEmailIsNew(dto.email);
+
+    return this.issueInvite(caller, site.organisationId, {
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      email: dto.email,
+      mobile: dto.mobile,
+      role: EnterpriseRole.SITE_USER,
+      scopes: [{ scopeType: ScopeType.SITE, scopeId: site.id }],
+    });
   }
 
   async inviteUser(caller: Jwtpayload, dto: InviteUserDto) {
@@ -664,6 +693,35 @@ export class EnterpriseUserService {
   }
 
   // ─── Guards ────────────────────────────────────────────────────────────────
+
+  private async assertEmailIsNew(emailInput: string) {
+    const email = emailInput.trim().toLowerCase();
+    const [user, invitation] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        select: { id: true },
+      }),
+      this.prisma.enterpriseInvitation.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' }, status: InvitationStatus.PENDING },
+        select: { id: true },
+      }),
+    ]);
+    if (user || invitation) {
+      throw new ConflictException(
+        'A user with this email already exists on our platform.',
+      );
+    }
+  }
+
+  private assertCanInviteSiteUser(caller: Jwtpayload, organisationId: number, siteId: number) {
+    if (caller.platformRole === PlatformRole.PLATFORM_ADMIN) return;
+    if (caller.orgId !== organisationId) {
+      throw new ForbiddenException('You can only add users in your own organisation');
+    }
+    if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
+    if (caller.siteRole === 'SITE_ADMIN' && caller.siteId === siteId) return;
+    throw new ForbiddenException('Only a platform admin, organisation owner, or this site\'s admin can add a site user');
+  }
 
   private async assertUserAdmin(caller: Jwtpayload): Promise<number> {
     return this.scope.assertPermission(caller, PERMISSION.USERS_MANAGE);
