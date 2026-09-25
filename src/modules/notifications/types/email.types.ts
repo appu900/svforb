@@ -44,6 +44,7 @@ export interface SendEnterpriseInvitePayload {
   expiresInHours: number;
   invitedByName?: string;
   siteName?: string;
+  siteUser?: boolean;
 }
 
 export interface SendSiteAdminAssignedPayload {
