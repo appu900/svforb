@@ -3,7 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import * as basicAuth from 'express-basic-auth';
-import { setupSwagger } from './swagger';
+import { setupFoodRedirectionSwagger, setupSwagger } from './swagger';
 
 
 async function bootstrap() {
@@ -57,6 +57,10 @@ async function bootstrap() {
   // /api/docs/openapi.json. Registered after the global prefix so the
   // documented paths match the ones the app actually serves.
   setupSwagger(app);
+
+  // A narrower reference for the food redirection journey alone, so someone
+  // integrating that path is not handed all 243 platform endpoints.
+  setupFoodRedirectionSwagger(app);
 
   await app.listen(process.env.PORT ?? 3000);
 }
