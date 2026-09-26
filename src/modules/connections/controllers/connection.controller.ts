@@ -8,7 +8,7 @@ import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { ConnectionDailyService } from '../connection.daily.service';
 import { ConnectionService } from '../connection.service';
 import {
-  AddDailySurplusDto, CreateConnectionDto, UpdateConnectionDto,
+  AddDailySurplusDto, CreateConnectionDto, ReassignDayDto, SetSiteTimezoneDto, UpdateConnectionDto,
 } from '../dto/connection.dto';
 
 type Req = Request & { user: Jwtpayload };
@@ -35,6 +35,22 @@ export class ConnectionController {
     return this.connections.invite(req.user, dto);
   }
 
+  /** Due collections for Surplus — who is expected and the pickup window. */
+  @Get('site/:siteId/today')
+  listTodayForSite(@Req() req: Req, @Param('siteId', ParseIntPipe) siteId: number) {
+    return this.daily.listTodayForSite(req.user, siteId);
+  }
+
+  /** IANA zone the site's wall-clock windows resolve against. */
+  @Patch('site/:siteId/timezone')
+  setTimezone(
+    @Req() req: Req,
+    @Param('siteId', ParseIntPipe) siteId: number,
+    @Body() dto: SetSiteTimezoneDto,
+  ) {
+    return this.connections.setSiteTimezone(req.user, siteId, dto.timezone);
+  }
+
   /** Every Connection on a site, with its running totals. */
   @Get('site/:siteId')
   listForSite(@Req() req: Req, @Param('siteId', ParseIntPipe) siteId: number) {
@@ -46,7 +62,7 @@ export class ConnectionController {
     return this.connections.getOne(req.user, id);
   }
 
-  /** Changing days or window returns the Connection to pending re-acceptance. */
+  /** Edit days, window, typical surplus or notes. Status stays as it is. */
   @Patch(':id')
   update(
     @Req() req: Req,
@@ -94,6 +110,16 @@ export class ConnectionController {
   release(@Req() req: Req, @Param('dayId', ParseIntPipe) dayId: number) {
     return this.daily.releaseToNetwork(req.user, dayId);
   }
+
+  /** Move a reserved listing to another connection whose window is still open. */
+  @Post('days/:dayId/reassign')
+  reassign(
+    @Req() req: Req,
+    @Param('dayId', ParseIntPipe) dayId: number,
+    @Body() dto: ReassignDayDto,
+  ) {
+    return this.daily.reassignToConnection(req.user, dayId, dto.toConnectionId);
+  }
 }
 
 /**
@@ -112,6 +138,12 @@ export class CharityConnectionController {
   @Get()
   list(@Req() req: Req) {
     return this.connections.listForCharity(req.user);
+  }
+
+  /** Today's reserved collections — Confirm or Can't collect. */
+  @Get('today')
+  listToday(@Req() req: Req) {
+    return this.daily.listTodayForCharity(req.user);
   }
 
   @Post(':id/accept')

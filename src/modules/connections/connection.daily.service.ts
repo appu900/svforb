@@ -11,7 +11,7 @@ import { EnterpriseScopeService } from '../enterprise/services/enterprise-scope.
 import { ConnectionNotifier } from './connection.notifier';
 import { releaseReasonFor, ReleaseTrigger } from './connection.rules';
 import {
-  collectsOn, isPromptDue, localDateAt, resolveDay,
+  collectsOn, describeSchedule, isPromptDue, localDateAt, resolveDay,
 } from './connection.schedule';
 import { AddDailySurplusDto } from './dto/connection.dto';
 
@@ -270,6 +270,16 @@ export class ConnectionDailyService {
       );
     }
 
+    const listing = await this.prisma.foodListing.findUnique({
+      where: { id: day.listingId },
+      select: { id: true, status: true, releasedAt: true },
+    });
+    if (!listing || listing.status !== ListingStatus.ACTIVE) {
+      throw new ConflictException(
+        'This listing has already been claimed or is no longer active.',
+      );
+    }
+
     const now = new Date();
     await this.prisma.$transaction([
       this.prisma.foodListing.update({
@@ -377,6 +387,332 @@ export class ConnectionDailyService {
     return result.count;
   }
 
+  // ─── Reading today ─────────────────────────────────────────────────────────
+
+  /**
+   * Opens today's day row when the schedule says the kitchen should be asked,
+   * then returns every due collection for the Surplus screen.
+   */
+  async listTodayForSite(caller: Jwtpayload, siteId: number) {
+    await this.assertDonorOrg(caller, siteId);
+
+    const connections = await this.prisma.connection.findMany({
+      where: { donorSiteId: siteId, status: ConnectionStatus.ACTIVE },
+      include: {
+        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true } },
+        receiverSite: { select: { id: true, name: true, organisationName: true } },
+        receiverOrg: { select: { id: true, name: true } },
+      },
+    });
+
+    const now = new Date();
+    const out: any[] = [];
+
+    for (const connection of connections) {
+      const timezone = connection.donorSite.timezone || 'Australia/Brisbane';
+
+      const schedule = { ...connection, timezone };
+      const localDate = localDateAt(timezone, now);
+      if (!collectsOn(schedule, localDate)) continue;
+
+      const resolved = resolveDay(schedule, localDate);
+      if (now >= resolved.windowEndAt) continue;
+
+      let day = await this.prisma.connectionDay.findUnique({
+        where: {
+          connectionId_scheduledDate: {
+            connectionId: connection.id,
+            scheduledDate: resolved.scheduledDate,
+          },
+        },
+      });
+
+      if (!day) {
+        try {
+          day = await this.prisma.connectionDay.create({
+            data: {
+              connectionId: connection.id,
+              scheduledDate: resolved.scheduledDate,
+              windowStartAt: resolved.windowStartAt,
+              windowEndAt: resolved.windowEndAt,
+              cutoffAt: resolved.cutoffAt,
+              outcome: ConnectionDayOutcome.PROMPTED,
+              promptedAt: now,
+            },
+          });
+        } catch (err) {
+          if (
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === 'P2002'
+          ) {
+            day = await this.prisma.connectionDay.findUnique({
+              where: {
+                connectionId_scheduledDate: {
+                  connectionId: connection.id,
+                  scheduledDate: resolved.scheduledDate,
+                },
+              },
+            });
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      if (!day) continue;
+
+      out.push({
+        connectionId: connection.id,
+        dayId: day.id,
+        status: connection.status,
+        outcome: day.outcome,
+        schedule: describeSchedule(
+          connection.daysOfWeek,
+          connection.windowStartMinutes,
+          connection.windowEndMinutes,
+        ),
+        charityName:
+          connection.receiverSite.name ?? connection.receiverSite.organisationName,
+        donorName:
+          connection.donorSite.name ?? connection.donorSite.organisationName,
+        donorSiteId: connection.donorSiteId,
+        receiverSiteId: connection.receiverSiteId,
+        listingId: day.listingId,
+        scheduledDate: day.scheduledDate,
+        windowStartAt: day.windowStartAt,
+        windowEndAt: day.windowEndAt,
+        cutoffAt: day.cutoffAt,
+        promptedAt: day.promptedAt,
+        publishedAt: day.publishedAt,
+        respondedAt: day.respondedAt,
+        releasedAt: day.releasedAt,
+      });
+    }
+
+    return out;
+  }
+
+  /** Reserved collections the preferred charity can confirm or decline today. */
+  async listTodayForCharity(caller: Jwtpayload) {
+    if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
+
+    const now = new Date();
+    const days = await this.prisma.connectionDay.findMany({
+      where: {
+        outcome: {
+          in: [ConnectionDayOutcome.PROMPTED, ConnectionDayOutcome.PUBLISHED],
+        },
+        windowEndAt: { gte: now },
+        connection: { receiverOrgId: caller.orgId },
+      },
+      include: {
+        connection: {
+          include: {
+            donorSite: { select: { id: true, name: true, organisationName: true } },
+            donorOrg: { select: { id: true, name: true } },
+            receiverSite: { select: { id: true, name: true, organisationName: true } },
+          },
+        },
+      },
+      orderBy: { windowStartAt: 'asc' },
+    });
+
+    return days.map((day) => ({
+      connectionId: day.connectionId,
+      dayId: day.id,
+      status: day.connection.status,
+      outcome: day.outcome,
+      schedule: describeSchedule(
+        day.connection.daysOfWeek,
+        day.connection.windowStartMinutes,
+        day.connection.windowEndMinutes,
+      ),
+      charityName:
+        day.connection.receiverSite.name ??
+        day.connection.receiverSite.organisationName,
+      donorName:
+        day.connection.donorSite.name ??
+        day.connection.donorSite.organisationName ??
+        day.connection.donorOrg.name,
+      donorSiteId: day.connection.donorSiteId,
+      receiverSiteId: day.connection.receiverSiteId,
+      listingId: day.listingId,
+      scheduledDate: day.scheduledDate,
+      windowStartAt: day.windowStartAt,
+      windowEndAt: day.windowEndAt,
+      cutoffAt: day.cutoffAt,
+      promptedAt: day.promptedAt,
+      publishedAt: day.publishedAt,
+      respondedAt: day.respondedAt,
+      releasedAt: day.releasedAt,
+    }));
+  }
+
+
+  /**
+   * Business moves a reserved listing to another connection whose window is
+   * still open. Already-claimed and already-public listings are not touched.
+   */
+  async reassignToConnection(
+    caller: Jwtpayload,
+    fromDayId: number,
+    toConnectionId: number,
+  ) {
+    const from = await this.requireDay(fromDayId);
+    await this.assertDonorStaff(caller, from.connection.donorSiteId);
+
+    if (from.outcome !== ConnectionDayOutcome.PUBLISHED || !from.listingId) {
+      throw new ConflictException('There is no reserved listing to move.');
+    }
+    if (from.connectionId === toConnectionId) {
+      throw new BadRequestException('This listing is already reserved for that connection.');
+    }
+
+    const listing = await this.prisma.foodListing.findUnique({
+      where: { id: from.listingId },
+    });
+    if (!listing || listing.status !== ListingStatus.ACTIVE) {
+      throw new ConflictException(
+        'This listing has already been claimed or is no longer active.',
+      );
+    }
+    if (listing.releasedAt) {
+      throw new ConflictException('This listing is already on the open network.');
+    }
+
+    const target = await this.prisma.connection.findUnique({
+      where: { id: toConnectionId },
+      include: {
+        donorSite: { select: { timezone: true, name: true, organisationName: true } },
+        donorOrg: { select: { name: true } },
+        receiverSite: { select: { name: true, organisationName: true } },
+      },
+    });
+    if (!target || target.status !== ConnectionStatus.ACTIVE) {
+      throw new ConflictException('That connection is not active.');
+    }
+    if (target.donorSiteId !== from.connection.donorSiteId) {
+      throw new BadRequestException('That connection is for a different site.');
+    }
+
+    const timezone = target.donorSite.timezone || 'Australia/Brisbane';
+    const now = new Date();
+    const schedule = { ...target, timezone };
+    const localDate = localDateAt(timezone, now);
+    if (!collectsOn(schedule, localDate)) {
+      throw new ConflictException('That charity is not scheduled to collect today.');
+    }
+    const resolved = resolveDay(schedule, localDate);
+    if (now >= resolved.windowEndAt) {
+      throw new ConflictException('That charity’s pickup window has already ended.');
+    }
+
+    let toDay = await this.prisma.connectionDay.findUnique({
+      where: {
+        connectionId_scheduledDate: {
+          connectionId: target.id,
+          scheduledDate: resolved.scheduledDate,
+        },
+      },
+    });
+    if (!toDay) {
+      try {
+        toDay = await this.prisma.connectionDay.create({
+          data: {
+            connectionId: target.id,
+            scheduledDate: resolved.scheduledDate,
+            windowStartAt: resolved.windowStartAt,
+            windowEndAt: resolved.windowEndAt,
+            cutoffAt: resolved.cutoffAt,
+            outcome: ConnectionDayOutcome.PROMPTED,
+            promptedAt: now,
+          },
+        });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          toDay = await this.prisma.connectionDay.findUnique({
+            where: {
+              connectionId_scheduledDate: {
+                connectionId: target.id,
+                scheduledDate: resolved.scheduledDate,
+              },
+            },
+          });
+        } else {
+          throw err;
+        }
+      }
+    }
+    if (!toDay) {
+      throw new ConflictException('Could not open that connection’s collection today.');
+    }
+    if (toDay.outcome !== ConnectionDayOutcome.PROMPTED || toDay.listingId) {
+      throw new ConflictException('That charity already has a listing today.');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.foodListing.update({
+        where: { id: listing.id },
+        data: {
+          connectionId: target.id,
+          exclusiveToOrgId: target.receiverOrgId,
+          exclusiveToSiteId: target.receiverSiteId,
+          exclusiveUntil: resolved.cutoffAt,
+          releasedAt: null,
+          releasedReason: null,
+        },
+      }),
+      this.prisma.connectionDay.update({
+        where: { id: from.id },
+        data: {
+          outcome: ConnectionDayOutcome.RELEASED,
+          releasedAt: now,
+          respondedAt: now,
+          listingId: null,
+        },
+      }),
+      this.prisma.connectionDay.update({
+        where: { id: toDay.id },
+        data: {
+          outcome: ConnectionDayOutcome.PUBLISHED,
+          publishedAt: now,
+          listingId: listing.id,
+        },
+      }),
+    ]);
+
+    const donorName =
+      target.donorSite.name ??
+      target.donorSite.organisationName ??
+      target.donorOrg.name ??
+      'The business';
+
+    await this.notifier.reservationMoved({
+      connectionId: from.connectionId,
+      receiverOrgId: from.connection.receiverOrgId,
+      receiverSiteId: from.connection.receiverSiteId,
+      donorName,
+    });
+    await this.notifier.collectionReady({
+      connectionId: target.id,
+      listingId: listing.id,
+      receiverOrgId: target.receiverOrgId,
+      receiverSiteId: target.receiverSiteId,
+      summary: 'Surplus is reserved for you',
+      windowStartMinutes: target.windowStartMinutes,
+      windowEndMinutes: target.windowEndMinutes,
+    });
+
+    this.logger.log(
+      `Listing ${listing.id} moved from connection ${from.connectionId} to ${target.id}`,
+    );
+    return {
+      message: 'Reserved for the other connection.',
+      listingId: listing.id,
+      toConnectionId: target.id,
+    };
+  }
+
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
   private async requireDay(id: number) {
@@ -386,6 +722,15 @@ export class ConnectionDailyService {
     });
     if (!day) throw new NotFoundException('Scheduled collection not found');
     return day;
+  }
+
+  private async assertDonorOrg(caller: Jwtpayload, siteId: number) {
+    const site = await this.prisma.site.findUnique({
+      where: { id: siteId }, select: { organisationId: true },
+    });
+    if (!site || site.organisationId !== caller.orgId) {
+      throw new ForbiddenException('That site belongs to another organisation.');
+    }
   }
 
   private async assertDonorStaff(caller: Jwtpayload, siteId: number) {

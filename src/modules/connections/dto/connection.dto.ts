@@ -62,3 +62,7 @@ export class DeclineDayDto {
 export class SetSiteTimezoneDto {
   @IsString() @MaxLength(64) timezone!: string;
 }
+
+export class ReassignDayDto {
+  @Type(() => Number) @IsInt() toConnectionId!: number;
+}

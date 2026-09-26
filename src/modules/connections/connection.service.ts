@@ -14,8 +14,8 @@ import {
   LIVE_STATUSES, releaseReasonFor, reliabilityFrom, ReleaseTrigger,
 } from './connection.rules';
 import {
-  assertValidTimezone, describeSchedule, parseLocalTime, resolveDay,
-  schedulesOverlap, validateSchedule,
+  assertValidTimezone, collectsOn, describeSchedule, formatLocalTime, localDateAt,
+  parseLocalTime, resolveDay, schedulesOverlap, validateSchedule,
 } from './connection.schedule';
 import {
   AddDailySurplusDto, CreateConnectionDto, UpdateConnectionDto,
@@ -176,7 +176,7 @@ export class ConnectionService {
     };
   }
 
-  /** The charity accepts. Collections begin from the next scheduled day. */
+  /** The charity accepts. If today's window is still open, listing can start now. */
   async accept(caller: Jwtpayload, connectionId: number) {
     const connection = await this.requireConnection(connectionId);
     await this.assertCharitySide(caller, connection);
@@ -194,7 +194,13 @@ export class ConnectionService {
 
     await this.notifier.invitationAnswered(updated, true);
     this.logger.log(`Connection accepted: id=${connectionId} by=${caller.sub}`);
-    return this.shape(updated);
+
+    const withSite = await this.prisma.connection.findUniqueOrThrow({
+      where: { id: connectionId },
+      include: { donorSite: { select: { timezone: true } } },
+    });
+    await this.ensureOpenToday(withSite);
+    return this.getOne(caller, connectionId);
   }
 
   async decline(caller: Jwtpayload, connectionId: number) {
@@ -253,11 +259,7 @@ export class ConnectionService {
     return this.shape(updated);
   }
 
-  /**
-   * Changing the agreed terms returns the Connection to PENDING: the charity
-   * committed to specific days and a specific hour, and must agree again.
-   * Listings already published are untouched.
-   */
+  /** Days, window, typical surplus and notes can be edited without re-acceptance. */
   async update(caller: Jwtpayload, connectionId: number, dto: UpdateConnectionDto) {
     const connection = await this.requireConnection(connectionId);
     await this.assertSiteAdmin(caller, connection.donorSiteId);
@@ -278,12 +280,6 @@ export class ConnectionService {
       daysOfWeek, windowStartMinutes, windowEndMinutes, leadTimeMinutes, cutoffMinutes,
     });
 
-    const termsChanged =
-      windowStartMinutes !== connection.windowStartMinutes ||
-      windowEndMinutes !== connection.windowEndMinutes ||
-      JSON.stringify([...daysOfWeek].sort()) !==
-        JSON.stringify([...connection.daysOfWeek].sort());
-
     const updated = await this.prisma.connection.update({
       where: { id: connectionId },
       data: {
@@ -292,25 +288,9 @@ export class ConnectionService {
         windowStartMinutes, windowEndMinutes, leadTimeMinutes, cutoffMinutes,
         ...(dto.typicalSurplus !== undefined ? { typicalSurplus: dto.typicalSurplus } : {}),
         ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
-        ...(termsChanged && connection.status === ConnectionStatus.ACTIVE
-          ? {
-              status: ConnectionStatus.PENDING,
-              respondedAt: null,
-              respondedByUserId: null,
-              invitationExpiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 864e5),
-            }
-          : {}),
-      },
-      include: {
-        donorSite: { select: { name: true, organisationName: true } },
-        donorOrg: { select: { name: true } },
       },
     });
-
-    if (termsChanged && updated.status === ConnectionStatus.PENDING) {
-      await this.notifier.invitationSent(updated);
-    }
-    return { ...this.shape(updated), requiresReacceptance: termsChanged };
+    return this.shape(updated);
   }
 
   // ─── Reading ───────────────────────────────────────────────────────────────
@@ -322,6 +302,7 @@ export class ConnectionService {
       where: { donorSiteId: siteId },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
       include: {
+        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true } },
         receiverSite: { select: { id: true, name: true, organisationName: true } },
         receiverOrg: { select: { id: true, name: true } },
       },
@@ -336,7 +317,7 @@ export class ConnectionService {
       where: { receiverOrgId: caller.orgId },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
       include: {
-        donorSite: { select: { id: true, name: true, organisationName: true } },
+        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true } },
         donorOrg: { select: { id: true, name: true } },
       },
     });
@@ -392,6 +373,7 @@ export class ConnectionService {
       donorOrg: connection.donorOrg,
       receiverSite: connection.receiverSite,
       receiverOrg: connection.receiverOrg,
+      today: await this.todayFor(connection),
       stats: {
         collectionsCompleted: reliability.collected,
         kgRedirected: Math.round((collectedKg._sum.collectedKg ?? 0) * 10) / 10,
@@ -402,6 +384,128 @@ export class ConnectionService {
         reliabilityPercent: reliability.percent,
       },
     };
+  }
+
+  /** Today's ledger row at the donor site. Opens it for an ACTIVE connection while the window is still open. */
+  private async todayFor(connection: {
+    id: number;
+    status?: ConnectionStatus;
+    donorSiteId: number;
+    daysOfWeek?: number[];
+    windowStartMinutes?: number;
+    windowEndMinutes?: number;
+    leadTimeMinutes?: number;
+    cutoffMinutes?: number;
+    donorSite?: { timezone?: string | null };
+  }) {
+    if (connection.status === ConnectionStatus.ACTIVE) {
+      const opened = await this.ensureOpenToday(connection);
+      return opened ? this.shapeDay(opened) : null;
+    }
+
+    const timezone =
+      connection.donorSite?.timezone ??
+      (
+        await this.prisma.site.findUnique({
+          where: { id: connection.donorSiteId },
+          select: { timezone: true },
+        })
+      )?.timezone;
+    if (!timezone) return null;
+
+    const scheduledDate = localDateAt(timezone, new Date());
+    const day = await this.prisma.connectionDay.findUnique({
+      where: {
+        connectionId_scheduledDate: { connectionId: connection.id, scheduledDate },
+      },
+    });
+    return day ? this.shapeDay(day) : null;
+  }
+
+  /**
+   * If today is a scheduled collection day and the pickup window has not ended,
+   * open the day row so the business can list immediately after accept.
+   */
+  private async ensureOpenToday(connection: {
+    id: number;
+    status?: ConnectionStatus;
+    donorSiteId: number;
+    daysOfWeek?: number[];
+    windowStartMinutes?: number;
+    windowEndMinutes?: number;
+    leadTimeMinutes?: number;
+    cutoffMinutes?: number;
+    donorSite?: { timezone?: string | null };
+  }) {
+    if (connection.status && connection.status !== ConnectionStatus.ACTIVE) return null;
+    if (!Array.isArray(connection.daysOfWeek) || connection.windowStartMinutes == null || connection.windowEndMinutes == null) {
+      return null;
+    }
+
+    const timezone =
+      connection.donorSite?.timezone ??
+      (
+        await this.prisma.site.findUnique({
+          where: { id: connection.donorSiteId },
+          select: { timezone: true },
+        })
+      )?.timezone ??
+      'Australia/Brisbane';
+
+    const now = new Date();
+    const schedule = {
+      timezone,
+      daysOfWeek: connection.daysOfWeek,
+      windowStartMinutes: connection.windowStartMinutes,
+      windowEndMinutes: connection.windowEndMinutes,
+      leadTimeMinutes: connection.leadTimeMinutes ?? 60,
+      cutoffMinutes: connection.cutoffMinutes ?? 30,
+    };
+    const localDate = localDateAt(timezone, now);
+    if (!collectsOn(schedule, localDate)) return null;
+
+    const resolved = resolveDay(schedule, localDate);
+    if (now >= resolved.windowEndAt) return null;
+
+    try {
+      return await this.prisma.connectionDay.upsert({
+        where: {
+          connectionId_scheduledDate: {
+            connectionId: connection.id,
+            scheduledDate: resolved.scheduledDate,
+          },
+        },
+        create: {
+          connectionId: connection.id,
+          scheduledDate: resolved.scheduledDate,
+          windowStartAt: resolved.windowStartAt,
+          windowEndAt: resolved.windowEndAt,
+          cutoffAt: resolved.cutoffAt,
+          outcome: ConnectionDayOutcome.PROMPTED,
+          promptedAt: now,
+        },
+        update: {},
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        return this.prisma.connectionDay.findUnique({
+          where: {
+            connectionId_scheduledDate: {
+              connectionId: connection.id,
+              scheduledDate: resolved.scheduledDate,
+            },
+          },
+        });
+      }
+      throw err;
+    }
+  }
+
+  async setSiteTimezone(caller: Jwtpayload, siteId: number, timezone: string) {
+    await this.assertSiteAdmin(caller, siteId);
+    assertValidTimezone(timezone);
+    await this.prisma.site.update({ where: { id: siteId }, data: { timezone } });
+    return { siteId, timezone };
   }
 
   // ─── Guards ────────────────────────────────────────────────────────────────
@@ -476,6 +580,22 @@ export class ConnectionService {
     return ConnectionFrequency.SELECT_DAYS;
   }
 
+  private shapeDay(day: any) {
+    return {
+      id: day.id,
+      scheduledDate: day.scheduledDate,
+      windowStartAt: day.windowStartAt,
+      windowEndAt: day.windowEndAt,
+      cutoffAt: day.cutoffAt,
+      outcome: day.outcome,
+      listingId: day.listingId,
+      promptedAt: day.promptedAt,
+      publishedAt: day.publishedAt,
+      respondedAt: day.respondedAt,
+      releasedAt: day.releasedAt,
+    };
+  }
+
   private shape(connection: any) {
     return {
       id: connection.id,
@@ -483,6 +603,8 @@ export class ConnectionService {
       initiatedBy: connection.initiatedBy,
       frequency: connection.frequency,
       daysOfWeek: connection.daysOfWeek,
+      windowStart: formatLocalTime(connection.windowStartMinutes),
+      windowEnd: formatLocalTime(connection.windowEndMinutes),
       schedule: describeSchedule(
         connection.daysOfWeek, connection.windowStartMinutes, connection.windowEndMinutes,
       ),

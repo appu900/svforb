@@ -14,6 +14,7 @@ export const CONNECTION_PUSH = {
   CUTOFF_ESCALATION: 'CONNECTION_CUTOFF',
   RELEASED: 'CONNECTION_RELEASED',
   NO_SURPLUS: 'CONNECTION_NO_SURPLUS',
+  MOVED: 'CONNECTION_MOVED',
 } as const;
 
 /**
@@ -125,7 +126,7 @@ export class ConnectionNotifier {
       await this.siteStaffIds(connection.donorSiteId),
       accepted ? 'Connection accepted' : 'Connection declined',
       accepted
-        ? `${charity} accepted your regular collection. Scheduled collections start from the next collection day.`
+        ? `${charity} accepted your regular collection. If today is a scheduled day and the window is still open, you can list surplus for them now.`
         : `${charity} declined your regular collection request.`,
       {
         type: accepted ? CONNECTION_PUSH.ACCEPTED : CONNECTION_PUSH.DECLINED,
@@ -231,7 +232,22 @@ export class ConnectionNotifier {
     );
   }
 
-  async releasedToNetwork(input: {
+
+  async reservationMoved(input: {
+    connectionId: number;
+    receiverOrgId: number;
+    receiverSiteId: number;
+    donorName: string;
+  }): Promise<void> {
+    await this.push(
+      await this.charityAdminIds(input.receiverOrgId, input.receiverSiteId),
+      'Collection offered elsewhere',
+      `${input.donorName} has released today’s reserved collection.`,
+      { type: CONNECTION_PUSH.MOVED, connectionId: String(input.connectionId) },
+    );
+  }
+
+    async releasedToNetwork(input: {
     connectionId: number;
     donorSiteId: number;
     listingId: number;
