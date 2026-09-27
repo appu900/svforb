@@ -84,4 +84,5 @@ export class ReassignDayDto {
 export class ReleaseDayDto {
   @IsDateString() @IsOptional() pickupFromTime?: string;
   @IsDateString() @IsOptional() pickupByTime?: string;
+  @IsDateString() @IsOptional() bestBefore?: string;
 }

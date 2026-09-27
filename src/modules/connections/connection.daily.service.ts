@@ -272,22 +272,36 @@ export class ConnectionDailyService {
    * the single point where a listing becomes visible to the network.
    */
   private parseReleaseWindow(dto?: ReleaseDayDto) {
-    if (!dto?.pickupFromTime && !dto?.pickupByTime) return {};
-    if (!dto.pickupFromTime || !dto.pickupByTime) {
+    if (!dto?.pickupFromTime && !dto?.pickupByTime && !dto?.bestBefore) return {};
+    if ((dto.pickupFromTime && !dto.pickupByTime) || (!dto.pickupFromTime && dto.pickupByTime)) {
       throw new BadRequestException('Set both the pickup start and end times.');
     }
-    const pickupFromTime = new Date(dto.pickupFromTime);
-    const pickupByTime = new Date(dto.pickupByTime);
-    if (Number.isNaN(pickupFromTime.getTime()) || Number.isNaN(pickupByTime.getTime())) {
+    const pickupFromTime = dto.pickupFromTime ? new Date(dto.pickupFromTime) : undefined;
+    const pickupByTime = dto.pickupByTime ? new Date(dto.pickupByTime) : undefined;
+    if (
+      (pickupFromTime && Number.isNaN(pickupFromTime.getTime())) ||
+      (pickupByTime && Number.isNaN(pickupByTime.getTime()))
+    ) {
       throw new BadRequestException('The pickup window is not a valid time.');
     }
-    if (pickupByTime <= pickupFromTime) {
+    if (pickupFromTime && pickupByTime && pickupByTime <= pickupFromTime) {
       throw new BadRequestException('Pickup end time must be after pickup start time.');
     }
-    if (pickupByTime.getTime() <= Date.now()) {
+    if (pickupByTime && pickupByTime.getTime() <= Date.now()) {
       throw new BadRequestException('Choose a pickup window that has not ended yet.');
     }
-    return { pickupFromTime, pickupByTime, bestBefore: pickupByTime };
+    let bestBefore = dto.bestBefore ? new Date(dto.bestBefore) : pickupByTime;
+    if (bestBefore && Number.isNaN(bestBefore.getTime())) {
+      throw new BadRequestException('The best before time is not valid.');
+    }
+    if (bestBefore && pickupByTime && bestBefore.getTime() < pickupByTime.getTime()) {
+      bestBefore = pickupByTime;
+    }
+    return {
+      ...(pickupFromTime ? { pickupFromTime } : {}),
+      ...(pickupByTime ? { pickupByTime } : {}),
+      ...(bestBefore ? { bestBefore } : {}),
+    };
   }
 
   private async release(day: any, trigger: ReleaseTrigger, dto?: ReleaseDayDto) {
@@ -700,6 +714,11 @@ export class ConnectionDailyService {
       throw new ConflictException('That charity already has a listing today.');
     }
 
+    const nextBestBefore =
+      listing.bestBefore && listing.bestBefore.getTime() >= resolved.windowEndAt.getTime()
+        ? listing.bestBefore
+        : resolved.windowEndAt;
+
     await this.prisma.$transaction([
       this.prisma.foodListing.update({
         where: { id: listing.id },
@@ -710,6 +729,9 @@ export class ConnectionDailyService {
           exclusiveUntil: resolved.cutoffAt,
           releasedAt: null,
           releasedReason: null,
+          pickupFromTime: resolved.windowStartAt,
+          pickupByTime: resolved.windowEndAt,
+          bestBefore: nextBestBefore,
         },
       }),
       this.prisma.connectionDay.update({
