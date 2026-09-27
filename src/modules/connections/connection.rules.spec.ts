@@ -126,6 +126,7 @@ describe('Connection rules', () => {
       outcome: Outcome.PUBLISHED,
       cutoffAt: utc('2026-09-24T05:30:00Z'),
       windowStartAt: utc('2026-09-24T06:00:00Z'),
+      windowEndAt: utc('2026-09-24T10:00:00Z'),
     };
 
     it('chases the business between cut-off and window start', () => {
@@ -135,14 +136,15 @@ describe('Connection rules', () => {
       expect(shouldEscalateToBusiness(day, utc('2026-09-24T06:00:00Z'))).toBe(false);
     });
 
-    it('auto-releases once the window opens', () => {
-      expect(shouldAutoRelease(day, utc('2026-09-24T05:59:00Z'))).toBe(false);
-      expect(shouldAutoRelease(day, utc('2026-09-24T06:00:00Z'))).toBe(true);
+    it('auto-releases once the pickup window ends', () => {
+      expect(shouldAutoRelease(day, utc('2026-09-24T06:00:00Z'))).toBe(false);
+      expect(shouldAutoRelease(day, utc('2026-09-24T09:59:00Z'))).toBe(false);
+      expect(shouldAutoRelease(day, utc('2026-09-24T10:00:00Z'))).toBe(true);
     });
 
     it('leaves a day alone once it has been answered', () => {
       for (const outcome of [Outcome.COLLECTED, Outcome.RELEASED, Outcome.NO_SURPLUS]) {
-        expect(shouldAutoRelease({ ...day, outcome }, utc('2026-09-24T07:00:00Z'))).toBe(false);
+        expect(shouldAutoRelease({ ...day, outcome }, utc('2026-09-24T11:00:00Z'))).toBe(false);
         expect(shouldEscalateToBusiness({ ...day, outcome }, utc('2026-09-24T05:45:00Z'))).toBe(false);
       }
     });

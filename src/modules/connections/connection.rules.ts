@@ -147,16 +147,14 @@ export function releaseReasonFor(trigger: ReleaseTrigger): ListingReleaseReason 
 }
 
 /**
- * Whether a day that nobody has answered should now be released automatically.
- *
- * The business is prompted at the cut-off; this is the backstop at the window
- * start, so food never rots because two people ignored a notification.
+ * Reserved surplus stays exclusive through the pickup window. Once that
+ * window ends and nobody claimed, it is released to the open network.
  */
 export function shouldAutoRelease(
-  day: { outcome: ConnectionDayOutcome; windowStartAt: Date },
+  day: { outcome: ConnectionDayOutcome; windowEndAt: Date },
   now: Date,
 ): boolean {
-  return day.outcome === ConnectionDayOutcome.PUBLISHED && now >= day.windowStartAt;
+  return day.outcome === ConnectionDayOutcome.PUBLISHED && now >= day.windowEndAt;
 }
 
 /** Whether the business should be chased about an unconfirmed collection. */

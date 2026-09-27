@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { FoodListingType, ListingStatus } from '@prisma/client';
+import { ConnectionDayOutcome, FoodListingType, ListingStatus } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { RedisGeoSearchService } from '../../redis-geo-search/redis.geosearch.service';
 import { NotificationService } from '../../notifications/services/notification.service';
@@ -174,6 +174,12 @@ export class ListingWorker extends WorkerHost {
       where: {
         status: { in: [ListingStatus.ACTIVE, ListingStatus.PARTIAL] },
         OR: [{ pickupByTime: { lte: now } }, { bestBefore: { lte: now } }],
+        // Reserved connection listings stay live until auto-release at window end.
+        AND: [
+          {
+            OR: [{ exclusiveToOrgId: null }, { releasedAt: { not: null } }],
+          },
+        ],
       },
       select: { id: true },
       take: 200,
@@ -212,11 +218,20 @@ export class ListingWorker extends WorkerHost {
         remainingQtyKg: true,
         pickupByTime: true,
         bestBefore: true,
+        exclusiveToOrgId: true,
+        releasedAt: true,
       },
     });
 
     if (!listing) {
       this.logger.warn(`Expiry job: listing ${listingId} not found`);
+      return false;
+    }
+
+    if (listing.exclusiveToOrgId && !listing.releasedAt) {
+      this.logger.log(
+        `Expiry job: listing ${listingId} is still reserved — wait for auto-release at pickup end`,
+      );
       return false;
     }
 
@@ -253,6 +268,11 @@ export class ListingWorker extends WorkerHost {
       await tx.foodListing.update({
         where: { id: listingId },
         data: { status: ListingStatus.EXPIRED },
+      });
+
+      await tx.connectionDay.updateMany({
+        where: { listingId, outcome: ConnectionDayOutcome.PUBLISHED },
+        data: { outcome: ConnectionDayOutcome.MISSED, respondedAt: now },
       });
 
       await tx.listingActivity.create({

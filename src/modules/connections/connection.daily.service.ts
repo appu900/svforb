@@ -9,7 +9,12 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../auth/interface/jwt.interface';
 import { EnterpriseScopeService } from '../enterprise/services/enterprise-scope.service';
 import { ConnectionNotifier } from './connection.notifier';
-import { releaseReasonFor, ReleaseTrigger } from './connection.rules';
+import {
+  releaseReasonFor,
+  shouldAutoRelease,
+  shouldEscalateToBusiness,
+  type ReleaseTrigger,
+} from './connection.rules';
 import {
   collectsOn, describeSchedule, isPromptDue, localDateAt, resolveDay,
 } from './connection.schedule';
@@ -304,6 +309,23 @@ export class ConnectionDailyService {
     };
   }
 
+  /** Keep the listing claimable after the reserved window, or nearby never sees it. */
+  private publicWindowAfterPickupEnd(
+    now: Date,
+    listing: { pickupByTime: Date | null; bestBefore: Date | null },
+  ) {
+    const followOnMs = 4 * 60 * 60 * 1000;
+    const pickupByTime =
+      listing.pickupByTime && listing.pickupByTime.getTime() > now.getTime()
+        ? listing.pickupByTime
+        : new Date(now.getTime() + followOnMs);
+    const bestBefore =
+      listing.bestBefore && listing.bestBefore.getTime() >= pickupByTime.getTime()
+        ? listing.bestBefore
+        : pickupByTime;
+    return { pickupFromTime: now, pickupByTime, bestBefore };
+  }
+
   private async release(day: any, trigger: ReleaseTrigger, dto?: ReleaseDayDto) {
     if (day.outcome !== ConnectionDayOutcome.PUBLISHED || !day.listingId) {
       throw new ConflictException(
@@ -313,7 +335,7 @@ export class ConnectionDailyService {
 
     const listing = await this.prisma.foodListing.findUnique({
       where: { id: day.listingId },
-      select: { id: true, status: true, releasedAt: true },
+      select: { id: true, status: true, releasedAt: true, pickupByTime: true, bestBefore: true },
     });
     if (!listing || listing.status !== ListingStatus.ACTIVE) {
       throw new ConflictException(
@@ -322,7 +344,12 @@ export class ConnectionDailyService {
     }
 
     const now = new Date();
-    const window = trigger === 'BUSINESS_RELEASED' ? this.parseReleaseWindow(dto) : {};
+    const window =
+      trigger === 'BUSINESS_RELEASED'
+        ? this.parseReleaseWindow(dto)
+        : trigger === 'AUTO_RELEASED'
+          ? this.publicWindowAfterPickupEnd(now, listing)
+          : {};
     await this.prisma.$transaction([
       this.prisma.foodListing.update({
         where: { id: day.listingId },
@@ -363,15 +390,13 @@ export class ConnectionDailyService {
   // ─── Sweep 2: cut-off and auto-release ─────────────────────────────────────
 
   /**
-   * Chases the business at the cut-off, then releases automatically once the
-   * window opens. The second step is the backstop: food must not rot because
-   * two people ignored a notification.
+   * Reminds the business at cut-off if the charity has not claimed yet.
+   * Auto-releases reserved food only after the pickup window ends.
    */
   async sweepUnconfirmed(now = new Date()): Promise<{ escalated: number; released: number }> {
     const pending = await this.prisma.connectionDay.findMany({
       where: {
         outcome: ConnectionDayOutcome.PUBLISHED,
-        cutoffAt: { lte: now },
         listingId: { not: null },
       },
       include: {
@@ -386,13 +411,12 @@ export class ConnectionDailyService {
 
     for (const day of pending) {
       try {
-        if (now >= day.windowStartAt) {
+        if (shouldAutoRelease(day, now)) {
           await this.release(day, 'AUTO_RELEASED');
           released++;
           continue;
         }
-        // Between cut-off and window start: ask the business once.
-        if (!day.respondedAt) {
+        if (!day.respondedAt && shouldEscalateToBusiness(day, now)) {
           await this.notifier.cutoffEscalation({
             connectionId: day.connectionId,
             connectionDayId: day.id,

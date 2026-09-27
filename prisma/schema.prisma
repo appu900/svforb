@@ -1593,7 +1593,7 @@ enum ListingReleaseReason {
   CHARITY_DECLINED
   /// Business answered the cut-off prompt
   BUSINESS_RELEASED
-  /// Nobody answered; released automatically at the window start
+  /// Nobody answered; released automatically after the pickup window ends
   AUTO_RELEASED
   /// Preferred charity took part of it; the remainder went to the network
   PARTIAL_REMAINDER
