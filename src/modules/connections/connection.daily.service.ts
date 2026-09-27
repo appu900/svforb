@@ -13,7 +13,7 @@ import { releaseReasonFor, ReleaseTrigger } from './connection.rules';
 import {
   collectsOn, describeSchedule, isPromptDue, localDateAt, resolveDay,
 } from './connection.schedule';
-import { AddDailySurplusDto } from './dto/connection.dto';
+import { AddDailySurplusDto, ReleaseDayDto } from './dto/connection.dto';
 
 /**
  * The daily loop: prompt the business, publish today's surplus exclusively to
@@ -160,6 +160,14 @@ export class ConnectionDailyService {
           pickupFromTime: day.windowStartAt,
           pickupByTime: day.windowEndAt,
           collectionNotes: dto.collectionNotes ?? site.collectionInstructions,
+          needsRefrigeration: Boolean(dto.needsRefrigeration),
+          needsFreezer: Boolean(dto.needsFreezer),
+          needsAmbient: Boolean(dto.needsAmbient),
+          needsHot: Boolean(dto.needsHot),
+          needsReheating: Boolean(dto.needsReheating),
+          allergens: dto.allergens ?? [],
+          photoUrls: dto.photoUrls ?? [],
+          isSafeForDonation: true,
           status: ListingStatus.ACTIVE,
           // Reserved for the preferred charity until released.
           connectionId: day.connectionId,
@@ -251,10 +259,10 @@ export class ConnectionDailyService {
   }
 
   /** The business answering the cut-off prompt. */
-  async releaseToNetwork(caller: Jwtpayload, connectionDayId: number) {
+  async releaseToNetwork(caller: Jwtpayload, connectionDayId: number, dto?: ReleaseDayDto) {
     const day = await this.requireDay(connectionDayId);
     await this.assertDonorStaff(caller, day.connection.donorSiteId);
-    return this.release(day, 'BUSINESS_RELEASED');
+    return this.release(day, 'BUSINESS_RELEASED', dto);
   }
 
   /**
@@ -263,7 +271,26 @@ export class ConnectionDailyService {
    * Clearing the reservation is what every discovery path keys on, so this is
    * the single point where a listing becomes visible to the network.
    */
-  private async release(day: any, trigger: ReleaseTrigger) {
+  private parseReleaseWindow(dto?: ReleaseDayDto) {
+    if (!dto?.pickupFromTime && !dto?.pickupByTime) return {};
+    if (!dto.pickupFromTime || !dto.pickupByTime) {
+      throw new BadRequestException('Set both the pickup start and end times.');
+    }
+    const pickupFromTime = new Date(dto.pickupFromTime);
+    const pickupByTime = new Date(dto.pickupByTime);
+    if (Number.isNaN(pickupFromTime.getTime()) || Number.isNaN(pickupByTime.getTime())) {
+      throw new BadRequestException('The pickup window is not a valid time.');
+    }
+    if (pickupByTime <= pickupFromTime) {
+      throw new BadRequestException('Pickup end time must be after pickup start time.');
+    }
+    if (pickupByTime.getTime() <= Date.now()) {
+      throw new BadRequestException('Choose a pickup window that has not ended yet.');
+    }
+    return { pickupFromTime, pickupByTime, bestBefore: pickupByTime };
+  }
+
+  private async release(day: any, trigger: ReleaseTrigger, dto?: ReleaseDayDto) {
     if (day.outcome !== ConnectionDayOutcome.PUBLISHED || !day.listingId) {
       throw new ConflictException(
         'There is nothing to release — no collection has been published for today.',
@@ -281,10 +308,16 @@ export class ConnectionDailyService {
     }
 
     const now = new Date();
+    const window = trigger === 'BUSINESS_RELEASED' ? this.parseReleaseWindow(dto) : {};
     await this.prisma.$transaction([
       this.prisma.foodListing.update({
         where: { id: day.listingId },
-        data: { releasedAt: now, releasedReason: releaseReasonFor(trigger), exclusiveUntil: null },
+        data: {
+          releasedAt: now,
+          releasedReason: releaseReasonFor(trigger),
+          exclusiveUntil: null,
+          ...window,
+        },
       }),
       this.prisma.connectionDay.update({
         where: { id: day.id },
@@ -460,6 +493,23 @@ export class ConnectionDailyService {
       }
 
       if (!day) continue;
+
+      if (day.outcome === ConnectionDayOutcome.PROMPTED && !day.listingId) {
+        if (
+          day.windowStartAt.getTime() !== resolved.windowStartAt.getTime() ||
+          day.windowEndAt.getTime() !== resolved.windowEndAt.getTime() ||
+          day.cutoffAt.getTime() !== resolved.cutoffAt.getTime()
+        ) {
+          day = await this.prisma.connectionDay.update({
+            where: { id: day.id },
+            data: {
+              windowStartAt: resolved.windowStartAt,
+              windowEndAt: resolved.windowEndAt,
+              cutoffAt: resolved.cutoffAt,
+            },
+          });
+        }
+      }
 
       out.push({
         connectionId: connection.id,

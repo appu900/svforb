@@ -8,7 +8,8 @@ import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { ConnectionDailyService } from '../connection.daily.service';
 import { ConnectionService } from '../connection.service';
 import {
-  AddDailySurplusDto, CreateConnectionDto, ReassignDayDto, SetSiteTimezoneDto, UpdateConnectionDto,
+  AddDailySurplusDto, CreateConnectionDto, ReassignDayDto, ReleaseDayDto, SetSiteTimezoneDto,
+  UpdateConnectionDto,
 } from '../dto/connection.dto';
 
 type Req = Request & { user: Jwtpayload };
@@ -107,8 +108,12 @@ export class ConnectionController {
 
   /** The business answering the cut-off prompt. */
   @Post('days/:dayId/release')
-  release(@Req() req: Req, @Param('dayId', ParseIntPipe) dayId: number) {
-    return this.daily.releaseToNetwork(req.user, dayId);
+  release(
+    @Req() req: Req,
+    @Param('dayId', ParseIntPipe) dayId: number,
+    @Body() dto: ReleaseDayDto,
+  ) {
+    return this.daily.releaseToNetwork(req.user, dayId, dto);
   }
 
   /** Move a reserved listing to another connection whose window is still open. */

@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayNotEmpty, IsArray, IsInt, IsNumber, IsOptional, IsString, MaxLength,
-  Min, ValidateNested,
+  ArrayMaxSize, ArrayNotEmpty, IsArray, IsBoolean, IsDateString, IsInt, IsNumber, IsOptional,
+  IsString, MaxLength, Min, ValidateNested,
 } from 'class-validator';
 
 export class CreateConnectionDto {
@@ -52,6 +52,19 @@ export class AddDailySurplusDto {
   items!: SurplusItemDto[];
 
   @IsString() @IsOptional() @MaxLength(500) collectionNotes?: string;
+
+  @IsBoolean() @IsOptional() needsRefrigeration?: boolean;
+  @IsBoolean() @IsOptional() needsFreezer?: boolean;
+  @IsBoolean() @IsOptional() needsAmbient?: boolean;
+  @IsBoolean() @IsOptional() needsHot?: boolean;
+  @IsBoolean() @IsOptional() needsReheating?: boolean;
+  @IsBoolean() @IsOptional() isSafeForDonation?: boolean;
+
+  @IsArray() @IsOptional() @IsString({ each: true }) @ArrayMaxSize(20)
+  allergens?: string[];
+
+  @IsArray() @IsOptional() @IsString({ each: true }) @ArrayMaxSize(5)
+  photoUrls?: string[];
 }
 
 export class DeclineDayDto {
@@ -65,4 +78,10 @@ export class SetSiteTimezoneDto {
 
 export class ReassignDayDto {
   @Type(() => Number) @IsInt() toConnectionId!: number;
+}
+
+/** Optional new public window when a reserved listing is released. */
+export class ReleaseDayDto {
+  @IsDateString() @IsOptional() pickupFromTime?: string;
+  @IsDateString() @IsOptional() pickupByTime?: string;
 }

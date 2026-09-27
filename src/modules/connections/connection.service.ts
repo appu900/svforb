@@ -302,8 +302,8 @@ export class ConnectionService {
       where: { donorSiteId: siteId },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
       include: {
-        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true } },
-        receiverSite: { select: { id: true, name: true, organisationName: true } },
+        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true, address: true, postcode: true } },
+        receiverSite: { select: { id: true, name: true, organisationName: true, address: true, postcode: true } },
         receiverOrg: { select: { id: true, name: true } },
       },
     });
@@ -317,7 +317,7 @@ export class ConnectionService {
       where: { receiverOrgId: caller.orgId },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
       include: {
-        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true } },
+        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true, address: true, postcode: true } },
         donorOrg: { select: { id: true, name: true } },
       },
     });
@@ -330,9 +330,9 @@ export class ConnectionService {
     const full = await this.prisma.connection.findUniqueOrThrow({
       where: { id: connectionId },
       include: {
-        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true } },
+        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true, address: true, postcode: true } },
         donorOrg: { select: { id: true, name: true } },
-        receiverSite: { select: { id: true, name: true, organisationName: true } },
+        receiverSite: { select: { id: true, name: true, organisationName: true, address: true, postcode: true } },
         receiverOrg: { select: { id: true, name: true } },
       },
     });
@@ -468,7 +468,7 @@ export class ConnectionService {
     if (now >= resolved.windowEndAt) return null;
 
     try {
-      return await this.prisma.connectionDay.upsert({
+      const day = await this.prisma.connectionDay.upsert({
         where: {
           connectionId_scheduledDate: {
             connectionId: connection.id,
@@ -486,9 +486,10 @@ export class ConnectionService {
         },
         update: {},
       });
+      return this.alignPromptedDay(day, resolved);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        return this.prisma.connectionDay.findUnique({
+        const day = await this.prisma.connectionDay.findUnique({
           where: {
             connectionId_scheduledDate: {
               connectionId: connection.id,
@@ -496,9 +497,41 @@ export class ConnectionService {
             },
           },
         });
+        return this.alignPromptedDay(day, resolved);
       }
       throw err;
     }
+  }
+
+  /** If food is not listed yet, keep today's window in sync with the saved schedule. */
+  private async alignPromptedDay(
+    day: {
+      id: number;
+      outcome: ConnectionDayOutcome;
+      listingId?: number | null;
+      windowStartAt: Date;
+      windowEndAt: Date;
+      cutoffAt: Date;
+    } | null,
+    resolved: { windowStartAt: Date; windowEndAt: Date; cutoffAt: Date },
+  ) {
+    if (!day || day.listingId) return day;
+    if (day.outcome !== ConnectionDayOutcome.PROMPTED) return day;
+    if (
+      day.windowStartAt.getTime() === resolved.windowStartAt.getTime() &&
+      day.windowEndAt.getTime() === resolved.windowEndAt.getTime() &&
+      day.cutoffAt.getTime() === resolved.cutoffAt.getTime()
+    ) {
+      return day;
+    }
+    return this.prisma.connectionDay.update({
+      where: { id: day.id },
+      data: {
+        windowStartAt: resolved.windowStartAt,
+        windowEndAt: resolved.windowEndAt,
+        cutoffAt: resolved.cutoffAt,
+      },
+    });
   }
 
   async setSiteTimezone(caller: Jwtpayload, siteId: number, timezone: string) {
