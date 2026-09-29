@@ -166,6 +166,11 @@ export class CharityConnectionController {
     return this.connections.pause(req.user, id);
   }
 
+  @Post(':id/resume')
+  resume(@Req() req: Req, @Param('id', ParseIntPipe) id: number) {
+    return this.connections.resume(req.user, id);
+  }
+
   @Delete(':id')
   end(@Req() req: Req, @Param('id', ParseIntPipe) id: number) {
     return this.connections.end(req.user, id);

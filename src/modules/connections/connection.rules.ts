@@ -147,26 +147,44 @@ export function releaseReasonFor(trigger: ReleaseTrigger): ListingReleaseReason 
 }
 
 /**
- * Reserved surplus stays exclusive through the pickup window. Once that
- * window ends and nobody claimed, it is released to the open network.
+ * Charity must confirm 1.5 hours before pickup. If they had that window and
+ * stay silent, release to nearby. A listing created after that deadline
+ * (late surplus) stays reserved until the pickup window ends.
  */
 export function shouldAutoRelease(
-  day: { outcome: ConnectionDayOutcome; windowEndAt: Date },
+  day: {
+    outcome: ConnectionDayOutcome;
+    cutoffAt: Date;
+    windowEndAt: Date;
+    publishedAt?: Date | null;
+  },
   now: Date,
 ): boolean {
-  return day.outcome === ConnectionDayOutcome.PUBLISHED && now >= day.windowEndAt;
+  if (day.outcome !== ConnectionDayOutcome.PUBLISHED) return false;
+  if (now >= day.windowEndAt) return true;
+  if (now < day.cutoffAt) return false;
+  if (day.publishedAt && day.publishedAt.getTime() >= day.cutoffAt.getTime()) {
+    return false;
+  }
+  return true;
 }
 
 /** Whether the business should be chased about an unconfirmed collection. */
 export function shouldEscalateToBusiness(
-  day: { outcome: ConnectionDayOutcome; cutoffAt: Date; windowStartAt: Date },
+  day: {
+    outcome: ConnectionDayOutcome;
+    cutoffAt: Date;
+    windowStartAt: Date;
+    publishedAt?: Date | null;
+  },
   now: Date,
 ): boolean {
-  return (
-    day.outcome === ConnectionDayOutcome.PUBLISHED &&
-    now >= day.cutoffAt &&
-    now < day.windowStartAt
-  );
+  if (day.outcome !== ConnectionDayOutcome.PUBLISHED) return false;
+  if (now < day.cutoffAt || now >= day.windowStartAt) return false;
+  if (day.publishedAt && day.publishedAt.getTime() >= day.cutoffAt.getTime()) {
+    return false;
+  }
+  return true;
 }
 
 // ─── Reliability ─────────────────────────────────────────────────────────────
@@ -176,6 +194,7 @@ export interface ReliabilityCounts {
   released: number;
   missed: number;
   noSurplus: number;
+  noResponse?: number;
 }
 
 export interface Reliability {
@@ -193,9 +212,8 @@ export interface Reliability {
 /**
  * Reliability is measured against days the charity was actually offered food.
  *
- * Days the business had no surplus are excluded — a kitchen with nothing left
- * is not the charity failing to turn up, and counting it would punish the
- * charity for someone else's quiet week.
+ * Days the business had no surplus, or never answered, are excluded — a kitchen
+ * with nothing left is not the charity failing to turn up.
  */
 export function reliabilityFrom(counts: ReliabilityCounts): Reliability {
   const offered = counts.collected + counts.released + counts.missed;

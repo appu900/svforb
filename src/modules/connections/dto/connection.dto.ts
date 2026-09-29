@@ -23,6 +23,7 @@ export class CreateConnectionDto {
   @Type(() => Number) @IsInt() @Min(0) @IsOptional() cutoffMinutes?: number;
 
   @IsString() @IsOptional() @MaxLength(200) typicalSurplus?: string;
+  @IsString() @IsOptional() @MaxLength(200) typicalQuantity?: string;
   @IsString() @IsOptional() @MaxLength(500) notes?: string;
 }
 
@@ -37,6 +38,7 @@ export class UpdateConnectionDto {
   @Type(() => Number) @IsInt() @Min(0) @IsOptional() cutoffMinutes?: number;
 
   @IsString() @IsOptional() @MaxLength(200) typicalSurplus?: string;
+  @IsString() @IsOptional() @MaxLength(200) typicalQuantity?: string;
   @IsString() @IsOptional() @MaxLength(500) notes?: string;
 }
 

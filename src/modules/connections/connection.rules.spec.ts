@@ -1,4 +1,5 @@
 import { ConflictException, BadRequestException } from '@nestjs/common';
+import { describe, expect, it } from '@jest/globals';
 import { ConnectionDayOutcome as Outcome, ConnectionStatus as S } from '@prisma/client';
 import {
   assertCanClaim, assertDistinctSites, assertTransition, canAccessListing,
@@ -90,8 +91,11 @@ describe('Connection rules', () => {
       { listing: { exclusiveToOrgId: CHARITY, releasedAt: utc('2026-01-01T00:00:00Z') }, label: 'released' },
     ];
 
-    const matchesPrismaWhere = (where: any, listing: any): boolean =>
-      where.OR.some((clause: any) => {
+    type ListingView = { exclusiveToOrgId: number | null; releasedAt: Date | null };
+    type VisibilityWhere = ReturnType<typeof visibilityWhere>;
+
+    const matchesPrismaWhere = (where: VisibilityWhere, listing: ListingView): boolean =>
+      where.OR.some((clause) => {
         if ('exclusiveToOrgId' in clause && typeof clause.exclusiveToOrgId === 'number') {
           return listing.exclusiveToOrgId === clause.exclusiveToOrgId;
         }
@@ -130,15 +134,34 @@ describe('Connection rules', () => {
     };
 
     it('chases the business between cut-off and window start', () => {
-      expect(shouldEscalateToBusiness(day, utc('2026-09-24T05:29:00Z'))).toBe(false);
-      expect(shouldEscalateToBusiness(day, utc('2026-09-24T05:30:00Z'))).toBe(true);
-      expect(shouldEscalateToBusiness(day, utc('2026-09-24T05:59:00Z'))).toBe(true);
-      expect(shouldEscalateToBusiness(day, utc('2026-09-24T06:00:00Z'))).toBe(false);
+      const published = { ...day, publishedAt: utc('2026-09-24T02:00:00Z') };
+      expect(shouldEscalateToBusiness(published, utc('2026-09-24T05:29:00Z'))).toBe(false);
+      expect(shouldEscalateToBusiness(published, utc('2026-09-24T05:30:00Z'))).toBe(true);
+      expect(shouldEscalateToBusiness(published, utc('2026-09-24T05:59:00Z'))).toBe(true);
+      expect(shouldEscalateToBusiness(published, utc('2026-09-24T06:00:00Z'))).toBe(false);
+    });
+
+    it('does not chase the business when surplus was listed after the confirm-by time', () => {
+      const late = { ...day, publishedAt: utc('2026-09-24T05:45:00Z') };
+      expect(shouldEscalateToBusiness(late, utc('2026-09-24T05:50:00Z'))).toBe(false);
+    });
+
+    it('auto-releases at the charity confirm-by time when they had time to answer', () => {
+      const published = { ...day, publishedAt: utc('2026-09-24T02:00:00Z') };
+      expect(shouldAutoRelease(published, utc('2026-09-24T05:29:00Z'))).toBe(false);
+      expect(shouldAutoRelease(published, utc('2026-09-24T05:30:00Z'))).toBe(true);
+    });
+
+    it('waits until pickup ends when surplus was listed after the confirm-by time', () => {
+      const late = { ...day, publishedAt: utc('2026-09-24T05:45:00Z') };
+      expect(shouldAutoRelease(late, utc('2026-09-24T05:50:00Z'))).toBe(false);
+      expect(shouldAutoRelease(late, utc('2026-09-24T09:59:00Z'))).toBe(false);
+      expect(shouldAutoRelease(late, utc('2026-09-24T10:00:00Z'))).toBe(true);
     });
 
     it('auto-releases once the pickup window ends', () => {
-      expect(shouldAutoRelease(day, utc('2026-09-24T06:00:00Z'))).toBe(false);
-      expect(shouldAutoRelease(day, utc('2026-09-24T09:59:00Z'))).toBe(false);
+      expect(shouldAutoRelease(day, utc('2026-09-24T06:00:00Z'))).toBe(true);
+      expect(shouldAutoRelease(day, utc('2026-09-24T09:59:00Z'))).toBe(true);
       expect(shouldAutoRelease(day, utc('2026-09-24T10:00:00Z'))).toBe(true);
     });
 

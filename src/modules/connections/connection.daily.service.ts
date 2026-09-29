@@ -16,7 +16,8 @@ import {
   type ReleaseTrigger,
 } from './connection.rules';
 import {
-  collectsOn, describeSchedule, isPromptDue, localDateAt, resolveDay,
+  collectsOn, describeSchedule, isBusinessListByDue, isPromptDue, LIST_BY_MINUTES,
+  localDateAt, resolveDay,
 } from './connection.schedule';
 import { AddDailySurplusDto, ReleaseDayDto } from './dto/connection.dto';
 
@@ -98,6 +99,7 @@ export class ConnectionDailyService {
           windowEndMinutes: connection.windowEndMinutes,
           windowStartAt: day.windowStartAt,
           windowEndAt: day.windowEndAt,
+          cutoffAt: day.cutoffAt,
         });
         prompted++;
       } catch (err) {
@@ -133,6 +135,11 @@ export class ConnectionDailyService {
     if (day.outcome !== ConnectionDayOutcome.PROMPTED) {
       throw new ConflictException(
         `Today's collection has already been ${day.outcome.toLowerCase()}.`,
+      );
+    }
+    if (isBusinessListByDue(day.windowStartAt, new Date())) {
+      throw new ConflictException(
+        'The time to confirm today’s surplus has passed.',
       );
     }
     if (day.connection.status !== ConnectionStatus.ACTIVE) {
@@ -203,19 +210,18 @@ export class ConnectionDailyService {
       return created;
     });
 
-    const summary = dto.items
-      .map((i) => `${i.quantityKg}kg ${i.name}`)
-      .join(', ');
-
     // Deliberately not the NEW_LISTING fan-out: nobody else may see this yet.
     await this.notifier.collectionReady({
       connectionId: day.connectionId,
+      connectionDayId: day.id,
       listingId: listing.id,
       receiverOrgId: day.connection.receiverOrgId,
       receiverSiteId: day.connection.receiverSiteId,
-      summary,
+      donorName: site.name ?? site.organisationName ?? undefined,
+      items: dto.items.map((item) => ({ name: item.name, quantityKg: item.quantityKg })),
       windowStartMinutes: day.connection.windowStartMinutes,
       windowEndMinutes: day.connection.windowEndMinutes,
+      cutoffAt: day.cutoffAt,
     });
 
     this.logger.log(
@@ -231,6 +237,11 @@ export class ConnectionDailyService {
 
     if (day.outcome !== ConnectionDayOutcome.PROMPTED) {
       throw new ConflictException('This collection has already been answered.');
+    }
+    if (isBusinessListByDue(day.windowStartAt, new Date())) {
+      throw new ConflictException(
+        'The time to confirm today’s surplus has passed.',
+      );
     }
 
     await this.prisma.connectionDay.update({
@@ -391,7 +402,8 @@ export class ConnectionDailyService {
 
   /**
    * Reminds the business at cut-off if the charity has not claimed yet.
-   * Auto-releases reserved food only after the pickup window ends.
+   * Auto-releases reserved food at the charity confirm-by time, or at pickup
+   * end when surplus was listed after that deadline.
    */
   async sweepUnconfirmed(now = new Date()): Promise<{ escalated: number; released: number }> {
     const pending = await this.prisma.connectionDay.findMany({
@@ -445,17 +457,59 @@ export class ConnectionDailyService {
     return { escalated, released };
   }
 
-  /** Days whose window closed without anything happening. */
+  /**
+   * Business silence at the 2.5-hour deadline. Marked NO_RESPONSE so it stays
+   * distinct from an explicit “no surplus” in reporting, and the charity is told
+   * not to wait.
+   */
   async sweepMissed(now = new Date()): Promise<number> {
-    const result = await this.prisma.connectionDay.updateMany({
+    const due = await this.prisma.connectionDay.findMany({
       where: {
-        outcome: { in: [ConnectionDayOutcome.PROMPTED] },
-        windowEndAt: { lt: now },
+        outcome: ConnectionDayOutcome.PROMPTED,
+        windowStartAt: { lte: new Date(now.getTime() + LIST_BY_MINUTES * 60000) },
       },
-      data: { outcome: ConnectionDayOutcome.MISSED },
+      include: {
+        connection: {
+          include: {
+            donorSite: { select: { name: true, organisationName: true } },
+            donorOrg: { select: { name: true } },
+          },
+        },
+      },
     });
-    if (result.count) this.logger.log(`Marked ${result.count} collection day(s) missed`);
-    return result.count;
+
+    let marked = 0;
+    for (const day of due) {
+      if (!isBusinessListByDue(day.windowStartAt, now)) continue;
+      try {
+        await this.prisma.connectionDay.update({
+          where: { id: day.id },
+          data: {
+            outcome: ConnectionDayOutcome.NO_RESPONSE,
+            respondedAt: now,
+          },
+        });
+        const donorName =
+          day.connection.donorSite.name ??
+          day.connection.donorSite.organisationName ??
+          day.connection.donorOrg.name ??
+          'The business';
+        await this.notifier.businessNoResponse({
+          connectionId: day.connectionId,
+          receiverOrgId: day.connection.receiverOrgId,
+          receiverSiteId: day.connection.receiverSiteId,
+          donorName,
+        });
+        marked++;
+      } catch (err) {
+        this.logger.error(
+          `No-response sweep failed for day ${day.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (marked) this.logger.log(`Marked ${marked} collection day(s) as no response`);
+    return marked;
   }
 
   // ─── Reading today ─────────────────────────────────────────────────────────
@@ -658,6 +712,7 @@ export class ConnectionDailyService {
 
     const listing = await this.prisma.foodListing.findUnique({
       where: { id: from.listingId },
+      include: { foodItems: { select: { name: true, totalQtyKg: true } } },
     });
     if (!listing || listing.status !== ListingStatus.ACTIVE) {
       throw new ConflictException(
@@ -791,12 +846,22 @@ export class ConnectionDailyService {
     });
     await this.notifier.collectionReady({
       connectionId: target.id,
+      connectionDayId: toDay.id,
       listingId: listing.id,
       receiverOrgId: target.receiverOrgId,
       receiverSiteId: target.receiverSiteId,
-      summary: 'Surplus is reserved for you',
+      donorName:
+        target.donorSite.name ??
+        target.donorSite.organisationName ??
+        target.donorOrg.name ??
+        undefined,
+      items: listing.foodItems.map((item) => ({
+        name: item.name,
+        quantityKg: item.totalQtyKg,
+      })),
       windowStartMinutes: target.windowStartMinutes,
       windowEndMinutes: target.windowEndMinutes,
+      cutoffAt: resolved.cutoffAt,
     });
 
     this.logger.log(

@@ -1,9 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import {
-  collectsOn, describeSchedule, formatWindow, instantForLocalTime, isoWeekdayOf,
-  isPromptDue, localDateAt, nextOccurrence, offsetMinutesAt, parseLocalTime,
-  resolveDay, validateSchedule,
+  CHARITY_CONFIRM_MINUTES, collectsOn, describeSchedule, formatClock12, formatWindow,
+  formatWindowRange, instantForLocalTime, isoWeekdayOf, isBusinessListByDue, isPromptDue,
+  LIST_BY_MINUTES, listByAt, localDateAt, nextOccurrence, offsetMinutesAt, parseLocalTime,
+  PROMPT_LEAD_MINUTES, resolveDay, validateSchedule,
 } from './connection.schedule';
+import { describe, expect, it } from '@jest/globals';
 
 const BRISBANE = 'Australia/Brisbane';   // +10, never observes DST
 const ADELAIDE = 'Australia/Adelaide';   // +9:30 / +10:30
@@ -38,6 +40,12 @@ describe('Connection scheduling', () => {
       expect(formatWindow(16 * 60, 17 * 60)).toBe('4:00pm–5:00pm');
       expect(formatWindow(0, 30)).toBe('12:00am–12:30am');
       expect(formatWindow(12 * 60, 13 * 60)).toBe('12:00pm–1:00pm');
+    });
+
+    it('speaks the daily reminder window and the add-by time', () => {
+      expect(formatWindowRange(16 * 60, 17 * 60)).toBe('4:00–5:00 pm');
+      expect(formatClock12(16 * 60 - LIST_BY_MINUTES)).toBe('1:30 pm');
+      expect(formatWindowRange(23 * 60, 60)).toBe('11:00 pm–1:00 am');
     });
   });
 
@@ -88,6 +96,21 @@ describe('Connection scheduling', () => {
       expect(day.windowEndAt.toISOString()).toBe('2026-09-24T07:00:00.000Z');   // 5pm
       expect(day.promptAt < day.cutoffAt).toBe(true);
       expect(day.cutoffAt < day.windowStartAt).toBe(true);
+    });
+
+    it('reminds the business 4 hours before pickup and asks the charity to confirm 1.5 hours before', () => {
+      const day = resolveDay(
+        scheduleFor(BRISBANE, {
+          leadTimeMinutes: PROMPT_LEAD_MINUTES,
+          cutoffMinutes: CHARITY_CONFIRM_MINUTES,
+        }),
+        localDate,
+      );
+      expect(PROMPT_LEAD_MINUTES).toBe(240);
+      expect(LIST_BY_MINUTES).toBe(150);
+      expect(CHARITY_CONFIRM_MINUTES).toBe(90);
+      expect(day.promptAt.toISOString()).toBe('2026-09-24T02:00:00.000Z'); // 12:00pm
+      expect(day.cutoffAt.toISOString()).toBe('2026-09-24T04:30:00.000Z'); // 2:30pm
     });
 
     it('carries a window that crosses midnight into the next day', () => {
@@ -146,6 +169,15 @@ describe('Connection scheduling', () => {
 
     it('stops once the window has opened', () => {
       expect(isPromptDue(day, utc('2026-09-24T06:00:00Z'))).toBe(false);
+    });
+  });
+
+  describe('business list-by deadline', () => {
+    it('is 2.5 hours before pickup', () => {
+      const start = utc('2026-09-24T06:00:00.000Z');
+      expect(listByAt(start).toISOString()).toBe('2026-09-24T03:30:00.000Z');
+      expect(isBusinessListByDue(start, utc('2026-09-24T03:29:00Z'))).toBe(false);
+      expect(isBusinessListByDue(start, utc('2026-09-24T03:30:00Z'))).toBe(true);
     });
   });
 

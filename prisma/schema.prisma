@@ -1607,6 +1607,8 @@ enum ConnectionDayOutcome {
   PUBLISHED
   /// Business declared there is nothing today
   NO_SURPLUS
+  /// Business did not answer by the 2.5-hour deadline
+  NO_RESPONSE
   /// Charity confirmed and collected
   COLLECTED
   /// Charity said no, or went silent, and it went to the network
@@ -1651,12 +1653,14 @@ model Connection {
   windowEndMinutes   Int
 
   /// How long before the window opens the business is asked what is available.
-  leadTimeMinutes Int @default(60)
-  /// How long before the window opens an unconfirmed listing escalates.
-  cutoffMinutes Int @default(30)
+  leadTimeMinutes Int @default(240)
+  /// How long before the window the charity must confirm today's collection.
+  cutoffMinutes Int @default(90)
 
   /// Free text shown on the invitation, e.g. "Prepared meals & bakery".
   typicalSurplus String?
+  /// Guide-only quantity shown on the invitation, e.g. "Approximately 8 kg (20 meals)".
+  typicalQuantity String?
   notes          String?
 
   invitedByUserId   Int?

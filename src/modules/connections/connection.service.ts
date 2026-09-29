@@ -15,7 +15,8 @@ import {
 } from './connection.rules';
 import {
   assertValidTimezone, collectsOn, describeSchedule, formatLocalTime, localDateAt,
-  parseLocalTime, resolveDay, schedulesOverlap, validateSchedule,
+  CHARITY_CONFIRM_MINUTES, parseLocalTime, PROMPT_LEAD_MINUTES, resolveDay,
+  schedulesOverlap, validateSchedule,
 } from './connection.schedule';
 import {
   AddDailySurplusDto, CreateConnectionDto, UpdateConnectionDto,
@@ -83,8 +84,8 @@ export class ConnectionService {
 
     const windowStartMinutes = parseLocalTime(dto.windowStart);
     const windowEndMinutes = parseLocalTime(dto.windowEnd);
-    const leadTimeMinutes = dto.leadTimeMinutes ?? 60;
-    const cutoffMinutes = dto.cutoffMinutes ?? 30;
+    const leadTimeMinutes = dto.leadTimeMinutes ?? PROMPT_LEAD_MINUTES;
+    const cutoffMinutes = dto.cutoffMinutes ?? CHARITY_CONFIRM_MINUTES;
 
     validateSchedule({
       daysOfWeek: dto.daysOfWeek, windowStartMinutes, windowEndMinutes,
@@ -146,6 +147,7 @@ export class ConnectionService {
         daysOfWeek: [...dto.daysOfWeek].sort((a, b) => a - b),
         windowStartMinutes, windowEndMinutes, leadTimeMinutes, cutoffMinutes,
         typicalSurplus: dto.typicalSurplus ?? null,
+        typicalQuantity: dto.typicalQuantity ?? null,
         notes: dto.notes ?? null,
         invitedByUserId: caller.sub,
         invitationExpiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 864e5),
@@ -256,6 +258,22 @@ export class ConnectionService {
       },
     });
     this.logger.log(`Connection ${connectionId} -> ${status} by=${caller.sub}`);
+
+    if (
+      status === ConnectionStatus.PAUSED &&
+      caller.orgId === connection.receiverOrgId
+    ) {
+      const charity = await this.prisma.site.findUnique({
+        where: { id: connection.receiverSiteId },
+        select: { name: true, organisationName: true },
+      });
+      await this.notifier.connectionPaused({
+        donorSiteId: connection.donorSiteId,
+        charityName: charity?.name ?? charity?.organisationName ?? 'The charity',
+        connectionId,
+      });
+    }
+
     return this.shape(updated);
   }
 
@@ -287,6 +305,7 @@ export class ConnectionService {
         frequency: this.frequencyFor(daysOfWeek),
         windowStartMinutes, windowEndMinutes, leadTimeMinutes, cutoffMinutes,
         ...(dto.typicalSurplus !== undefined ? { typicalSurplus: dto.typicalSurplus } : {}),
+        ...(dto.typicalQuantity !== undefined ? { typicalQuantity: dto.typicalQuantity } : {}),
         ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
       },
     });
@@ -381,6 +400,7 @@ export class ConnectionService {
         declined: reliability.declined,
         missed: reliability.missed,
         noSurplusDays: count(ConnectionDayOutcome.NO_SURPLUS),
+        noResponseDays: count(ConnectionDayOutcome.NO_RESPONSE),
         reliabilityPercent: reliability.percent,
       },
     };
@@ -644,6 +664,7 @@ export class ConnectionService {
       leadTimeMinutes: connection.leadTimeMinutes,
       cutoffMinutes: connection.cutoffMinutes,
       typicalSurplus: connection.typicalSurplus,
+      typicalQuantity: connection.typicalQuantity,
       notes: connection.notes,
       respondedAt: connection.respondedAt,
       pausedAt: connection.pausedAt,

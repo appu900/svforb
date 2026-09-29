@@ -12,6 +12,7 @@ interface ExpoPushMessage {
   sound?: 'default' | null;
   badge?: number;
   channelId?: string;
+  categoryId?: string;
   priority?: 'default' | 'normal' | 'high';
 }
 
@@ -69,6 +70,7 @@ export class ExpoGateway {
       sound: 'default',
       channelId: 'default',
       priority: 'high',
+      ...(payload.apns?.category ? { categoryId: payload.apns.category } : {}),
     }));
 
     const result: BatchSendResult = {

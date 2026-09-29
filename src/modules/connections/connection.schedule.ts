@@ -15,6 +15,13 @@ export type LocalMinutes = number;
 
 export const MINUTES_IN_DAY = 24 * 60;
 
+/** Business is reminded this long before the pickup window starts. */
+export const PROMPT_LEAD_MINUTES = 4 * 60;
+/** Business must add food and quantities this long before pickup. */
+export const LIST_BY_MINUTES = 150;
+/** Charity must confirm collection this long before pickup. */
+export const CHARITY_CONFIRM_MINUTES = 90;
+
 /** ISO weekday: 1 = Monday … 7 = Sunday, matching `Date.getUTCDay()` remapped. */
 export type IsoWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
@@ -61,14 +68,30 @@ export function formatLocalTime(minutes: LocalMinutes): string {
 
 /** "4:00–5:00pm" style label for notifications. */
 export function formatWindow(start: LocalMinutes, end: LocalMinutes): string {
-  const h12 = (mins: number) => {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    const suffix = h < 12 ? 'am' : 'pm';
-    const hour = h % 12 === 0 ? 12 : h % 12;
-    return `${hour}:${String(m).padStart(2, '0')}${suffix}`;
-  };
-  return `${h12(start)}–${h12(end)}`;
+  return `${formatClock12(start, false)}–${formatClock12(end, false)}`;
+}
+
+/** "1:30 pm" or "1:30pm". */
+export function formatClock12(minutes: LocalMinutes, spaced = true): string {
+  const normalized = ((minutes % MINUTES_IN_DAY) + MINUTES_IN_DAY) % MINUTES_IN_DAY;
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  const suffix = h < 12 ? 'am' : 'pm';
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${String(m).padStart(2, '0')}${spaced ? ' ' : ''}${suffix}`;
+}
+
+/** "4:00–5:00 pm" when both ends share am/pm, otherwise "11:00 pm–1:00 am". */
+export function formatWindowRange(start: LocalMinutes, end: LocalMinutes): string {
+  const startNorm = ((start % MINUTES_IN_DAY) + MINUTES_IN_DAY) % MINUTES_IN_DAY;
+  const endNorm = ((end % MINUTES_IN_DAY) + MINUTES_IN_DAY) % MINUTES_IN_DAY;
+  const startPm = startNorm >= 12 * 60;
+  const endPm = endNorm >= 12 * 60;
+  if (startPm === endPm) {
+    const suffix = startPm ? 'pm' : 'am';
+    return `${formatClock12(startNorm, false).replace(/am|pm/, '')}–${formatClock12(endNorm, false).replace(/am|pm/, '')} ${suffix}`;
+  }
+  return `${formatClock12(startNorm)}–${formatClock12(endNorm)}`;
 }
 
 /**
@@ -211,6 +234,16 @@ export function nextOccurrence(
 /** Whether the business should be prompted for this day right now. */
 export function isPromptDue(day: ResolvedDay, now: Date): boolean {
   return now >= day.promptAt && now < day.windowStartAt;
+}
+
+/** Latest instant the business may still confirm today’s surplus. */
+export function listByAt(windowStartAt: Date): Date {
+  return new Date(windowStartAt.getTime() - LIST_BY_MINUTES * 60000);
+}
+
+/** Business silence at this point is “no response”, not “no surplus”. */
+export function isBusinessListByDue(windowStartAt: Date, now: Date): boolean {
+  return now.getTime() >= listByAt(windowStartAt).getTime();
 }
 
 export function validateSchedule(input: {

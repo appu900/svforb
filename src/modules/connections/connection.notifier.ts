@@ -2,7 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SiteRole } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { NotificationService } from '../notifications/services/notification.service';
-import { describeSchedule, formatWindow } from './connection.schedule';
+import {
+  CHARITY_CONFIRM_MINUTES,
+  describeSchedule,
+  formatClock12,
+  formatWindow,
+  formatWindowRange,
+  LIST_BY_MINUTES,
+} from './connection.schedule';
 
 /** Payload types the mobile apps switch on to pick a screen. */
 export const CONNECTION_PUSH = {
@@ -14,6 +21,7 @@ export const CONNECTION_PUSH = {
   CUTOFF_ESCALATION: 'CONNECTION_CUTOFF',
   RELEASED: 'CONNECTION_RELEASED',
   NO_SURPLUS: 'CONNECTION_NO_SURPLUS',
+  NO_RESPONSE: 'CONNECTION_NO_RESPONSE',
   MOVED: 'CONNECTION_MOVED',
 } as const;
 
@@ -95,6 +103,7 @@ export class ConnectionNotifier {
     windowStartMinutes: number;
     windowEndMinutes: number;
     typicalSurplus: string | null;
+    typicalQuantity?: string | null;
     donorSite: { name: string | null; organisationName: string };
     donorOrg: { name: string };
   }): Promise<void> {
@@ -112,6 +121,7 @@ export class ConnectionNotifier {
         connectionId: String(connection.id),
         schedule,
         ...(connection.typicalSurplus ? { typicalSurplus: connection.typicalSurplus } : {}),
+        ...(connection.typicalQuantity ? { typicalQuantity: connection.typicalQuantity } : {}),
       },
       'high',
     );
@@ -147,12 +157,15 @@ export class ConnectionNotifier {
     windowEndMinutes: number;
     windowStartAt: Date;
     windowEndAt: Date;
+    cutoffAt?: Date | null;
   }): Promise<void> {
-    const window = formatWindow(input.windowStartMinutes, input.windowEndMinutes);
+    const window = formatWindowRange(input.windowStartMinutes, input.windowEndMinutes);
+    const addByMinutes = input.windowStartMinutes - LIST_BY_MINUTES;
+    const addBy = formatClock12(addByMinutes);
     await this.push(
       await this.siteStaffIds(input.donorSiteId),
-      "Today's regular collection",
-      `${input.charityName} is scheduled to collect ${window}. What is available today?`,
+      "Confirm today’s collection",
+      `Your Connection with ${input.charityName} is scheduled for today between ${window}. Add the food and quantities available by ${addBy}.`,
       {
         type: CONNECTION_PUSH.DAILY_PROMPT,
         connectionId: String(input.connectionId),
@@ -161,7 +174,12 @@ export class ConnectionNotifier {
         charityName: input.charityName,
         windowStartAt: input.windowStartAt.toISOString(),
         windowEndAt: input.windowEndAt.toISOString(),
+        ...(input.cutoffAt ? { cutoffAt: input.cutoffAt.toISOString() } : {}),
+        categoryId: CONNECTION_PUSH.DAILY_PROMPT,
         action: 'ADD_SURPLUS',
+        actionSecondary: 'NO_SURPLUS',
+        cta: "Add today’s surplus",
+        ctaSecondary: 'No surplus today',
       },
       'high',
     );
@@ -171,23 +189,42 @@ export class ConnectionNotifier {
 
   async collectionReady(input: {
     connectionId: number;
+    connectionDayId?: number;
     listingId: number;
     receiverOrgId: number;
     receiverSiteId: number;
-    summary: string;
+    donorName?: string;
+    items: Array<{ name: string; quantityKg: number }>;
     windowStartMinutes: number;
     windowEndMinutes: number;
+    /** ISO datetime by which the charity must confirm (1.5 hrs before pickup). */
+    cutoffAt?: Date | null;
   }): Promise<void> {
-    const window = formatWindow(input.windowStartMinutes, input.windowEndMinutes);
+    const window = formatWindowRange(input.windowStartMinutes, input.windowEndMinutes);
+    const confirmBy = formatClock12(input.windowStartMinutes - CHARITY_CONFIRM_MINUTES);
+    const itemLines = input.items
+      .map((item) => `${item.quantityKg} kg ${item.name}`)
+      .join('\n');
+    const body = `${itemLines}\nPickup between ${window}\n\nPlease confirm by ${confirmBy}. If you can’t collect or don’t confirm by then, the food will be offered to nearby charities.`;
+
     await this.push(
       await this.charityAdminIds(input.receiverOrgId, input.receiverSiteId),
-      "Today's collection is ready",
-      `${input.summary} — pickup ${window}`,
+      'Today’s collection is ready',
+      body,
       {
         type: CONNECTION_PUSH.COLLECTION_READY,
         connectionId: String(input.connectionId),
         listingId: String(input.listingId),
-        action: 'VIEW_LISTING',
+        ...(input.connectionDayId ? { connectionDayId: String(input.connectionDayId) } : {}),
+        ...(input.donorName ? { donorName: input.donorName } : {}),
+        categoryId: CONNECTION_PUSH.COLLECTION_READY,
+        action: 'CONFIRM_COLLECTION',
+        actionSecondary: 'CANNOT_COLLECT',
+        actionTertiary: 'PAUSE',
+        cta: 'Confirm Collection',
+        ctaSecondary: 'Can’t collect today',
+        ctaTertiary: 'Pause',
+        ...(input.cutoffAt ? { cutoffAt: input.cutoffAt.toISOString() } : {}),
       },
       'high',
     );
@@ -203,8 +240,23 @@ export class ConnectionNotifier {
     await this.push(
       await this.charityAdminIds(input.receiverOrgId, input.receiverSiteId),
       'No collection today',
-      `${input.donorName} has no surplus for today's scheduled collection.`,
+      `${input.donorName} has confirmed there is no surplus available today. Your regular Connection remains active for the next scheduled collection.`,
       { type: CONNECTION_PUSH.NO_SURPLUS, connectionId: String(input.connectionId) },
+    );
+  }
+
+  /** Business stayed silent — the charity should not keep waiting. */
+  async businessNoResponse(input: {
+    connectionId: number;
+    receiverOrgId: number;
+    receiverSiteId: number;
+    donorName: string;
+  }): Promise<void> {
+    await this.push(
+      await this.charityAdminIds(input.receiverOrgId, input.receiverSiteId),
+      'Today’s collection was not confirmed',
+      `${input.donorName} did not confirm any surplus for today. No collection is required. Your regular Connection remains active.`,
+      { type: CONNECTION_PUSH.NO_RESPONSE, connectionId: String(input.connectionId) },
     );
   }
 
@@ -232,6 +284,23 @@ export class ConnectionNotifier {
     );
   }
 
+
+  async connectionPaused(input: {
+    donorSiteId: number;
+    charityName: string;
+    connectionId: number;
+  }): Promise<void> {
+    await this.push(
+      await this.siteStaffIds(input.donorSiteId),
+      'Connection paused',
+      `${input.charityName} has paused this Connection. You will not be prompted for regular collections until they resume it.`,
+      {
+        type: CONNECTION_PUSH.MOVED,
+        connectionId: String(input.connectionId),
+        action: 'VIEW_CONNECTION',
+      },
+    );
+  }
 
   async reservationMoved(input: {
     connectionId: number;

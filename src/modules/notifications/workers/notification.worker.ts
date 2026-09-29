@@ -174,15 +174,18 @@ export class NotificationWorker extends WorkerHost {
     tokens: TokenWithType[],
   ): Promise<void> {
     const targetApp = targetAppFromChannel(notif.channel);
+    const data = stringifyRecordValues(notif.data ?? {});
+    const categoryId = data.categoryId?.trim();
     const payload: FirebaseMessagePayload = {
       title: notif.title,
       body: notif.body,
       data: {
-        ...stringifyRecordValues(notif.data ?? {}),
+        ...data,
         ...(notif.deepLink ? { deepLink: notif.deepLink } : {}),
         notificationId: String(notif.id),
       },
       imageUrl: notif.imageUrl ?? undefined,
+      ...(categoryId ? { apns: { category: categoryId } } : {}),
     };
 
     const expoTokens = tokens.filter((t) => t.tokenType === 'expo').map((t) => t.token);

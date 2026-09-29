@@ -25,7 +25,7 @@ export class ConnectionWorker extends WorkerHost {
 
       case CONNECTION_JOBS.SWEEP_UNCONFIRMED:
         await this.daily.sweepUnconfirmed();
-        // Days whose window closed with nothing published at all.
+        // Business silence at the 2.5-hour deadline — notify the charity.
         await this.daily.sweepMissed();
         break;
 
