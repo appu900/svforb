@@ -132,15 +132,16 @@ export class ConnectionDailyService {
     const day = await this.requireDay(connectionDayId);
     await this.assertDonorStaff(caller, day.connection.donorSiteId);
 
-    if (day.outcome !== ConnectionDayOutcome.PROMPTED) {
+    if (
+      day.outcome !== ConnectionDayOutcome.PROMPTED &&
+      day.outcome !== ConnectionDayOutcome.NO_RESPONSE
+    ) {
       throw new ConflictException(
         `Today's collection has already been ${day.outcome.toLowerCase()}.`,
       );
     }
-    if (isBusinessListByDue(day.windowStartAt, new Date())) {
-      throw new ConflictException(
-        'The time to confirm today’s surplus has passed.',
-      );
+    if (new Date() >= day.windowEndAt) {
+      throw new ConflictException('Today’s pickup window has already ended.');
     }
     if (day.connection.status !== ConnectionStatus.ACTIVE) {
       throw new ConflictException('This connection is not active.');
@@ -235,13 +236,14 @@ export class ConnectionDailyService {
     const day = await this.requireDay(connectionDayId);
     await this.assertDonorStaff(caller, day.connection.donorSiteId);
 
-    if (day.outcome !== ConnectionDayOutcome.PROMPTED) {
+    if (
+      day.outcome !== ConnectionDayOutcome.PROMPTED &&
+      day.outcome !== ConnectionDayOutcome.NO_RESPONSE
+    ) {
       throw new ConflictException('This collection has already been answered.');
     }
-    if (isBusinessListByDue(day.windowStartAt, new Date())) {
-      throw new ConflictException(
-        'The time to confirm today’s surplus has passed.',
-      );
+    if (new Date() >= day.windowEndAt) {
+      throw new ConflictException('Today’s pickup window has already ended.');
     }
 
     await this.prisma.connectionDay.update({
@@ -789,7 +791,11 @@ export class ConnectionDailyService {
     if (!toDay) {
       throw new ConflictException('Could not open that connection’s collection today.');
     }
-    if (toDay.outcome !== ConnectionDayOutcome.PROMPTED || toDay.listingId) {
+    if (
+      (toDay.outcome !== ConnectionDayOutcome.PROMPTED &&
+        toDay.outcome !== ConnectionDayOutcome.NO_RESPONSE) ||
+      toDay.listingId
+    ) {
       throw new ConflictException('That charity already has a listing today.');
     }
 
