@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { PlatformAdminGuard } from '../../../common/guards/platform-admin.guard';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import { AdminAppUsersService } from '../services/admin-app-users.service';
+import { NoCache } from '../../../infra/http-cache/http-cache.decorators';
 
 @Controller('admin/app-users')
 @UseGuards(JwtAuthGuard, PlatformAdminGuard)
@@ -18,6 +19,7 @@ export class AdminAppUsersController {
   }
 
   @Get('activity')
+  @NoCache()
   listActivity() {
     return this.appUsers.listActivity();
   }

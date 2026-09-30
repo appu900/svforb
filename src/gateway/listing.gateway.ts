@@ -10,6 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { DriverLocationService } from '../modules/drivers/service/driver.location.service';
+import { HttpCacheService } from '../infra/http-cache/http-cache.service';
 
 export interface ListingEvents {
   listingId: number;
@@ -30,7 +31,10 @@ export class ListingGateway implements OnGatewayConnection, OnGatewayDisconnect 
   @WebSocketServer() server!: Server;
   private logger = new Logger(ListingGateway.name);
 
-  constructor(private readonly driverService: DriverLocationService) {}
+  constructor(
+    private readonly driverService: DriverLocationService,
+    private readonly httpCache: HttpCacheService,
+  ) {}
 
   async handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
@@ -85,6 +89,9 @@ export class ListingGateway implements OnGatewayConnection, OnGatewayDisconnect 
     } catch (err: any) {
       return { status: 'error', message: err.message };
     }
+
+    // Accepting over the socket bypasses the HTTP writes that normally do this.
+    await this.httpCache.invalidate(['activity']);
 
     const driver = await this.driverService.getDriverInfo(data.driverId);
     if (!driver) return { status: 'error', message: 'Driver is not live' };

@@ -22,6 +22,7 @@ import { FoodListingService } from '../services/food.listing.service';
 import { SiteNotificationService } from '../services/site.notification.service';
 import { ListingStatus } from '@prisma/client';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import { InvalidatesCache, NoCache } from '../../../infra/http-cache/http-cache.decorators';
 
 @Controller('food-listings')
 @UseGuards(JwtAuthGuard)
@@ -65,6 +66,7 @@ export class FoodListingController {
   }
 
   @Get('recent')
+  @NoCache()
   getRecent(
     @Req() req: Request & { user: Jwtpayload },
     @Query('page', new ParseIntPipe({ optional: true })) page = 1,
@@ -78,6 +80,7 @@ export class FoodListingController {
    * Push after listing remains mandatory; inbox endpoints stay but are unused for discovery.
    */
   @Get('nearby')
+  @NoCache()
   getNearby(
     @Req() req: Request & { user: Jwtpayload },
     @Query('page', new ParseIntPipe({ optional: true })) page = 1,
@@ -90,6 +93,7 @@ export class FoodListingController {
   // Inbox kept for later — not used for Available Food discovery
 
   @Get('notifications')
+  @NoCache()
   getNotificationInbox(
     @Req() req: Request & { user: Jwtpayload },
     @Query('page', new ParseIntPipe({ optional: true })) page = 1,
@@ -99,11 +103,13 @@ export class FoodListingController {
   }
 
   @Patch('notifications/read-all')
+  @InvalidatesCache()
   markAllRead(@Req() req: Request & { user: Jwtpayload }) {
     return this.notificationService.markAllRead(req.user);
   }
 
   @Patch('notifications/:id/read')
+  @InvalidatesCache()
   markRead(
     @Req() req: Request & { user: Jwtpayload },
     @Param('id', ParseIntPipe) id: number,

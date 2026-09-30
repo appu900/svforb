@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { ContractStatus, InvoiceStatus } from '@prisma/client';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { HttpCacheService } from '../../../infra/http-cache/http-cache.service';
 import { ENTERPRISE_JOBS, ENTERPRISE_QUEUE } from '../queues/enterprise.queue.service';
 import { EnterpriseBillingService } from '../services/enterprise-billing.service';
 import { EnterpriseInvitationService } from '../services/enterprise-invitation.service';
@@ -15,6 +16,7 @@ export class EnterpriseWorker extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly billing: EnterpriseBillingService,
     private readonly invitations: EnterpriseInvitationService,
+    private readonly httpCache: HttpCacheService,
   ) {
     super();
   }
@@ -32,7 +34,11 @@ export class EnterpriseWorker extends WorkerHost {
         break;
       default:
         this.logger.warn(`Unhandled enterprise job: ${job.name}`);
+        return;
     }
+    // Both jobs run at most a few times a day, so invalidating unconditionally
+    // is cheaper than threading counts back out of the billing service.
+    await this.httpCache.invalidate(['billing', 'identity']);
   }
 
   /** Raises an invoice for every active contract whose anchor has arrived. */

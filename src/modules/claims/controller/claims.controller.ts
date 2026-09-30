@@ -24,6 +24,7 @@ import {
   RateDriverDto,
 } from '../dto/claims.dto';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import { NoCache } from '../../../infra/http-cache/http-cache.decorators';
 
 @Controller('claims')
 @UseGuards(JwtAuthGuard)
@@ -58,6 +59,7 @@ export class ClaimsController {
   }
 
   @Get('listing/:listingId/activity')
+  @NoCache()
   getClaimActivity(
     @Req() req: Request & { user: Jwtpayload },
     @Param('listingId', ParseIntPipe) listingId: number,

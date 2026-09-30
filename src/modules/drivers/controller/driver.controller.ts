@@ -28,8 +28,10 @@ import {
   UpdatePickupStatusDto,
 } from '../dto/driver.dto';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import { InvalidatesCache, NoCache } from '../../../infra/http-cache/http-cache.decorators';
 
 @Controller('drivers')
+@NoCache()
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('bearer')
 export class DriverController {
@@ -38,6 +40,7 @@ export class DriverController {
   // ─── Live / Offline ───────────────────────────────────────────────────────
 
   @Post('live')
+  @InvalidatesCache()
   async goLive(@Req() req: Request & { user: Jwtpayload }, @Body() dto: GoLiveDto) {
     const info = await this.driverService.goLive(
       req.user.sub,
@@ -51,6 +54,7 @@ export class DriverController {
   }
 
   @Delete('live')
+  @InvalidatesCache()
   async goOffline(@Req() req: Request & { user: Jwtpayload }, @Body() dto: GoOfflineDto) {
     await this.driverService.goOffline(req.user.sub, dto.siteId);
     return { message: 'You are now offline' };

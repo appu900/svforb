@@ -1,5 +1,6 @@
 import { Logger, Injectable, Body, Post, Get, Controller } from '@nestjs/common';
 import { RedisProxyService } from './redis.proxy,service';
+import { InvalidatesCache, NoCache } from '../../infra/http-cache/http-cache.decorators';
 
 interface DriverDTO {
   driverId: string;
@@ -17,11 +18,13 @@ interface GetNearByDriversRequestDto {
 
 
 @Controller('search/driver')
+@NoCache()
 export class RedisProxyController {
   private readonly logger = new Logger(RedisProxyController.name);
   constructor(private readonly redisProxyService: RedisProxyService) {}
 
   @Post('add-driver')
+  @InvalidatesCache()
   async addDriver(@Body() driver: DriverDTO) {
     await this.redisProxyService.addDriver(
       driver.driverId,

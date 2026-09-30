@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import { AcceptInvitationDto } from '../dto/enterprise.dto';
 import { EnterpriseInvitationService } from '../services/enterprise-invitation.service';
+import { NoCache } from '../../../infra/http-cache/http-cache.decorators';
 
 /**
  * Account activation, reached from an emailed link.
@@ -24,6 +25,7 @@ export class EnterpriseActivationController {
    * request.
    */
   @Get(':token')
+  @NoCache()
   describe(@Param('token') token: string) {
     return this.invitations.describe(token);
   }

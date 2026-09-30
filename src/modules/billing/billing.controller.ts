@@ -11,6 +11,7 @@ import {
 } from './dto/billing.dto';
 import { BillingService } from './services/billing.service';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import { InvalidatesCache } from '../../infra/http-cache/http-cache.decorators';
 
 /**
  * Exempt from the subscription gate by definition — every route here exists to
@@ -58,6 +59,7 @@ export class BillingController {
 
   /** Dry run of `change-plan` — backs the confirmation dialog. */
   @Post('change-plan/preview')
+  @InvalidatesCache()
   previewChangePlan(
     @Req() req: Request & { user: Jwtpayload },
     @Body() dto: ChangePlanDto,

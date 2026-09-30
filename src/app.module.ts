@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { RedisModule } from './infra/redis/redis.module';
+import { HttpCacheModule } from './infra/http-cache/http-cache.module';
 import { NotificationModule } from './modules/notifications/notification.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
@@ -33,6 +34,7 @@ import { ConnectionsModule } from './modules/connections/connections.module';
     ClaimsModule,
     PrismaModule,
     RedisModule,
+    HttpCacheModule,
     NotificationModule,
     AuthModule,
     SubscriptionsModule,

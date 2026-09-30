@@ -19,9 +19,12 @@ import { RegisterTokenDto, UnregisterTokenDto } from '../dto/register-token.dto'
 import { SendNotificationDto } from '../dto/send-notification.dto';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import { InvalidatesCache, NoCache } from '../../../infra/http-cache/http-cache.decorators';
 
 /** Device-token registration must work before a plan is chosen. */
 @Controller('notifications')
+@NoCache()
+@InvalidatesCache()
 @SkipSubscriptionCheck()
 export class NotificationController {
   constructor(

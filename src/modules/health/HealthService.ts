@@ -27,6 +27,8 @@ export class HealthService {
       });
     }
   }
+
+  // ** cache of this is mine
   async cache(): Promise<HealthIndicatorResult> {
     const indicator = await this.health.check('redis');
     const startedAt = Date.now();

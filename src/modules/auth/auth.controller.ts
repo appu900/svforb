@@ -29,6 +29,7 @@ import { RegisterFarmerProducerDto } from './dto/register.farmer.producer.dto';
 import { RegisterFarmerConsumerDto } from './dto/register.farmer.consumer.dto';
 import { SkipSubscriptionCheck } from '../subscriptions/decorators/skip-subscription-check.decorator';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import { InvalidatesCache } from '../../infra/http-cache/http-cache.decorators';
 
 /** Account management stays reachable regardless of billing state. */
 @Controller('auth')
@@ -78,6 +79,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @InvalidatesCache()
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }
@@ -105,6 +107,7 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @InvalidatesCache()
   forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
   }
@@ -115,6 +118,7 @@ export class AuthController {
   }
 
   @Post('/resend-verification')
+  @InvalidatesCache()
   sendVerificationOtp(@Body() dto: ResendVerficationOtpDto) {
     return this.authService.resendVerificationEmail(dto.email);
   }

@@ -8,6 +8,7 @@ import { NotificationService } from '../../notifications/services/notification.s
 import { LISTINGS_JOBS } from '../../../infra/queues/queus.constants';
 import { LISTINGS_QUEUE, ListingQueueService, NewListingJobPayload, resolveListingExpiryAt } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
+import { HttpCacheService } from '../../../infra/http-cache/http-cache.service';
 
 const DEFAULT_RADIUS_KM = 50;
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -22,6 +23,7 @@ export class ListingWorker extends WorkerHost {
     private readonly notificationService: NotificationService,
     private readonly cache: FoodListingCacheManager,
     private readonly listingQueue: ListingQueueService,
+    private readonly httpCache: HttpCacheService,
   ) {
     super();
   }
@@ -290,6 +292,7 @@ export class ListingWorker extends WorkerHost {
       this.cache.invalidateRecentPage1(),
       this.cache.invalidateOrgPage1(listing.organisationId),
       this.cache.invalidateAllNearby(),
+      this.httpCache.invalidate(['activity']),
     ]);
 
     this.logger.log(`Listing ${listingId} expired${remainingNote}`);

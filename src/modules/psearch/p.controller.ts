@@ -14,6 +14,7 @@ import { ProximityService } from './psearch.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Region } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { NoCache } from '../../infra/http-cache/http-cache.decorators';
 
 @Controller('proximity')
 export class ProximityController {
@@ -38,6 +39,7 @@ export class ProximityController {
   // Deprecated — clients should use authenticated GET /food-listings/nearby
   // GET /proximity/listings?lat=12.9716&lng=77.5946&region=IN
   @Get('listings')
+  @NoCache()
   async getNearbyListings(
     @Query('lat', ParseFloatPipe) lat: number,
     @Query('lng', ParseFloatPipe) lng: number,
@@ -49,6 +51,7 @@ export class ProximityController {
 
   // Add this temporarily in any controller
   @Get('fix-locations')
+  @NoCache()
   async fixLocations() {
     await this.prisma.$executeRaw`
     UPDATE organisations

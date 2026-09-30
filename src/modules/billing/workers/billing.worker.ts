@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { SubscriptionStatus } from '@prisma/client';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { HttpCacheService } from '../../../infra/http-cache/http-cache.service';
 import { BILLING_JOBS } from '../../../infra/queues/queus.constants';
 import { NotificationService } from '../../notifications/services/notification.service';
 import { BILLING_QUEUE } from '../queues/billing.queue.service';
@@ -14,6 +15,7 @@ export class BillingWorker extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly httpCache: HttpCacheService,
   ) {
     super();
   }
@@ -54,6 +56,7 @@ export class BillingWorker extends WorkerHost {
     });
 
     this.logger.log(`Expired ${lapsed.length} lapsed trial(s)`);
+    await this.httpCache.invalidate(['billing', 'identity']);
 
     for (const sub of lapsed) {
       const userIds = await this.prisma.user.findMany({
