@@ -92,20 +92,33 @@ export class ConnectionService {
       leadTimeMinutes, cutoffMinutes,
     });
 
-    // One live relationship per pair of sites; ended ones stay as history.
-    const existing = await this.prisma.connection.findFirst({
+    // Same charity may have more than one Connection (Mon/Wed 3–5pm and
+    // Tue/Thu 1–3pm). Only reject when the new window overlaps an existing one.
+    const liveWithSameCharity = await this.prisma.connection.findMany({
       where: {
         donorSiteId: dto.donorSiteId,
         receiverSiteId: dto.receiverSiteId,
         status: { in: [...LIVE_STATUSES] },
       },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        daysOfWeek: true,
+        windowStartMinutes: true,
+        windowEndMinutes: true,
+      },
     });
-    if (existing) {
+    const overlappingSame = liveWithSameCharity.find((row) =>
+      schedulesOverlap(
+        { daysOfWeek: dto.daysOfWeek, windowStartMinutes, windowEndMinutes },
+        row,
+      ),
+    );
+    if (overlappingSame) {
       throw new ConflictException({
         error: CONNECTION_ERROR.CONNECTION_EXISTS,
-        message: `This site already has a ${existing.status.toLowerCase()} connection with that charity.`,
-        connectionId: existing.id,
+        message:
+          'This charity already has a collection in that window. Choose different days or a different pickup time to add another Connection.',
+        connectionId: overlappingSame.id,
       });
     }
 

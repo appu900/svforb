@@ -30,7 +30,7 @@ export const TERMINAL_STATUSES: readonly ConnectionStatus[] = [
   ConnectionStatus.ENDED,
 ];
 
-/** Statuses that block a second Connection between the same two sites. */
+/** Statuses that still count as a live Connection (invite, pause, collect). */
 export const LIVE_STATUSES: readonly ConnectionStatus[] = [
   ConnectionStatus.PENDING,
   ConnectionStatus.ACTIVE,
