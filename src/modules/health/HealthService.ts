@@ -5,6 +5,7 @@ import {
 } from '@nestjs/terminus';
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { RedisService } from 'src/infra/redis/redis.service';
+import { FirebaseGateway } from 'src/modules/notifications/gateways/firebase.gateway';
 
 @Injectable()
 export class HealthService {
@@ -12,6 +13,7 @@ export class HealthService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly health: HealthIndicatorService,
+    private readonly firebase: FirebaseGateway,
   ) {}
 
   async database(): Promise<HealthIndicatorResult> {
@@ -46,5 +48,30 @@ export class HealthService {
         message: (error as Error).message,
       });
     }
+  }
+
+  /**
+   * Whether push delivery can actually work.
+   *
+   * Reported as degraded rather than down: pushes being misconfigured must not
+   * make a load balancer kill an otherwise healthy instance, but it has to be
+   * visible somewhere other than a warning that scrolled past at boot. Push
+   * delivery was silently broken for weeks because nothing surfaced it.
+   */
+  async push(): Promise<HealthIndicatorResult> {
+    const indicator = this.health.check('push');
+    const business = this.firebase.isReady('business');
+    const driver = this.firebase.isReady('driver');
+
+    if (business && driver) return indicator.up({ business, driver });
+
+    const missing = [!business && 'business', !driver && 'driver']
+      .filter(Boolean)
+      .join(', ');
+    return indicator.degraded({
+      business,
+      driver,
+      message: `Firebase not configured for: ${missing}. Push notifications will not be delivered.`,
+    });
   }
 }

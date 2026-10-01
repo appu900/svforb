@@ -2,6 +2,16 @@ export interface BatchSendResult {
   successTokens: string[];
   retryableTokens: string[];
   invalidTokens: string[];
+  /**
+   * The provider could not be reached because it is not configured, rather
+   * than because of a transient fault.
+   *
+   * Retrying cannot fix a missing credential, so the worker fails the job
+   * instead of requeuing — which is what puts it in the Failed tab where
+   * somebody will see it. Treating this as retryable is what let push
+   * delivery stay broken unnoticed.
+   */
+  configError?: string;
 }
 
 export interface FirebaseMessagePayload {

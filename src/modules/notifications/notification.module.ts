@@ -77,6 +77,8 @@ import { redisTlsEnabled } from '../../infra/redis/redis-tls';
     EmailQueueService,
     EmailWorker,
   ],
-  exports: [NotificationService, EmailQueueService],
+  // FirebaseGateway is exported so the health check can report whether push
+  // delivery is actually configured.
+  exports: [NotificationService, EmailQueueService, FirebaseGateway],
 })
 export class NotificationModule {}

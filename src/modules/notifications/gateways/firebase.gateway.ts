@@ -60,10 +60,19 @@ export class FirebaseGateway implements OnModuleInit {
     const app = this.apps[target];
 
     if (!app) {
-      this.logger.error(
-        `Firebase (${target}) not initialised — treating all tokens as retryable`,
-      );
-      return { successTokens: [], retryableTokens: tokens, invalidTokens: [] };
+      // A missing credential is a deployment fault, not a network blip. It is
+      // reported as a config error so the job fails and surfaces, rather than
+      // being retried forever against a provider that will never answer.
+      const message =
+        `Firebase (${target}) is not configured — set FIREBASE_` +
+        `${target === 'driver' ? 'DRIVER_' : ''}PROJECT_ID, _CLIENT_EMAIL and _PRIVATE_KEY`;
+      this.logger.error(message);
+      return {
+        successTokens: [],
+        retryableTokens: [],
+        invalidTokens: [],
+        configError: message,
+      };
     }
 
     if (tokens.length === 0) {

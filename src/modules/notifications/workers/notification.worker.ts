@@ -289,6 +289,7 @@ export class NotificationWorker extends WorkerHost implements OnModuleInit, OnMo
       successTokens: [...expoResult.successTokens, ...firebaseResult.successTokens],
       retryableTokens: [...expoResult.retryableTokens, ...firebaseResult.retryableTokens],
       invalidTokens: [...expoResult.invalidTokens, ...firebaseResult.invalidTokens],
+      configError: firebaseResult.configError ?? expoResult.configError,
     };
 
     await this.updateTokenHealth(result.successTokens, result.invalidTokens);
@@ -333,6 +334,21 @@ export class NotificationWorker extends WorkerHost implements OnModuleInit, OnMo
           select: { token: true, tokenType: true },
         });
 
+        // Tokens deactivated between attempts are silently absent from
+        // retryDocs. Without counting them the row never reaches totalTargets
+        // and sits in `processing` until the 30-minute timeout.
+        const droppedCount = result.retryableTokens.length - retryDocs.length;
+        if (droppedCount > 0) {
+          await this.prisma.$executeRaw`
+            UPDATE notification_records
+            SET "failureCount" = "failureCount" + ${droppedCount}
+            WHERE id = ${notif.id}
+          `;
+          this.logger.warn(
+            `Retry tokens no longer deliverable: notificationId=${notif.id} dropped=${droppedCount}`,
+          );
+        }
+
         if (retryDocs.length > 0) {
           const nextGeneration = retryGeneration + 1;
           const retryTokens: TokenWithType[] = retryDocs.map((d) => ({
@@ -352,6 +368,15 @@ export class NotificationWorker extends WorkerHost implements OnModuleInit, OnMo
           `Retryable tokens counted as failure (retries exhausted): notificationId=${notif.id} retryCount=${result.retryableTokens.length} generation=${retryGeneration}`,
         );
       }
+    }
+
+    // A provider that is not configured cannot be retried into working. Any
+    // results from a provider that *is* configured have already been recorded
+    // above, so failing here loses nothing and puts the job in the Failed tab
+    // where the misconfiguration is visible.
+    if (result.configError) {
+      await this.finalizeIfComplete(notif.id);
+      throw new Error(result.configError);
     }
 
     await this.finalizeIfComplete(notif.id);
