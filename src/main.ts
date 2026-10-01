@@ -1,4 +1,3 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
@@ -18,7 +17,7 @@ async function bootstrap() {
   // listing and report payloads compress just as well.
   //
   // Response-only, so the Stripe webhook's raw request body is untouched.
-  app.use(compression());
+  // app.use(compression());
 
   // The queue dashboard exposes raw job payloads — including OTP codes — so it
   // is gated before anything else can route to it.
