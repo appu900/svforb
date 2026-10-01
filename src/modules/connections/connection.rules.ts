@@ -3,6 +3,7 @@ import {
   ConnectionDayOutcome,
   ConnectionStatus,
   ListingReleaseReason,
+  ListingStatus,
 } from '@prisma/client';
 
 /**
@@ -167,6 +168,56 @@ export function shouldAutoRelease(
     return false;
   }
   return true;
+}
+
+/**
+ * Remaining food can still go to the network. A claimed listing is reserved
+ * for the charity — do not release it, and do not treat the day as collected.
+ */
+export function listingCanBeReleased(status: ListingStatus | null | undefined): boolean {
+  return status === ListingStatus.ACTIVE || status === ListingStatus.PARTIAL;
+}
+
+export function listingIsAwaitingCollection(
+  status: ListingStatus | null | undefined,
+): boolean {
+  return status === ListingStatus.CLAIMED;
+}
+
+/**
+ * Close the connection day as COLLECTED only when the listing is fully
+ * reserved. A PARTIAL collect must leave the day PUBLISHED so leftover
+ * food can still be released to the network.
+ */
+export function canMarkConnectionDayCollected(
+  status: ListingStatus | null | undefined,
+): boolean {
+  return status === ListingStatus.CLAIMED;
+}
+
+export type PublishedListingSweepAction =
+  | 'try_release'
+  | 'await_collection'
+  | 'close_missed';
+
+export function publishedListingSweepAction(
+  status: ListingStatus | null | undefined,
+): PublishedListingSweepAction {
+  if (listingCanBeReleased(status)) return 'try_release';
+  if (listingIsAwaitingCollection(status)) return 'await_collection';
+  return 'close_missed';
+}
+
+/**
+ * Only when the listing itself is gone (expired, cancelled, or deleted).
+ * CLAIMED is not closed here — that is still in progress until pickup.
+ */
+export function dayOutcomeWhenListingClosed(
+  status: ListingStatus | null | undefined,
+): ConnectionDayOutcome | null {
+  return publishedListingSweepAction(status) === 'close_missed'
+    ? ConnectionDayOutcome.MISSED
+    : null;
 }
 
 /** Whether the business should be chased about an unconfirmed collection. */

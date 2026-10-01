@@ -7,6 +7,7 @@ import { EnterpriseBillingService } from './services/enterprise-billing.service'
 import { EnterpriseImpactService } from './services/enterprise-impact.service';
 import { EnterpriseInvitationService } from './services/enterprise-invitation.service';
 import { EnterpriseProfileService } from './services/enterprise-profile.service';
+import { AdminDashboardService } from './services/admin-dashboard.service';
 import { EnterpriseProvisioningService } from './services/enterprise-provisioning.service';
 import { EnterpriseReportingService } from './services/enterprise-reporting.service';
 import { EnterpriseScopeService } from './services/enterprise-scope.service';
@@ -59,6 +60,7 @@ import { EnterpriseWorker } from './workers/enterprise.worker';
     EnterpriseImpactService,
     EnterpriseInvitationService,
     EnterpriseProvisioningService,
+    AdminDashboardService,
     AdminAppUsersService,
     EnterpriseProfileService,
     EnterpriseQueueService,

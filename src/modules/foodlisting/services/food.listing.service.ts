@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   ClaimStatus,
+  ConnectionDayOutcome,
   FoodListingType,
   ListingStatus,
   OrgType,
@@ -18,6 +19,7 @@ import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { S3Service } from '../../../uploads/s3/s3.service';
 import { EnterpriseScopeService } from '../../enterprise/services/enterprise-scope.service';
+import { canMarkConnectionDayCollected } from '../../connections/connection.rules';
 import { ListingQueueService, resolveListingExpiryAt } from '../queues/listing.queue.service';
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
@@ -336,13 +338,28 @@ export class FoodListingService {
         );
         if (!collectedPickup) continue;
 
+        const collectedAt = collectedPickup.collectedAt ?? new Date();
+        const collectedKg = claim.claimItems.reduce((sum, item) => sum + item.qtyKg, 0);
         await this.prisma.foodClaim.update({
           where: { id: claim.id },
           data: {
             status: ClaimStatus.COLLECTED,
-            collectedAt: collectedPickup.collectedAt ?? new Date(),
+            collectedAt,
           },
         });
+        if (canMarkConnectionDayCollected(listing.status)) {
+          await this.prisma.connectionDay.updateMany({
+            where: {
+              listingId: listing.id,
+              outcome: ConnectionDayOutcome.PUBLISHED,
+            },
+            data: {
+              outcome: ConnectionDayOutcome.COLLECTED,
+              collectedKg,
+              respondedAt: collectedAt,
+            },
+          });
+        }
         (claim as { status: ClaimStatus }).status = ClaimStatus.COLLECTED;
         (claim as { collectedAt: Date | null }).collectedAt =
           collectedPickup.collectedAt ?? new Date();

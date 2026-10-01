@@ -31,6 +31,7 @@ const PREFIX_DOMAINS: Record<string, CacheDomain> = {
   'sites': 'structure',
   'admin/sites': 'structure',
   'enterprise': 'structure',
+  'admin/enterprise/dashboard': 'activity',
   'admin/enterprise': 'structure',
   'charity/locations': 'structure',
   'charity/connections': 'structure',

@@ -1,9 +1,11 @@
 import { ConflictException, BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from '@jest/globals';
-import { ConnectionDayOutcome as Outcome, ConnectionStatus as S } from '@prisma/client';
+import { ConnectionDayOutcome as Outcome, ConnectionStatus as S, ListingStatus } from '@prisma/client';
 import {
   assertCanClaim, assertDistinctSites, assertTransition, canAccessListing,
-  canTransition, isCollecting, isExclusive, reliabilityFrom, releaseReasonFor,
+  canMarkConnectionDayCollected, canTransition, dayOutcomeWhenListingClosed,
+  isCollecting, isExclusive, listingCanBeReleased, listingIsAwaitingCollection,
+  publishedListingSweepAction, reliabilityFrom, releaseReasonFor,
   shouldAutoRelease, shouldEscalateToBusiness, visibilitySql, visibilityWhere,
 } from './connection.rules';
 
@@ -176,6 +178,44 @@ describe('Connection rules', () => {
       expect(releaseReasonFor('CHARITY_DECLINED')).toBe('CHARITY_DECLINED');
       expect(releaseReasonFor('AUTO_RELEASED')).toBe('AUTO_RELEASED');
       expect(releaseReasonFor('PARTIAL_REMAINDER')).toBe('PARTIAL_REMAINDER');
+    });
+
+    it('will not release a listing that is already claimed or closed', () => {
+      expect(listingCanBeReleased(ListingStatus.ACTIVE)).toBe(true);
+      expect(listingCanBeReleased(ListingStatus.PARTIAL)).toBe(true);
+      expect(listingCanBeReleased(ListingStatus.CLAIMED)).toBe(false);
+      expect(listingCanBeReleased(ListingStatus.EXPIRED)).toBe(false);
+      expect(listingCanBeReleased(ListingStatus.CANCELLED)).toBe(false);
+      expect(listingCanBeReleased(null)).toBe(false);
+    });
+
+    it('does not treat a claimed listing as collected', () => {
+      expect(listingIsAwaitingCollection(ListingStatus.CLAIMED)).toBe(true);
+      expect(listingIsAwaitingCollection(ListingStatus.ACTIVE)).toBe(false);
+      expect(dayOutcomeWhenListingClosed(ListingStatus.CLAIMED)).toBeNull();
+    });
+
+    it('closes a published day only when the listing itself is gone', () => {
+      expect(dayOutcomeWhenListingClosed(ListingStatus.ACTIVE)).toBeNull();
+      expect(dayOutcomeWhenListingClosed(ListingStatus.PARTIAL)).toBeNull();
+      expect(dayOutcomeWhenListingClosed(ListingStatus.EXPIRED)).toBe(Outcome.MISSED);
+      expect(dayOutcomeWhenListingClosed(ListingStatus.CANCELLED)).toBe(Outcome.MISSED);
+      expect(dayOutcomeWhenListingClosed(null)).toBe(Outcome.MISSED);
+    });
+
+    it('decides the sweep action for every listing status', () => {
+      expect(publishedListingSweepAction(ListingStatus.ACTIVE)).toBe('try_release');
+      expect(publishedListingSweepAction(ListingStatus.PARTIAL)).toBe('try_release');
+      expect(publishedListingSweepAction(ListingStatus.CLAIMED)).toBe('await_collection');
+      expect(publishedListingSweepAction(ListingStatus.EXPIRED)).toBe('close_missed');
+      expect(publishedListingSweepAction(ListingStatus.CANCELLED)).toBe('close_missed');
+      expect(publishedListingSweepAction(null)).toBe('close_missed');
+    });
+
+    it('marks the connection day collected only after a full claim is picked up', () => {
+      expect(canMarkConnectionDayCollected(ListingStatus.CLAIMED)).toBe(true);
+      expect(canMarkConnectionDayCollected(ListingStatus.PARTIAL)).toBe(false);
+      expect(canMarkConnectionDayCollected(ListingStatus.ACTIVE)).toBe(false);
     });
   });
 

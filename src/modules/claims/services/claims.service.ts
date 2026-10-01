@@ -9,6 +9,7 @@ import {
 import {
   ClaimMode,
   ClaimStatus,
+  ConnectionDayOutcome,
   DriverPickupStatus,
   FoodListingType,
   ListingStatus,
@@ -23,6 +24,7 @@ import { DriverLocationService } from '../../drivers/service/driver.location.ser
 import { ClaimsCacheManager } from '../cache/claims.cachemanager';
 import { CreateClaimDto, MarkCollectedDto, ProviderFeedbackDto, RateClaimDto, RateDriverDto } from '../dto/claims.dto';
 import { resolveCallerSiteId } from '../../foodlisting/utils/resolve-caller-site';
+import { canMarkConnectionDayCollected } from '../../connections/connection.rules';
 import { assertCanClaim } from '../../connections/connection.rules';
 
 const DEFAULT_LIMIT = 20;
@@ -701,6 +703,20 @@ export class ClaimsService {
         },
       });
 
+      if (canMarkConnectionDayCollected(claim.listing.status)) {
+        await tx.connectionDay.updateMany({
+          where: {
+            listingId: claim.listingId,
+            outcome: ConnectionDayOutcome.PUBLISHED,
+          },
+          data: {
+            outcome: ConnectionDayOutcome.COLLECTED,
+            collectedKg: totalQtyKg,
+            respondedAt: new Date(),
+          },
+        });
+      }
+
       return true;
     });
 
@@ -1128,13 +1144,28 @@ export class ClaimsService {
       );
       if (!collectedPickup) continue;
 
+      const collectedAt = collectedPickup.collectedAt ?? new Date();
+      const collectedKg = claim.claimItems.reduce((sum, item) => sum + item.qtyKg, 0);
       await this.prisma.foodClaim.update({
         where: { id: claim.id },
         data: {
           status: ClaimStatus.COLLECTED,
-          collectedAt: collectedPickup.collectedAt ?? new Date(),
+          collectedAt,
         },
       });
+      if (canMarkConnectionDayCollected(claim.listing.status)) {
+        await this.prisma.connectionDay.updateMany({
+          where: {
+            listingId: claim.listingId,
+            outcome: ConnectionDayOutcome.PUBLISHED,
+          },
+          data: {
+            outcome: ConnectionDayOutcome.COLLECTED,
+            collectedKg,
+            respondedAt: collectedAt,
+          },
+        });
+      }
       (claim as { status: ClaimStatus }).status = ClaimStatus.COLLECTED;
       (claim as { collectedAt: Date | null }).collectedAt =
         collectedPickup.collectedAt ?? new Date();

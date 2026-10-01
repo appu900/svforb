@@ -14,6 +14,7 @@ import {
 import { FirebaseGateway } from '../gateways/firebase.gateway';
 import { ExpoGateway } from '../gateways/expo.gateway';
 import { NotificationProducer } from '../producers/notification.producer';
+import { parseNotificationRecordId } from '../notification-id';
 import {
   NOTIFICATION_QUEUE_NAME,
   WORKER_CONCURRENCY,
@@ -70,9 +71,16 @@ export class NotificationWorker extends WorkerHost {
     );
 
     if (job.attemptsMade >= (job.opts.attempts ?? JOB_ATTEMPTS_FALLBACK)) {
+      const notificationId = parseNotificationRecordId(job.data.notificationId);
+      if (notificationId == null) {
+        this.logger.warn(
+          `Skipping failed-status update — junk notificationId=${String(job.data.notificationId)}`,
+        );
+        return;
+      }
       try {
         await this.prisma.notificationRecord.update({
-          where: { id: job.data.notificationId },
+          where: { id: notificationId },
           data: {
             status: 'failed',
             lastError: `Job permanently failed after ${job.attemptsMade} attempts: ${error.message}`,
@@ -80,7 +88,7 @@ export class NotificationWorker extends WorkerHost {
           },
         });
         this.logger.warn(
-          `Notification ${job.data.notificationId} marked FAILED after max retries`,
+          `Notification ${notificationId} marked FAILED after max retries`,
         );
       } catch (dbErr) {
         this.logger.error(
@@ -92,7 +100,13 @@ export class NotificationWorker extends WorkerHost {
 
 
   private async handleFanOut(job: Job<FanOutJobData>): Promise<void> {
-    const { notificationId } = job.data;
+    const notificationId = parseNotificationRecordId(job.data.notificationId);
+    if (notificationId == null) {
+      this.logger.warn(
+        `Dropping fan-out job ${job.id} — invalid notificationId=${String(job.data.notificationId)}`,
+      );
+      return;
+    }
 
     const notif = await this.prisma.notificationRecord.findUnique({
       where: { id: notificationId },
@@ -145,7 +159,14 @@ export class NotificationWorker extends WorkerHost {
 
 
   private async handleSendBatch(job: Job<SendBatchJobData>): Promise<void> {
-    const { notificationId, tokens, batchIndex } = job.data;
+    const { tokens, batchIndex } = job.data;
+    const notificationId = parseNotificationRecordId(job.data.notificationId);
+    if (notificationId == null) {
+      this.logger.warn(
+        `Dropping send-batch job ${job.id} — invalid notificationId=${String(job.data.notificationId)}`,
+      );
+      return;
+    }
 
     const notif = await this.prisma.notificationRecord.findUnique({
       where: { id: notificationId },

@@ -10,6 +10,9 @@ import { Jwtpayload } from '../auth/interface/jwt.interface';
 import { EnterpriseScopeService } from '../enterprise/services/enterprise-scope.service';
 import { ConnectionNotifier } from './connection.notifier';
 import {
+  dayOutcomeWhenListingClosed,
+  listingCanBeReleased,
+  publishedListingSweepAction,
   releaseReasonFor,
   shouldAutoRelease,
   shouldEscalateToBusiness,
@@ -350,7 +353,7 @@ export class ConnectionDailyService {
       where: { id: day.listingId },
       select: { id: true, status: true, releasedAt: true, pickupByTime: true, bestBefore: true },
     });
-    if (!listing || listing.status !== ListingStatus.ACTIVE) {
+    if (!listing || !listingCanBeReleased(listing.status)) {
       throw new ConflictException(
         'This listing has already been claimed or is no longer active.',
       );
@@ -400,6 +403,37 @@ export class ConnectionDailyService {
     };
   }
 
+  /**
+   * Decides whether the sweep should leave this PUBLISHED day alone.
+   * Claimed ≠ collected: a CLAIMED listing stays PUBLISHED until pickup.
+   * Expired/cancelled listings are MISSED so the sweep stops retrying release.
+   */
+  private async skipOrCloseIfNotReleasable(day: {
+    id: number;
+    listingId: number | null;
+  }): Promise<boolean> {
+    if (!day.listingId) return false;
+    const listing = await this.prisma.foodListing.findUnique({
+      where: { id: day.listingId },
+      select: { status: true },
+    });
+    const action = publishedListingSweepAction(listing?.status);
+    if (action === 'try_release') return false;
+    if (action === 'await_collection') return true;
+
+    const outcome = dayOutcomeWhenListingClosed(listing?.status);
+    if (!outcome) return true;
+
+    await this.prisma.connectionDay.update({
+      where: { id: day.id },
+      data: { outcome, respondedAt: new Date() },
+    });
+    this.logger.log(
+      `Connection day ${day.id} closed as ${outcome} — listing ${day.listingId} is ${listing?.status ?? 'missing'}`,
+    );
+    return true;
+  }
+
   // ─── Sweep 2: cut-off and auto-release ─────────────────────────────────────
 
   /**
@@ -425,6 +459,9 @@ export class ConnectionDailyService {
 
     for (const day of pending) {
       try {
+        if (await this.skipOrCloseIfNotReleasable(day)) {
+          continue;
+        }
         if (shouldAutoRelease(day, now)) {
           await this.release(day, 'AUTO_RELEASED');
           released++;

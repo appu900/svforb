@@ -27,6 +27,7 @@ import {
 import { SitesService } from '../../sites/service/sites.service';
 import { AuditArea } from '@prisma/client';
 import { EnterpriseAuditService } from '../services/enterprise-audit.service';
+import { AdminDashboardService } from '../services/admin-dashboard.service';
 import { EnterpriseProvisioningService } from '../services/enterprise-provisioning.service';
 import { EnterpriseStructureService } from '../services/enterprise-structure.service';
 import { EnterpriseUserService } from '../services/enterprise-user.service';
@@ -48,6 +49,7 @@ export class EnterpriseProvisioningController {
     private readonly users: EnterpriseUserService,
     private readonly sites: SitesService,
     private readonly audit: EnterpriseAuditService,
+    private readonly dashboardSummary: AdminDashboardService,
   ) {}
 
   /** Creates the Enterprise and invites its first Super Admin. */
@@ -80,6 +82,20 @@ export class EnterpriseProvisioningController {
   @Get('users')
   listAllUsers() {
     return this.provisioning.listAllMembers();
+  }
+
+  @Get('dashboard')
+  dashboard(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('organisationId', new ParseIntPipe({ optional: true })) organisationId?: number,
+    @Query('orgType') orgType?: string,
+    @Query('pathway') pathway?: string,
+    @Query('country') country?: string,
+    @Query('role') role?: string,
+    @Query('accountStatus') accountStatus?: string,
+  ) {
+    return this.dashboardSummary.summary({ from, to, organisationId, orgType, pathway, country, role, accountStatus });
   }
 
   @Get('audit')

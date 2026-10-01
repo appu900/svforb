@@ -6,11 +6,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ClaimStatus, DriverPickupStatus, SiteRole } from '@prisma/client';
+import { ClaimStatus, ConnectionDayOutcome, DriverPickupStatus, SiteRole } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { RedisService } from '../../../infra/redis/redis.service';
 import { S3Service } from '../../../uploads/s3/s3.service';
 import { NotificationService } from '../../../modules/notifications/services/notification.service';
+import { canMarkConnectionDayCollected } from '../../connections/connection.rules';
 
 const DRIVER_TTL_SECONDS = 8 * 60 * 60;
 const PHOTO_FOLDER = 'driver-pickups';
@@ -354,7 +355,7 @@ export class DriverLocationService {
         claim: {
           include: {
             claimItems: true,
-            listing: { select: { id: true, organisationId: true, remainingQtyKg: true } },
+            listing: { select: { id: true, status: true, organisationId: true, remainingQtyKg: true } },
             claimantOrg: { select: { id: true, name: true } },
           },
         },
@@ -369,13 +370,28 @@ export class DriverLocationService {
         pickup.claim.status !== ClaimStatus.COLLECTED &&
         pickup.claim.status !== ClaimStatus.CANCELLED
       ) {
+        const collectedAt = pickup.collectedAt ?? new Date();
+        const collectedKg = pickup.claim.claimItems.reduce((sum, item) => sum + item.qtyKg, 0);
         await this.prisma.foodClaim.update({
           where: { id: pickup.claimId },
           data: {
             status: ClaimStatus.COLLECTED,
-            collectedAt: pickup.collectedAt ?? new Date(),
+            collectedAt,
           },
         });
+        if (canMarkConnectionDayCollected(pickup.claim.listing.status)) {
+          await this.prisma.connectionDay.updateMany({
+            where: {
+              listingId: pickup.listingId,
+              outcome: ConnectionDayOutcome.PUBLISHED,
+            },
+            data: {
+              outcome: ConnectionDayOutcome.COLLECTED,
+              collectedKg,
+              respondedAt: collectedAt,
+            },
+          });
+        }
         await this.bustCachesAfterDriverCollection(pickup);
       }
       return pickup;
@@ -442,6 +458,20 @@ export class DriverLocationService {
             qtyKg: totalQtyKg,
           },
         });
+
+        if (canMarkConnectionDayCollected(pickup.claim.listing.status)) {
+          await tx.connectionDay.updateMany({
+            where: {
+              listingId: pickup.listingId,
+              outcome: ConnectionDayOutcome.PUBLISHED,
+            },
+            data: {
+              outcome: ConnectionDayOutcome.COLLECTED,
+              collectedKg: totalQtyKg,
+              respondedAt: collectedAt,
+            },
+          });
+        }
       }
 
       return nextPickup;

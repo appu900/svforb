@@ -684,6 +684,8 @@ model FoodListing {
 
   @@index([siteId])
   @@index([organisationId])
+  @@index([organisationId, createdAt])
+  @@index([createdAt])
   @@index([status])
   @@index([bestBefore])
   @@index([snapshotGroupId])
@@ -763,6 +765,7 @@ model FoodClaim {
   @@index([claimantOrgId])
   @@index([claimantSiteId])
   @@index([status])
+  @@index([collectedAt])
   @@index([snapshotGroupId])
   @@index([snapshotClusterId])
   @@index([snapshotTerritoryId])

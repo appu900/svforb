@@ -193,7 +193,7 @@ export class NotificationService {
     if (!isBroadcast && targetUserIds.length > 0) {
       tokenWhere.userId = { in: targetUserIds };
     } else if (!isBroadcast) {
-      tokenWhere._id = { equals: -1 };
+      tokenWhere.id = { equals: -1 };
     }
     if (targetPlatform !== 'all') {
       tokenWhere.platform =
