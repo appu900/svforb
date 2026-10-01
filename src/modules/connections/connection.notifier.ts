@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SiteRole } from '@prisma/client';
+import { ConnectionDayOutcome, SiteRole } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { NotificationService } from '../notifications/services/notification.service';
 import {
@@ -23,6 +23,19 @@ export const CONNECTION_PUSH = {
   NO_RESPONSE: 'CONNECTION_NO_RESPONSE',
   MOVED: 'CONNECTION_MOVED',
 } as const;
+
+export interface DailyPromptInput {
+  connectionId: number;
+  connectionDayId: number;
+  donorSiteId: number;
+  charityName: string;
+  windowStartMinutes: number;
+  windowEndMinutes: number;
+  windowStartAt: Date;
+  windowEndAt: Date;
+  cutoffAt?: Date | null;
+  donorTimezone?: string;
+}
 
 /**
  * Every push this feature sends.
@@ -64,16 +77,17 @@ export class ConnectionNotifier {
     return [...new Set([...members, ...siteAdmins].map((m) => m.userId))];
   }
 
+  /** False only when the push could not be queued, so the caller may retry. */
   private async push(
     userIds: number[],
     title: string,
     body: string,
     data: Record<string, string>,
     priority: 'low' | 'normal' | 'high' = 'normal',
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!userIds.length) {
       this.logger.warn(`No recipients for ${data.type} — nothing sent`);
-      return;
+      return true;
     }
     try {
       await this.notifications.send({
@@ -85,10 +99,12 @@ export class ConnectionNotifier {
         targetApp: 'business',
         allowEmptyTargets: true,
       });
+      return true;
     } catch (err) {
       this.logger.error(
         `Push failed (${data.type}): ${(err as Error).message}`,
       );
+      return false;
     }
   }
 
@@ -113,8 +129,8 @@ export class ConnectionNotifier {
 
     await this.push(
       await this.charityAdminIds(connection.receiverOrgId, connection.receiverSiteId),
-      'Regular collection invitation',
-      `${connection.donorOrg.name} – ${siteName} would like to connect for regular surplus food collections. ${schedule}`,
+      'Regular Connection invitation',
+      `${connection.donorOrg.name} – ${siteName} would like to connect for a regular Connection. ${schedule}`,
       {
         type: CONNECTION_PUSH.INVITATION,
         connectionId: String(connection.id),
@@ -136,8 +152,8 @@ export class ConnectionNotifier {
       await this.siteStaffIds(connection.donorSiteId),
       accepted ? 'Connection accepted' : 'Connection declined',
       accepted
-        ? `${charity} accepted your regular collection. If today is a scheduled day and the window is still open, you can list surplus for them now.`
-        : `${charity} declined your regular collection request.`,
+        ? `${charity} accepted your regular Connection. If today is a scheduled day and the window is still open, you can list surplus for them now.`
+        : `${charity} declined your regular Connection request.`,
       {
         type: accepted ? CONNECTION_PUSH.ACCEPTED : CONNECTION_PUSH.DECLINED,
         connectionId: String(connection.id),
@@ -148,22 +164,38 @@ export class ConnectionNotifier {
 
   // ─── 2. Daily prompt to the business ───────────────────────────────────────
 
-  async dailyPrompt(input: {
-    connectionId: number;
-    connectionDayId: number;
-    donorSiteId: number;
-    charityName: string;
-    windowStartMinutes: number;
-    windowEndMinutes: number;
-    windowStartAt: Date;
-    windowEndAt: Date;
-    cutoffAt?: Date | null;
-    donorTimezone?: string;
-  }): Promise<void> {
+  /**
+   * The 4-hour prompt, at most once per day row, whichever path opened the row.
+   * `promptedAt` records that this push was queued: it is claimed before
+   * sending and cleared again if queuing fails, so the next sweep retries.
+   */
+  async dailyPromptOnce(input: DailyPromptInput): Promise<Date | null> {
+    const promptedAt = new Date();
+    const claimed = await this.prisma.connectionDay.updateMany({
+      where: {
+        id: input.connectionDayId,
+        promptedAt: null,
+        outcome: ConnectionDayOutcome.PROMPTED,
+        listingId: null,
+      },
+      data: { promptedAt },
+    });
+    if (!claimed.count) return null;
+
+    if (await this.dailyPrompt(input)) return promptedAt;
+
+    await this.prisma.connectionDay.updateMany({
+      where: { id: input.connectionDayId, promptedAt },
+      data: { promptedAt: null },
+    });
+    return null;
+  }
+
+  private async dailyPrompt(input: DailyPromptInput): Promise<boolean> {
     const window = formatWindowRange(input.windowStartMinutes, input.windowEndMinutes);
     const addByMinutes = input.windowStartMinutes - LIST_BY_MINUTES;
     const addBy = formatClock12(addByMinutes);
-    await this.push(
+    return this.push(
       await this.siteStaffIds(input.donorSiteId),
       "Confirm today’s collection",
       `Your Connection with ${input.charityName} is scheduled for today between ${window}. Add the food and quantities available by ${addBy}.`,
@@ -196,10 +228,10 @@ export class ConnectionNotifier {
     windowStartMinutes: number;
     windowEndMinutes: number;
     donorTimezone?: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const window = formatWindowRange(input.windowStartMinutes, input.windowEndMinutes);
     const addBy = formatClock12(input.windowStartMinutes - LIST_BY_MINUTES);
-    await this.push(
+    return this.push(
       await this.siteStaffIds(input.donorSiteId),
       'Add today’s surplus now',
       `List-by is ${addBy} for your ${window} collection with ${input.charityName}. Add food and quantities now or they will be told there is no collection today.`,
@@ -277,7 +309,7 @@ export class ConnectionNotifier {
     await this.push(
       await this.charityAdminIds(input.receiverOrgId, input.receiverSiteId),
       'No collection today',
-      `${input.donorName} has confirmed there is no surplus available today. Your regular Connection remains active for the next scheduled collection.`,
+      `${input.donorName} has confirmed there is no surplus available today. Your regular Collection remains active for the next scheduled Collection.`,
       { type: CONNECTION_PUSH.NO_SURPLUS, connectionId: String(input.connectionId) },
     );
   }
@@ -330,7 +362,7 @@ export class ConnectionNotifier {
     await this.push(
       await this.siteStaffIds(input.donorSiteId),
       'Connection paused',
-      `${input.charityName} has paused this Connection. You will not be prompted for regular collections until they resume it.`,
+      `${input.charityName} has paused this Connection. You will not be prompted for regular Collections until they resume it.`,
       {
         type: CONNECTION_PUSH.MOVED,
         connectionId: String(input.connectionId),

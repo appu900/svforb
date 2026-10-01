@@ -14,11 +14,11 @@ export const CONNECTION_JOBS = {
 } as const;
 
 /**
- * Five minutes is a deliberate trade: a prompt can land up to five minutes
- * late, which is immaterial for a "what's available today" nudge, and in
- * return a sweep that misses a tick simply catches up on the next one.
+ * The 4h prompt and 2.5h list-by push land at most this late. A window can
+ * start on any minute (10:31), so anything coarser visibly misses it. A sweep
+ * that misses a tick still catches up on the next one.
  */
-const SWEEP_EVERY_MS = 5 * 60 * 1000;
+const SWEEP_EVERY_MS = 60 * 1000;
 const DAILY_MS = 24 * 60 * 60 * 1000;
 
 const DEFAULT_JOB_OPTIONS = {
@@ -36,6 +36,7 @@ export class ConnectionQueueService implements OnModuleInit {
 
   async onModuleInit() {
     try {
+      await this.removeStaleSweeps();
       await this.queue.add(
         CONNECTION_JOBS.PROMPT_DUE,
         {},
@@ -57,6 +58,19 @@ export class ConnectionQueueService implements OnModuleInit {
     } catch (err) {
       // A queue that cannot be scheduled must not stop the app booting.
       this.logger.error(`Could not schedule connection sweeps: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * A repeatable is keyed by its interval, so changing SWEEP_EVERY_MS adds a
+   * new schedule rather than replacing the old one — both would keep firing.
+   */
+  private async removeStaleSweeps() {
+    const swept: string[] = [CONNECTION_JOBS.PROMPT_DUE, CONNECTION_JOBS.SWEEP_UNCONFIRMED];
+    for (const job of await this.queue.getRepeatableJobs()) {
+      if (!swept.includes(job.name) || Number(job.every) === SWEEP_EVERY_MS) continue;
+      await this.queue.removeRepeatableByKey(job.key);
+      this.logger.log(`Removed old ${job.name} schedule (every ${job.every}ms)`);
     }
   }
 

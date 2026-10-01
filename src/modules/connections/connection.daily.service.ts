@@ -86,21 +86,10 @@ export class ConnectionDailyService {
       if (!isPromptDue(day, now)) continue;
 
       try {
-        // The unique index on (connectionId, scheduledDate) is what stops the
-        // sweep prompting twice for the same day.
-        const row = await this.prisma.connectionDay.create({
-          data: {
-            connectionId: connection.id,
-            scheduledDate: day.scheduledDate,
-            windowStartAt: day.windowStartAt,
-            windowEndAt: day.windowEndAt,
-            cutoffAt: day.cutoffAt,
-            outcome: ConnectionDayOutcome.PROMPTED,
-            promptedAt: now,
-          },
-        });
+        const row = await this.openDay(connection.id, day);
+        if (!row) continue;
 
-        await this.notifier.dailyPrompt({
+        const sent = await this.notifier.dailyPromptOnce({
           connectionId: connection.id,
           connectionDayId: row.id,
           donorSiteId: connection.donorSiteId,
@@ -112,23 +101,8 @@ export class ConnectionDailyService {
           cutoffAt: day.cutoffAt,
           donorTimezone: timezone,
         });
-        prompted++;
+        if (sent) prompted++;
       } catch (err) {
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
-        ) {
-          const existing = await this.prisma.connectionDay.findUnique({
-            where: {
-              connectionId_scheduledDate: {
-                connectionId: connection.id,
-                scheduledDate: day.scheduledDate,
-              },
-            },
-          });
-          if (existing) await this.alignPromptedWindow(existing, day);
-          continue;
-        }
         this.logger.error(
           `Prompt failed for connection ${connection.id}: ${(err as Error).message}`,
         );
@@ -551,19 +525,21 @@ export class ConnectionDailyService {
       const aligned = await this.alignPromptedWindow(day, resolved);
       if (!isBusinessListByDue(aligned.windowStartAt, now)) continue;
       try {
-        await this.prisma.connectionDay.update({
-          where: { id: day.id },
+        const claimed = await this.prisma.connectionDay.updateMany({
+          where: { id: day.id, outcome: ConnectionDayOutcome.PROMPTED, listingId: null },
           data: {
             outcome: ConnectionDayOutcome.NO_RESPONSE,
             respondedAt: now,
           },
         });
+        if (!claimed.count) continue;
+
         const donorName =
           day.connection.donorSite.name ??
           day.connection.donorSite.organisationName ??
           day.connection.donorOrg.name ??
           'The business';
-        await this.notifier.listByReminder({
+        const reminded = await this.notifier.listByReminder({
           connectionId: day.connectionId,
           connectionDayId: day.id,
           donorSiteId: day.connection.donorSiteId,
@@ -575,6 +551,13 @@ export class ConnectionDailyService {
           windowEndMinutes: day.connection.windowEndMinutes,
           donorTimezone: timezone,
         });
+        if (!reminded) {
+          await this.prisma.connectionDay.updateMany({
+            where: { id: day.id, outcome: ConnectionDayOutcome.NO_RESPONSE, respondedAt: now },
+            data: { outcome: ConnectionDayOutcome.PROMPTED, respondedAt: null },
+          });
+          continue;
+        }
         await this.notifier.businessNoResponse({
           connectionId: day.connectionId,
           receiverOrgId: day.connection.receiverOrgId,
@@ -630,81 +613,25 @@ export class ConnectionDailyService {
       if (!collectsOn(schedule, localDate)) continue;
 
       const resolved = resolveDay(schedule, localDate);
-      if (now >= resolved.windowEndAt) continue;
-      if (now < resolved.promptAt) continue;
+      if (!isPromptDue(resolved, now)) continue;
 
-      let day = await this.prisma.connectionDay.findUnique({
-        where: {
-          connectionId_scheduledDate: {
-            connectionId: connection.id,
-            scheduledDate: resolved.scheduledDate,
-          },
-        },
-      });
-
-      if (!day) {
-        try {
-          day = await this.prisma.connectionDay.create({
-            data: {
-              connectionId: connection.id,
-              scheduledDate: resolved.scheduledDate,
-              windowStartAt: resolved.windowStartAt,
-              windowEndAt: resolved.windowEndAt,
-              cutoffAt: resolved.cutoffAt,
-              outcome: ConnectionDayOutcome.PROMPTED,
-              promptedAt: now,
-            },
-          });
-          await this.notifier.dailyPrompt({
-            connectionId: connection.id,
-            connectionDayId: day.id,
-            donorSiteId: connection.donorSiteId,
-            charityName:
-              connection.receiverSite.name ?? connection.receiverSite.organisationName,
-            windowStartMinutes: connection.windowStartMinutes,
-            windowEndMinutes: connection.windowEndMinutes,
-            windowStartAt: resolved.windowStartAt,
-            windowEndAt: resolved.windowEndAt,
-            cutoffAt: resolved.cutoffAt,
-            donorTimezone: timezone,
-          });
-        } catch (err) {
-          if (
-            err instanceof Prisma.PrismaClientKnownRequestError &&
-            err.code === 'P2002'
-          ) {
-            day = await this.prisma.connectionDay.findUnique({
-              where: {
-                connectionId_scheduledDate: {
-                  connectionId: connection.id,
-                  scheduledDate: resolved.scheduledDate,
-                },
-              },
-            });
-          } else {
-            throw err;
-          }
-        }
-      }
-
+      let day = await this.openDay(connection.id, resolved);
       if (!day) continue;
 
-      if (day.outcome === ConnectionDayOutcome.PROMPTED && !day.listingId) {
-        if (
-          day.windowStartAt.getTime() !== resolved.windowStartAt.getTime() ||
-          day.windowEndAt.getTime() !== resolved.windowEndAt.getTime() ||
-          day.cutoffAt.getTime() !== resolved.cutoffAt.getTime()
-        ) {
-          day = await this.prisma.connectionDay.update({
-            where: { id: day.id },
-            data: {
-              windowStartAt: resolved.windowStartAt,
-              windowEndAt: resolved.windowEndAt,
-              cutoffAt: resolved.cutoffAt,
-            },
-          });
-        }
-      }
+      const promptedAt = await this.notifier.dailyPromptOnce({
+        connectionId: connection.id,
+        connectionDayId: day.id,
+        donorSiteId: connection.donorSiteId,
+        charityName:
+          connection.receiverSite.name ?? connection.receiverSite.organisationName,
+        windowStartMinutes: connection.windowStartMinutes,
+        windowEndMinutes: connection.windowEndMinutes,
+        windowStartAt: resolved.windowStartAt,
+        windowEndAt: resolved.windowEndAt,
+        cutoffAt: resolved.cutoffAt,
+        donorTimezone: timezone,
+      });
+      if (promptedAt) day = { ...day, promptedAt };
 
       out.push({
         connectionId: connection.id,
@@ -884,7 +811,6 @@ export class ConnectionDailyService {
             windowEndAt: resolved.windowEndAt,
             cutoffAt: resolved.cutoffAt,
             outcome: ConnectionDayOutcome.PROMPTED,
-            promptedAt: now,
           },
         });
       } catch (err) {
@@ -997,8 +923,42 @@ export class ConnectionDailyService {
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  private async alignPromptedWindow(
-    day: {
+  /**
+   * Today's row, created if missing. Never marks it prompted — only
+   * `dailyPromptOnce` does that, so opening a row can never swallow the push.
+   */
+  private async openDay(
+    connectionId: number,
+    resolved: { scheduledDate: Date; windowStartAt: Date; windowEndAt: Date; cutoffAt: Date },
+  ) {
+    const where = {
+      connectionId_scheduledDate: { connectionId, scheduledDate: resolved.scheduledDate },
+    };
+    const existing = await this.prisma.connectionDay.findUnique({ where });
+    if (existing) return this.alignPromptedWindow(existing, resolved);
+
+    try {
+      return await this.prisma.connectionDay.create({
+        data: {
+          connectionId,
+          scheduledDate: resolved.scheduledDate,
+          windowStartAt: resolved.windowStartAt,
+          windowEndAt: resolved.windowEndAt,
+          cutoffAt: resolved.cutoffAt,
+          outcome: ConnectionDayOutcome.PROMPTED,
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const raced = await this.prisma.connectionDay.findUnique({ where });
+        return raced ? this.alignPromptedWindow(raced, resolved) : null;
+      }
+      throw err;
+    }
+  }
+
+  private async alignPromptedWindow<
+    T extends {
       id: number;
       outcome: ConnectionDayOutcome;
       listingId: number | null;
@@ -1006,8 +966,10 @@ export class ConnectionDailyService {
       windowEndAt: Date;
       cutoffAt: Date;
     },
+  >(
+    day: T,
     resolved: { windowStartAt: Date; windowEndAt: Date; cutoffAt: Date },
-  ) {
+  ): Promise<T> {
     if (day.outcome !== ConnectionDayOutcome.PROMPTED || day.listingId) return day;
     if (
       day.windowStartAt.getTime() === resolved.windowStartAt.getTime() &&
@@ -1016,7 +978,7 @@ export class ConnectionDailyService {
     ) {
       return day;
     }
-    return this.prisma.connectionDay.update({
+    const updated = await this.prisma.connectionDay.update({
       where: { id: day.id },
       data: {
         windowStartAt: resolved.windowStartAt,
@@ -1024,6 +986,7 @@ export class ConnectionDailyService {
         cutoffAt: resolved.cutoffAt,
       },
     });
+    return { ...day, ...updated };
   }
 
   private async requireDay(id: number) {

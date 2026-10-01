@@ -250,20 +250,31 @@ export class ClaimsService {
     if (restaurantUserIds.length) {
       const claimantName = claimantOrg?.name ?? 'An organisation';
       const isFullyClaimed = result.newStatus === ListingStatus.CLAIMED;
+      const itemById = new Map(result.listing.foodItems.map((item) => [item.id, item.name]));
+      const claimedItems = result.claim.claimItems
+        .filter((ci) => ci.qtyKg > 0)
+        .map((ci) => {
+          const name = itemById.get(ci.foodItemId) ?? `item ${ci.foodItemId}`;
+          return `${name} (${ci.qtyKg}kg)`;
+        });
+      const itemList = claimedItems.join(', ');
+      const claimedKg = result.totalClaimedKg;
+      const remainingKg = result.newRemainingQtyKg;
 
       await this.notificationService.send({
-        title: isFullyClaimed ? 'Your listing is fully claimed' : 'New claim on your listing',
+        title: isFullyClaimed ? 'Your listing is fully claimed' : 'Partial claim on your listing',
         body: isFullyClaimed
-          ? `${claimantName} claimed ${result.totalClaimedKg}kg — nothing left on this listing`
-          : `${claimantName} claimed ${result.totalClaimedKg}kg — ${result.newRemainingQtyKg}kg still available`,
+          ? `${claimantName} is picking up ONLY ${claimedKg}kg. Items: ${itemList}.`
+          : `${claimantName} is picking up ONLY ${claimedKg}kg. Items: ${itemList}. ${remainingKg}kg has been relisted.`,
         data: {
           claimId: String(result.claim.id),
           listingId: String(dto.listingId),
           type: 'claim_made',
           claimMode: dto.claimMode,
-          claimedQtyKg: String(result.totalClaimedKg),
-          remainingQtyKg: String(result.newRemainingQtyKg),
+          claimedQtyKg: String(claimedKg),
+          remainingQtyKg: String(remainingKg),
           listingStatus: result.newStatus,
+          claimedItems: itemList,
         },
         targetUserIds: restaurantUserIds.map(String),
         priority: 'high',
