@@ -241,16 +241,29 @@ export class ClaimsService {
       timestamp: new Date().toISOString(),
     });
 
-    // Notify the restaurant that a claim has been made (fan-out pipeline)
+    // Notify the restaurant that a claim has been made (fan-out pipeline).
+    //
+    // The body distinguishes a full claim from a partial one and carries the
+    // remaining weight, so the provider knows from the notification alone
+    // whether anything is still on offer rather than having to open the app.
     const restaurantUserIds = await this.getOrgUserIds(result.listing.organisationId);
     if (restaurantUserIds.length) {
+      const claimantName = claimantOrg?.name ?? 'An organisation';
+      const isFullyClaimed = result.newStatus === ListingStatus.CLAIMED;
+
       await this.notificationService.send({
-        title: 'New claim on your listing!',
-        body: `${claimantOrg?.name ?? 'An organisation'} claimed ${result.totalClaimedKg}kg of food`,
+        title: isFullyClaimed ? 'Your listing is fully claimed' : 'New claim on your listing',
+        body: isFullyClaimed
+          ? `${claimantName} claimed ${result.totalClaimedKg}kg — nothing left on this listing`
+          : `${claimantName} claimed ${result.totalClaimedKg}kg — ${result.newRemainingQtyKg}kg still available`,
         data: {
           claimId: String(result.claim.id),
           listingId: String(dto.listingId),
           type: 'claim_made',
+          claimMode: dto.claimMode,
+          claimedQtyKg: String(result.totalClaimedKg),
+          remainingQtyKg: String(result.newRemainingQtyKg),
+          listingStatus: result.newStatus,
         },
         targetUserIds: restaurantUserIds.map(String),
         priority: 'high',
