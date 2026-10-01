@@ -17,7 +17,7 @@ async function bootstrap() {
   // listing and report payloads compress just as well.
   //
   // Response-only, so the Stripe webhook's raw request body is untouched.
-  // app.use(compression());
+  app.use(compression());
 
   // The queue dashboard exposes raw job payloads — including OTP codes — so it
   // is gated before anything else can route to it.
