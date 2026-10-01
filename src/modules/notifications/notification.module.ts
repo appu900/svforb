@@ -18,6 +18,13 @@ import { EmailQueueService } from './queues/email.queue.service';
 import { EmailWorker } from './workers/email.worker';
 import { redisTlsEnabled } from '../../infra/redis/redis-tls';
 
+/**
+ * The braces keep every key in one hash slot, which ElastiCache serverless
+ * requires. The name must not be `{bull}`: the legacy Mongo API shares this
+ * Redis under that prefix, and its workers take any job they can see.
+ */
+export const BULL_PREFIX = '{svforb}';
+
 @Global()
 @Module({
   imports: [
@@ -31,11 +38,10 @@ import { redisTlsEnabled } from '../../infra/redis/redis-tls';
           host: config.get<string>('REDIS_HOST', 'localhost'),
         });
 
-        // `{bull}` keeps BullMQ keys same-slot on ElastiCache serverless.
         // When REDIS_URL is set, pass the URL so rediss:// enables TLS.
         if (redisUrl) {
           return {
-            prefix: '{bull}',
+            prefix: BULL_PREFIX,
             connection: {
               url: useTls
                 ? redisUrl.replace(/^redis:\/\//, 'rediss://')
@@ -47,7 +53,7 @@ import { redisTlsEnabled } from '../../infra/redis/redis-tls';
         }
 
         return {
-          prefix: '{bull}',
+          prefix: BULL_PREFIX,
           connection: {
             host: config.get<string>('REDIS_HOST', 'localhost'),
             port: config.get<number>('REDIS_PORT', 6379),

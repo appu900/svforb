@@ -4,10 +4,12 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { NotificationService } from '../notifications/services/notification.service';
 import {
   CHARITY_CONFIRM_MINUTES,
+  dayWordFor,
   describeSchedule,
   formatClock12,
   formatWindowRange,
   LIST_BY_MINUTES,
+  listByAt,
 } from './connection.schedule';
 
 /** Payload types the mobile apps switch on to pick a screen. */
@@ -60,6 +62,10 @@ export class ConnectionNotifier {
       select: { userId: true },
     });
     return [...new Set(access.map((a) => a.userId))];
+  }
+
+  private dayWord(at: Date, timezone?: string): 'today' | 'tomorrow' {
+    return timezone ? dayWordFor(timezone, at) : 'today';
   }
 
   /** Whoever administers the charity — an invitation is not a volunteer's call. */
@@ -194,11 +200,13 @@ export class ConnectionNotifier {
   private async dailyPrompt(input: DailyPromptInput): Promise<boolean> {
     const window = formatWindowRange(input.windowStartMinutes, input.windowEndMinutes);
     const addByMinutes = input.windowStartMinutes - LIST_BY_MINUTES;
-    const addBy = formatClock12(addByMinutes);
+    const day = this.dayWord(input.windowStartAt, input.donorTimezone);
+    const addByDay = this.dayWord(listByAt(input.windowStartAt), input.donorTimezone);
+    const addBy = `${formatClock12(addByMinutes)}${addByDay === 'tomorrow' ? ' tomorrow' : ''}`;
     return this.push(
       await this.siteStaffIds(input.donorSiteId),
-      "Confirm today’s collection",
-      `Your Connection with ${input.charityName} is scheduled for today between ${window}. Add the food and quantities available by ${addBy}.`,
+      `Confirm ${day}’s collection`,
+      `Your Connection with ${input.charityName} is scheduled for ${day} between ${window}. Add the food and quantities available by ${addBy}.`,
       {
         type: CONNECTION_PUSH.DAILY_PROMPT,
         connectionId: String(input.connectionId),
@@ -227,14 +235,16 @@ export class ConnectionNotifier {
     charityName: string;
     windowStartMinutes: number;
     windowEndMinutes: number;
+    windowStartAt: Date;
     donorTimezone?: string;
   }): Promise<boolean> {
     const window = formatWindowRange(input.windowStartMinutes, input.windowEndMinutes);
     const addBy = formatClock12(input.windowStartMinutes - LIST_BY_MINUTES);
+    const day = this.dayWord(input.windowStartAt, input.donorTimezone);
     return this.push(
       await this.siteStaffIds(input.donorSiteId),
-      'Add today’s surplus now',
-      `List-by is ${addBy} for your ${window} collection with ${input.charityName}. Add food and quantities now or they will be told there is no collection today.`,
+      `Add ${day}’s surplus now`,
+      `List-by is ${addBy} for your ${window} collection with ${input.charityName}. Add food and quantities now or they will be told there is no collection ${day}.`,
       {
         type: CONNECTION_PUSH.DAILY_PROMPT,
         connectionId: String(input.connectionId),
@@ -320,11 +330,13 @@ export class ConnectionNotifier {
     receiverOrgId: number;
     receiverSiteId: number;
     donorName: string;
+    day?: 'today' | 'tomorrow';
   }): Promise<void> {
+    const day = input.day ?? 'today';
     await this.push(
       await this.charityAdminIds(input.receiverOrgId, input.receiverSiteId),
-      'Today’s collection was not confirmed',
-      `${input.donorName} did not confirm any surplus for today. No collection is required. Your regular Connection remains active.`,
+      `${day === 'today' ? 'Today' : 'Tomorrow'}’s collection was not confirmed`,
+      `${input.donorName} did not confirm any surplus for ${day}. No collection is required. Your regular Connection remains active.`,
       { type: CONNECTION_PUSH.NO_RESPONSE, connectionId: String(input.connectionId) },
     );
   }

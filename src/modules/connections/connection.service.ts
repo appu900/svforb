@@ -14,9 +14,9 @@ import {
   LIVE_STATUSES, releaseReasonFor, reliabilityFrom, ReleaseTrigger,
 } from './connection.rules';
 import {
-  assertValidTimezone, collectsOn, describeSchedule, formatLocalTime, localDateAt,
+  assertValidTimezone, describeSchedule, dueDays, formatLocalTime, localDateAt,
   CHARITY_CONFIRM_MINUTES, parseLocalTime, PROMPT_LEAD_MINUTES,
-  resolveDay, resolveDonorTimezone, schedulesOverlap, validateSchedule,
+  resolveDonorTimezone, schedulesOverlap, validateSchedule,
 } from './connection.schedule';
 import {
   AddDailySurplusDto, CreateConnectionDto, UpdateConnectionDto,
@@ -492,12 +492,8 @@ export class ConnectionService {
       leadTimeMinutes: connection.leadTimeMinutes ?? PROMPT_LEAD_MINUTES,
       cutoffMinutes: connection.cutoffMinutes ?? CHARITY_CONFIRM_MINUTES,
     };
-    const localDate = localDateAt(timezone, now);
-    if (!collectsOn(schedule, localDate)) return null;
-
-    const resolved = resolveDay(schedule, localDate);
-    if (now >= resolved.windowEndAt) return null;
-    if (now < resolved.promptAt) return null;
+    const [resolved] = dueDays(schedule, now);
+    if (!resolved) return null;
 
     const where = {
       connectionId_scheduledDate: {

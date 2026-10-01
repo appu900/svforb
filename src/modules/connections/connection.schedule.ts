@@ -240,6 +240,36 @@ export function isPromptDue(day: ResolvedDay, now: Date): boolean {
 }
 
 /**
+ * Every scheduled day whose prompt is due at `now`, earliest first.
+ *
+ * Looking only at today's local date misses two cases: a 12:30am window is
+ * prompted at 8:30pm the night before (tomorrow's date), and an 11pm–1am
+ * window is still open after midnight (yesterday's date).
+ */
+export function dueDays(schedule: ConnectionScheduleInput, now: Date): ResolvedDay[] {
+  const today = localDateAt(schedule.timezone, now);
+  const days: ResolvedDay[] = [];
+  for (const offset of [-1, 0, 1]) {
+    const localDate = new Date(today.getTime() + offset * MINUTES_IN_DAY * 60000);
+    if (!collectsOn(schedule, localDate)) continue;
+    const day = resolveDay(schedule, localDate);
+    if (isPromptDue(day, now)) days.push(day);
+  }
+  return days;
+}
+
+/** "today" or "tomorrow" for a window, as the kitchen's clock reads at `now`. */
+export function dayWordFor(
+  timezone: string,
+  windowStartAt: Date,
+  now: Date = new Date(),
+): 'today' | 'tomorrow' {
+  return localDateAt(timezone, windowStartAt).getTime() > localDateAt(timezone, now).getTime()
+    ? 'tomorrow'
+    : 'today';
+}
+
+/**
  * The kitchen IANA zone required when a Connection is created.
  * Never guess from region — Australia is not one zone, and a guess is how
  * the 4h / 2.5h pushes drifted from the time the app shows.

@@ -19,7 +19,7 @@ import {
   type ReleaseTrigger,
 } from './connection.rules';
 import {
-  collectsOn, describeSchedule, isBusinessListByDue, isPromptDue,
+  collectsOn, dayWordFor, describeSchedule, dueDays, isBusinessListByDue,
   LIST_BY_MINUTES, localDateAt, resolveDay, resolveDonorTimezone,
 } from './connection.schedule';
 import { AddDailySurplusDto, ReleaseDayDto } from './dto/connection.dto';
@@ -79,33 +79,29 @@ export class ConnectionDailyService {
       }
 
       const schedule = { ...connection, timezone };
-      const localDate = localDateAt(timezone, now);
-      if (!collectsOn(schedule, localDate)) continue;
+      for (const day of dueDays(schedule, now)) {
+        try {
+          const row = await this.openDay(connection.id, day);
+          if (!row) continue;
 
-      const day = resolveDay(schedule, localDate);
-      if (!isPromptDue(day, now)) continue;
-
-      try {
-        const row = await this.openDay(connection.id, day);
-        if (!row) continue;
-
-        const sent = await this.notifier.dailyPromptOnce({
-          connectionId: connection.id,
-          connectionDayId: row.id,
-          donorSiteId: connection.donorSiteId,
-          charityName: connection.receiverSite.name ?? connection.receiverSite.organisationName,
-          windowStartMinutes: connection.windowStartMinutes,
-          windowEndMinutes: connection.windowEndMinutes,
-          windowStartAt: day.windowStartAt,
-          windowEndAt: day.windowEndAt,
-          cutoffAt: day.cutoffAt,
-          donorTimezone: timezone,
-        });
-        if (sent) prompted++;
-      } catch (err) {
-        this.logger.error(
-          `Prompt failed for connection ${connection.id}: ${(err as Error).message}`,
-        );
+          const sent = await this.notifier.dailyPromptOnce({
+            connectionId: connection.id,
+            connectionDayId: row.id,
+            donorSiteId: connection.donorSiteId,
+            charityName: connection.receiverSite.name ?? connection.receiverSite.organisationName,
+            windowStartMinutes: connection.windowStartMinutes,
+            windowEndMinutes: connection.windowEndMinutes,
+            windowStartAt: day.windowStartAt,
+            windowEndAt: day.windowEndAt,
+            cutoffAt: day.cutoffAt,
+            donorTimezone: timezone,
+          });
+          if (sent) prompted++;
+        } catch (err) {
+          this.logger.error(
+            `Prompt failed for connection ${connection.id}: ${(err as Error).message}`,
+          );
+        }
       }
     }
 
@@ -549,6 +545,7 @@ export class ConnectionDailyService {
             'your connected charity',
           windowStartMinutes: day.connection.windowStartMinutes,
           windowEndMinutes: day.connection.windowEndMinutes,
+          windowStartAt: aligned.windowStartAt,
           donorTimezone: timezone,
         });
         if (!reminded) {
@@ -563,6 +560,7 @@ export class ConnectionDailyService {
           receiverOrgId: day.connection.receiverOrgId,
           receiverSiteId: day.connection.receiverSiteId,
           donorName,
+          day: dayWordFor(timezone, aligned.windowStartAt, now),
         });
         marked++;
       } catch (err) {
@@ -609,57 +607,53 @@ export class ConnectionDailyService {
       if (!timezone) continue;
 
       const schedule = { ...connection, timezone };
-      const localDate = localDateAt(timezone, now);
-      if (!collectsOn(schedule, localDate)) continue;
+      for (const resolved of dueDays(schedule, now)) {
+        let day = await this.openDay(connection.id, resolved);
+        if (!day) continue;
 
-      const resolved = resolveDay(schedule, localDate);
-      if (!isPromptDue(resolved, now)) continue;
+        const promptedAt = await this.notifier.dailyPromptOnce({
+          connectionId: connection.id,
+          connectionDayId: day.id,
+          donorSiteId: connection.donorSiteId,
+          charityName:
+            connection.receiverSite.name ?? connection.receiverSite.organisationName,
+          windowStartMinutes: connection.windowStartMinutes,
+          windowEndMinutes: connection.windowEndMinutes,
+          windowStartAt: resolved.windowStartAt,
+          windowEndAt: resolved.windowEndAt,
+          cutoffAt: resolved.cutoffAt,
+          donorTimezone: timezone,
+        });
+        if (promptedAt) day = { ...day, promptedAt };
 
-      let day = await this.openDay(connection.id, resolved);
-      if (!day) continue;
-
-      const promptedAt = await this.notifier.dailyPromptOnce({
-        connectionId: connection.id,
-        connectionDayId: day.id,
-        donorSiteId: connection.donorSiteId,
-        charityName:
-          connection.receiverSite.name ?? connection.receiverSite.organisationName,
-        windowStartMinutes: connection.windowStartMinutes,
-        windowEndMinutes: connection.windowEndMinutes,
-        windowStartAt: resolved.windowStartAt,
-        windowEndAt: resolved.windowEndAt,
-        cutoffAt: resolved.cutoffAt,
-        donorTimezone: timezone,
-      });
-      if (promptedAt) day = { ...day, promptedAt };
-
-      out.push({
-        connectionId: connection.id,
-        dayId: day.id,
-        status: connection.status,
-        outcome: day.outcome,
-        schedule: describeSchedule(
-          connection.daysOfWeek,
-          connection.windowStartMinutes,
-          connection.windowEndMinutes,
-        ),
-        donorTimezone: timezone,
-        charityName:
-          connection.receiverSite.name ?? connection.receiverSite.organisationName,
-        donorName:
-          connection.donorSite.name ?? connection.donorSite.organisationName,
-        donorSiteId: connection.donorSiteId,
-        receiverSiteId: connection.receiverSiteId,
-        listingId: day.listingId,
-        scheduledDate: day.scheduledDate,
-        windowStartAt: day.windowStartAt,
-        windowEndAt: day.windowEndAt,
-        cutoffAt: day.cutoffAt,
-        promptedAt: day.promptedAt,
-        publishedAt: day.publishedAt,
-        respondedAt: day.respondedAt,
-        releasedAt: day.releasedAt,
-      });
+        out.push({
+          connectionId: connection.id,
+          dayId: day.id,
+          status: connection.status,
+          outcome: day.outcome,
+          schedule: describeSchedule(
+            connection.daysOfWeek,
+            connection.windowStartMinutes,
+            connection.windowEndMinutes,
+          ),
+          donorTimezone: timezone,
+          charityName:
+            connection.receiverSite.name ?? connection.receiverSite.organisationName,
+          donorName:
+            connection.donorSite.name ?? connection.donorSite.organisationName,
+          donorSiteId: connection.donorSiteId,
+          receiverSiteId: connection.receiverSiteId,
+          listingId: day.listingId,
+          scheduledDate: day.scheduledDate,
+          windowStartAt: day.windowStartAt,
+          windowEndAt: day.windowEndAt,
+          cutoffAt: day.cutoffAt,
+          promptedAt: day.promptedAt,
+          publishedAt: day.publishedAt,
+          respondedAt: day.respondedAt,
+          releasedAt: day.releasedAt,
+        });
+      }
     }
 
     return out;

@@ -55,16 +55,26 @@ export class NotificationWorker extends WorkerHost implements OnModuleInit, OnMo
     if (this.recoverTimer) clearInterval(this.recoverTimer);
   }
 
-  /** Re-enqueue DB rows still `queued` so a lost Redis job cannot block a user forever. */
+  /**
+   * Re-enqueue DB rows still `queued` so a lost Redis job cannot block a user
+   * forever. Only today's and yesterday's (UTC days, by when they were due):
+   * anything older is stale and is left unsent.
+   */
   private async recoverStuckQueued(opts: { olderThanMs: number }): Promise<void> {
     const newest = new Date(Date.now() - opts.olderThanMs);
-    const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const since = new Date();
+    since.setUTCHours(0, 0, 0, 0);
+    since.setUTCDate(since.getUTCDate() - 1);
     const stuck = await this.prisma.notificationRecord.findMany({
       where: {
         status: 'queued',
-        createdAt: { gte: since, lte: newest },
+        createdAt: { lte: newest },
+        OR: [
+          { scheduledAt: null, createdAt: { gte: since } },
+          { scheduledAt: { gte: since } },
+        ],
       },
-      select: { id: true, priority: true },
+      select: { id: true, priority: true, scheduledAt: true },
       orderBy: { id: 'asc' },
       take: 30,
     });
@@ -74,10 +84,12 @@ export class NotificationWorker extends WorkerHost implements OnModuleInit, OnMo
       `Re-queueing ${stuck.length} stuck notification(s) still queued`,
     );
     for (const row of stuck) {
+      // A scheduled push is `queued` until its time; re-queue it for then, not now.
+      const delayMs = row.scheduledAt ? row.scheduledAt.getTime() - Date.now() : 0;
       await this.producer.enqueueNotification(
         row.id,
         (row.priority as 'high' | 'normal' | 'low') ?? 'normal',
-        undefined,
+        delayMs > 0 ? delayMs : undefined,
         { replaceFinished: true },
       );
     }

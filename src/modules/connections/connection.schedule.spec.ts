@@ -4,8 +4,51 @@ import {
   formatWindowRange, instantForLocalTime, isoWeekdayOf, isBusinessListByDue, isPromptDue,
   LIST_BY_MINUTES, listByAt, localDateAt, nextOccurrence, offsetMinutesAt, parseLocalTime,
   PROMPT_LEAD_MINUTES, resolveDay, resolveDonorTimezone, validateSchedule,
+  dayWordFor, dueDays,
 } from './connection.schedule';
 import { describe, expect, it } from '@jest/globals';
+
+describe('windows that start just after midnight', () => {
+  // Connection 1: every day 12:30am–6:00pm in India, 4h prompt.
+  const kolkata = {
+    timezone: 'Asia/Kolkata',
+    daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+    windowStartMinutes: 30,
+    windowEndMinutes: 18 * 60,
+    leadTimeMinutes: PROMPT_LEAD_MINUTES,
+    cutoffMinutes: CHARITY_CONFIRM_MINUTES,
+  };
+
+  it('prompts at 8:30pm the night before, not at midnight', () => {
+    const before = dueDays(kolkata, utc('2026-10-01T14:59:00Z')); // 8:29pm IST, 1 Oct
+    expect(before.map((d) => d.windowStartAt.toISOString())).not.toContain('2026-10-01T19:00:00.000Z');
+
+    const at = dueDays(kolkata, utc('2026-10-01T15:00:00Z')); // 8:30pm IST, 1 Oct
+    expect(at.map((d) => d.windowStartAt.toISOString())).toContain('2026-10-01T19:00:00.000Z');
+    expect(at.find((d) => d.windowStartAt.toISOString() === '2026-10-01T19:00:00.000Z')!
+      .scheduledDate.toISOString()).toBe('2026-10-02T00:00:00.000Z');
+  });
+
+  it('calls that window "tomorrow" in the 8:30pm push and "today" after midnight', () => {
+    const start = utc('2026-10-01T19:00:00Z'); // 12:30am IST, 2 Oct
+    expect(dayWordFor('Asia/Kolkata', start, utc('2026-10-01T15:00:00Z'))).toBe('tomorrow');
+    expect(dayWordFor('Asia/Kolkata', start, utc('2026-10-01T18:45:00Z'))).toBe('today');
+    expect(dayWordFor('Asia/Kolkata', listByAt(start), utc('2026-10-01T15:00:00Z'))).toBe('today');
+  });
+
+  it('keeps an 11pm–1am window due after midnight', () => {
+    const overnight = { ...kolkata, windowStartMinutes: 23 * 60, windowEndMinutes: 60 };
+    const days = dueDays(overnight, utc('2026-10-01T19:00:00Z')); // 12:30am IST, 2 Oct
+    expect(days.map((d) => d.windowStartAt.toISOString())).toContain('2026-10-01T17:30:00.000Z');
+  });
+
+  it('a normal afternoon window is still only due on its own day', () => {
+    const afternoon = { ...kolkata, windowStartMinutes: 14 * 60, windowEndMinutes: 17 * 60 };
+    const days = dueDays(afternoon, utc('2026-10-01T05:00:00Z')); // 10:30am IST, prompt at 10am
+    expect(days).toHaveLength(1);
+    expect(days[0].scheduledDate.toISOString()).toBe('2026-10-01T00:00:00.000Z');
+  });
+});
 
 const BRISBANE = 'Australia/Brisbane';   // +10, never observes DST
 const ADELAIDE = 'Australia/Adelaide';   // +9:30 / +10:30
