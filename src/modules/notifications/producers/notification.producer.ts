@@ -31,12 +31,28 @@ export class NotificationProducer {
     notificationId: number,
     priority: 'high' | 'normal' | 'low' = 'normal',
     delayMs?: number,
+    opts?: { replaceFinished?: boolean },
   ): Promise<void> {
+    const jobId = `fan-out-${notificationId}`;
+    if (opts?.replaceFinished) {
+      const existing = await this.queue.getJob(jobId);
+      if (existing) {
+        const state = await existing.getState();
+        if (state === 'waiting' || state === 'active' || state === 'delayed') {
+          this.logger.log(
+            `Fan-out already ${state} for notification ${notificationId} — leaving in queue`,
+          );
+          return;
+        }
+        await existing.remove().catch(() => undefined);
+      }
+    }
+
     const jobData: FanOutJobData = { type: 'fan-out', notificationId };
 
     try {
       const job = await this.queue.add('fan-out', jobData, {
-        jobId: `fan-out-${notificationId}`,
+        jobId,
         priority: BULLMQ_PRIORITY[priority],
         attempts: JOB_ATTEMPTS,
         backoff: { type: JOB_BACKOFF_TYPE, delay: JOB_BACKOFF_DELAY },
@@ -64,6 +80,7 @@ export class NotificationProducer {
     notificationId: number,
     tokens: TokenWithType[],
     priority: 'high' | 'normal' | 'low' = 'normal',
+    opts?: { retryGeneration?: number; delayMs?: number },
   ): Promise<number> {
     const chunks: TokenWithType[][] = [];
     for (let i = 0; i < tokens.length; i += FAN_OUT_BATCH_SIZE) {
@@ -71,6 +88,8 @@ export class NotificationProducer {
     }
 
     const totalBatches = chunks.length;
+    const retryGeneration = opts?.retryGeneration ?? 0;
+    const delayMs = opts?.delayMs;
 
     const jobs = chunks.map((tokenChunk, index) => ({
       name: 'send-batch',
@@ -80,6 +99,7 @@ export class NotificationProducer {
         tokens: tokenChunk,
         batchIndex: index,
         totalBatches,
+        retryGeneration,
       } satisfies SendBatchJobData,
       opts: {
         priority: BULLMQ_PRIORITY[priority],
@@ -87,6 +107,7 @@ export class NotificationProducer {
         backoff: { type: JOB_BACKOFF_TYPE, delay: JOB_BACKOFF_DELAY },
         removeOnComplete: JOB_REMOVE_ON_COMPLETE,
         removeOnFail: JOB_REMOVE_ON_FAIL,
+        ...(delayMs ? { delay: delayMs } : {}),
       },
     }));
 

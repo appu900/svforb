@@ -1,5 +1,5 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { TokenPlatform, TokenType } from '@prisma/client';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
@@ -16,6 +16,11 @@ import { ExpoGateway } from '../gateways/expo.gateway';
 import { NotificationProducer } from '../producers/notification.producer';
 import { parseNotificationRecordId } from '../notification-id';
 import {
+  notificationIsTerminal,
+  retryDelayMs,
+  shouldRequeueRetryableTokens,
+} from '../notification-status';
+import {
   NOTIFICATION_QUEUE_NAME,
   WORKER_CONCURRENCY,
   TOKEN_FAILURE_THRESHOLD,
@@ -25,8 +30,9 @@ import {
 } from '../constants';
 
 @Processor(NOTIFICATION_QUEUE_NAME, { concurrency: WORKER_CONCURRENCY })
-export class NotificationWorker extends WorkerHost {
+export class NotificationWorker extends WorkerHost implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NotificationWorker.name);
+  private recoverTimer?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -35,6 +41,46 @@ export class NotificationWorker extends WorkerHost {
     private readonly producer: NotificationProducer,
   ) {
     super();
+  }
+
+  async onModuleInit() {
+    await this.recoverStuckQueued({ olderThanMs: 0 });
+    this.recoverTimer = setInterval(() => {
+      void this.recoverStuckQueued({ olderThanMs: 90_000 });
+    }, 2 * 60 * 1000);
+    this.recoverTimer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.recoverTimer) clearInterval(this.recoverTimer);
+  }
+
+  /** Re-enqueue DB rows still `queued` so a lost Redis job cannot block a user forever. */
+  private async recoverStuckQueued(opts: { olderThanMs: number }): Promise<void> {
+    const newest = new Date(Date.now() - opts.olderThanMs);
+    const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const stuck = await this.prisma.notificationRecord.findMany({
+      where: {
+        status: 'queued',
+        createdAt: { gte: since, lte: newest },
+      },
+      select: { id: true, priority: true },
+      orderBy: { id: 'asc' },
+      take: 30,
+    });
+    if (!stuck.length) return;
+
+    this.logger.warn(
+      `Re-queueing ${stuck.length} stuck notification(s) still queued`,
+    );
+    for (const row of stuck) {
+      await this.producer.enqueueNotification(
+        row.id,
+        (row.priority as 'high' | 'normal' | 'low') ?? 'normal',
+        undefined,
+        { replaceFinished: true },
+      );
+    }
   }
 
   async process(job: Job<NotificationJobData>): Promise<void> {
@@ -117,6 +163,13 @@ export class NotificationWorker extends WorkerHost {
       return;
     }
 
+    if (notificationIsTerminal(notif.status)) {
+      this.logger.log(
+        `Fan-out ${notificationId} already ${notif.status} — skipping`,
+      );
+      return;
+    }
+
     await this.prisma.notificationRecord.update({
       where: { id: notificationId },
       data: { status: 'processing' },
@@ -142,7 +195,7 @@ export class NotificationWorker extends WorkerHost {
     });
 
     if (tokens.length <= FAN_OUT_BATCH_SIZE) {
-      await this.sendTokens(notif, tokens);
+      await this.sendTokens(notif, tokens, 0);
       return;
     }
 
@@ -179,7 +232,14 @@ export class NotificationWorker extends WorkerHost {
       return;
     }
 
-    await this.sendTokens(notif, tokens);
+    if (notificationIsTerminal(notif.status)) {
+      this.logger.log(
+        `Send-batch ${job.id} for notification ${notificationId} already ${notif.status} — dropping`,
+      );
+      return;
+    }
+
+    await this.sendTokens(notif, tokens, job.data.retryGeneration ?? 0);
   }
 
   private async sendTokens(
@@ -191,8 +251,10 @@ export class NotificationWorker extends WorkerHost {
       imageUrl: string | null;
       deepLink: string | null;
       channel: string;
+      failureCount?: number;
     },
     tokens: TokenWithType[],
+    retryGeneration: number,
   ): Promise<void> {
     const targetApp = targetAppFromChannel(notif.channel);
     const data = stringifyRecordValues(notif.data ?? {});
@@ -238,12 +300,17 @@ export class NotificationWorker extends WorkerHost {
       });
     }
 
-    const failedCount = result.invalidTokens.length + result.retryableTokens.length;
+    const willRetry = shouldRequeueRetryableTokens({
+      retryGeneration,
+      failureCount: notif.failureCount ?? 0,
+    });
+    const failedNow =
+      result.invalidTokens.length + (willRetry ? 0 : result.retryableTokens.length);
 
     await this.prisma.$executeRaw`
       UPDATE notification_records
       SET "successCount" = "successCount" + ${result.successTokens.length},
-          "failureCount" = "failureCount" + ${failedCount}
+          "failureCount" = "failureCount" + ${failedNow}
       WHERE id = ${notif.id}
     `;
 
@@ -256,23 +323,33 @@ export class NotificationWorker extends WorkerHost {
         WHERE id = ${notif.id}
       `;
 
-      const retryDocs = await this.prisma.deviceToken.findMany({
-        where: {
-          token: { in: result.retryableTokens },
-          isActive: true,
-          targetApp: toPrismaTargetApp(targetApp),
-        },
-        select: { token: true, tokenType: true },
-      });
+      if (willRetry) {
+        const retryDocs = await this.prisma.deviceToken.findMany({
+          where: {
+            token: { in: result.retryableTokens },
+            isActive: true,
+            targetApp: toPrismaTargetApp(targetApp),
+          },
+          select: { token: true, tokenType: true },
+        });
 
-      if (retryDocs.length > 0) {
-        const retryTokens: TokenWithType[] = retryDocs.map((d) => ({
-          token: d.token,
-          tokenType: d.tokenType.toLowerCase() as 'apns' | 'fcm' | 'expo',
-        }));
-        await this.producer.enqueueBatches(notif.id, retryTokens, 'low');
-        this.logger.log(
-          `Retryable tokens requeued: notificationId=${notif.id} retryCount=${retryTokens.length}`,
+        if (retryDocs.length > 0) {
+          const nextGeneration = retryGeneration + 1;
+          const retryTokens: TokenWithType[] = retryDocs.map((d) => ({
+            token: d.token,
+            tokenType: d.tokenType.toLowerCase() as 'apns' | 'fcm' | 'expo',
+          }));
+          await this.producer.enqueueBatches(notif.id, retryTokens, 'low', {
+            retryGeneration: nextGeneration,
+            delayMs: retryDelayMs(retryGeneration),
+          });
+          this.logger.log(
+            `Retryable tokens requeued: notificationId=${notif.id} retryCount=${retryTokens.length} generation=${nextGeneration}`,
+          );
+        }
+      } else {
+        this.logger.warn(
+          `Retryable tokens counted as failure (retries exhausted): notificationId=${notif.id} retryCount=${result.retryableTokens.length} generation=${retryGeneration}`,
         );
       }
     }

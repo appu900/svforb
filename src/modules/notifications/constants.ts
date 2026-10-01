@@ -54,7 +54,7 @@ export const WORKER_CONCURRENCY = 10;
 
 export const JOB_ATTEMPTS = 3;
 export const JOB_BACKOFF_TYPE = 'exponential' as const;
-export const JOB_BACKOFF_DELAY = 60_000;
+export const JOB_BACKOFF_DELAY = 5_000;
 export const JOB_REMOVE_ON_COMPLETE = 1000;
 export const JOB_REMOVE_ON_FAIL = 5000;
 

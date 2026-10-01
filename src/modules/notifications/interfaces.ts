@@ -38,6 +38,8 @@ export interface SendBatchJobData {
   tokens: TokenWithType[];
   batchIndex: number;
   totalBatches: number;
+  /** 0 = first send. Extra waves are delayed retries, capped in notification-status. */
+  retryGeneration?: number;
 }
 
 export type NotificationJobData = FanOutJobData | SendBatchJobData;
