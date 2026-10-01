@@ -19,8 +19,8 @@ import {
   type ReleaseTrigger,
 } from './connection.rules';
 import {
-  collectsOn, describeSchedule, isBusinessListByDue, isPromptDue, LIST_BY_MINUTES,
-  localDateAt, resolveDay,
+  collectsOn, describeSchedule, isBusinessListByDue, isPromptDue,
+  LIST_BY_MINUTES, localDateAt, resolveDay, resolveDonorTimezone,
 } from './connection.schedule';
 import { AddDailySurplusDto, ReleaseDayDto } from './dto/connection.dto';
 
@@ -56,17 +56,24 @@ export class ConnectionDailyService {
     const connections = await this.prisma.connection.findMany({
       where: { status: ConnectionStatus.ACTIVE },
       include: {
-        donorSite: { select: { id: true, timezone: true, name: true, organisationName: true } },
+        donorSite: {
+          select: {
+            id: true,
+            timezone: true,
+            name: true,
+            organisationName: true,
+          },
+        },
         receiverSite: { select: { id: true, name: true, organisationName: true } },
       },
     });
 
     let prompted = 0;
     for (const connection of connections) {
-      const timezone = connection.donorSite.timezone;
+      const timezone = resolveDonorTimezone(connection.donorSite.timezone);
       if (!timezone) {
         this.logger.warn(
-          `Connection ${connection.id} skipped — site ${connection.donorSite.id} has no timezone`,
+          `Connection ${connection.id} skipped: donor site ${connection.donorSiteId} has no timezone`,
         );
         continue;
       }
@@ -103,6 +110,7 @@ export class ConnectionDailyService {
           windowStartAt: day.windowStartAt,
           windowEndAt: day.windowEndAt,
           cutoffAt: day.cutoffAt,
+          donorTimezone: timezone,
         });
         prompted++;
       } catch (err) {
@@ -110,7 +118,16 @@ export class ConnectionDailyService {
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === 'P2002'
         ) {
-          continue; // already prompted for this day
+          const existing = await this.prisma.connectionDay.findUnique({
+            where: {
+              connectionId_scheduledDate: {
+                connectionId: connection.id,
+                scheduledDate: day.scheduledDate,
+              },
+            },
+          });
+          if (existing) await this.alignPromptedWindow(existing, day);
+          continue;
         }
         this.logger.error(
           `Prompt failed for connection ${connection.id}: ${(err as Error).message}`,
@@ -153,6 +170,7 @@ export class ConnectionDailyService {
     const site = await this.prisma.site.findUniqueOrThrow({
       where: { id: day.connection.donorSiteId },
     });
+    const donorTimezone = resolveDonorTimezone(site.timezone) ?? undefined;
 
     const totalKg = dto.items.reduce((sum, i) => sum + i.quantityKg, 0);
     if (totalKg <= 0) {
@@ -226,6 +244,7 @@ export class ConnectionDailyService {
       windowStartMinutes: day.connection.windowStartMinutes,
       windowEndMinutes: day.connection.windowEndMinutes,
       cutoffAt: day.cutoffAt,
+      donorTimezone,
     });
 
     this.logger.log(
@@ -510,8 +529,15 @@ export class ConnectionDailyService {
       include: {
         connection: {
           include: {
-            donorSite: { select: { name: true, organisationName: true } },
+            donorSite: {
+              select: {
+                name: true,
+                organisationName: true,
+                timezone: true,
+              },
+            },
             donorOrg: { select: { name: true } },
+            receiverSite: { select: { name: true, organisationName: true } },
           },
         },
       },
@@ -519,7 +545,11 @@ export class ConnectionDailyService {
 
     let marked = 0;
     for (const day of due) {
-      if (!isBusinessListByDue(day.windowStartAt, now)) continue;
+      const timezone = resolveDonorTimezone(day.connection.donorSite.timezone);
+      if (!timezone) continue;
+      const resolved = resolveDay({ ...day.connection, timezone }, day.scheduledDate);
+      const aligned = await this.alignPromptedWindow(day, resolved);
+      if (!isBusinessListByDue(aligned.windowStartAt, now)) continue;
       try {
         await this.prisma.connectionDay.update({
           where: { id: day.id },
@@ -533,6 +563,18 @@ export class ConnectionDailyService {
           day.connection.donorSite.organisationName ??
           day.connection.donorOrg.name ??
           'The business';
+        await this.notifier.listByReminder({
+          connectionId: day.connectionId,
+          connectionDayId: day.id,
+          donorSiteId: day.connection.donorSiteId,
+          charityName:
+            day.connection.receiverSite?.name ??
+            day.connection.receiverSite?.organisationName ??
+            'your connected charity',
+          windowStartMinutes: day.connection.windowStartMinutes,
+          windowEndMinutes: day.connection.windowEndMinutes,
+          donorTimezone: timezone,
+        });
         await this.notifier.businessNoResponse({
           connectionId: day.connectionId,
           receiverOrgId: day.connection.receiverOrgId,
@@ -563,7 +605,14 @@ export class ConnectionDailyService {
     const connections = await this.prisma.connection.findMany({
       where: { donorSiteId: siteId, status: ConnectionStatus.ACTIVE },
       include: {
-        donorSite: { select: { id: true, name: true, organisationName: true, timezone: true } },
+        donorSite: {
+          select: {
+            id: true,
+            name: true,
+            organisationName: true,
+            timezone: true,
+          },
+        },
         receiverSite: { select: { id: true, name: true, organisationName: true } },
         receiverOrg: { select: { id: true, name: true } },
       },
@@ -573,7 +622,8 @@ export class ConnectionDailyService {
     const out: any[] = [];
 
     for (const connection of connections) {
-      const timezone = connection.donorSite.timezone || 'Australia/Brisbane';
+      const timezone = resolveDonorTimezone(connection.donorSite.timezone);
+      if (!timezone) continue;
 
       const schedule = { ...connection, timezone };
       const localDate = localDateAt(timezone, now);
@@ -581,6 +631,7 @@ export class ConnectionDailyService {
 
       const resolved = resolveDay(schedule, localDate);
       if (now >= resolved.windowEndAt) continue;
+      if (now < resolved.promptAt) continue;
 
       let day = await this.prisma.connectionDay.findUnique({
         where: {
@@ -603,6 +654,19 @@ export class ConnectionDailyService {
               outcome: ConnectionDayOutcome.PROMPTED,
               promptedAt: now,
             },
+          });
+          await this.notifier.dailyPrompt({
+            connectionId: connection.id,
+            connectionDayId: day.id,
+            donorSiteId: connection.donorSiteId,
+            charityName:
+              connection.receiverSite.name ?? connection.receiverSite.organisationName,
+            windowStartMinutes: connection.windowStartMinutes,
+            windowEndMinutes: connection.windowEndMinutes,
+            windowStartAt: resolved.windowStartAt,
+            windowEndAt: resolved.windowEndAt,
+            cutoffAt: resolved.cutoffAt,
+            donorTimezone: timezone,
           });
         } catch (err) {
           if (
@@ -652,6 +716,7 @@ export class ConnectionDailyService {
           connection.windowStartMinutes,
           connection.windowEndMinutes,
         ),
+        donorTimezone: timezone,
         charityName:
           connection.receiverSite.name ?? connection.receiverSite.organisationName,
         donorName:
@@ -689,7 +754,7 @@ export class ConnectionDailyService {
       include: {
         connection: {
           include: {
-            donorSite: { select: { id: true, name: true, organisationName: true } },
+            donorSite: { select: { id: true, name: true, organisationName: true, timezone: true } },
             donorOrg: { select: { id: true, name: true } },
             receiverSite: { select: { id: true, name: true, organisationName: true } },
           },
@@ -708,6 +773,7 @@ export class ConnectionDailyService {
         day.connection.windowStartMinutes,
         day.connection.windowEndMinutes,
       ),
+      donorTimezone: resolveDonorTimezone(day.connection.donorSite.timezone),
       charityName:
         day.connection.receiverSite.name ??
         day.connection.receiverSite.organisationName,
@@ -765,7 +831,13 @@ export class ConnectionDailyService {
     const target = await this.prisma.connection.findUnique({
       where: { id: toConnectionId },
       include: {
-        donorSite: { select: { timezone: true, name: true, organisationName: true } },
+        donorSite: {
+          select: {
+            timezone: true,
+            name: true,
+            organisationName: true,
+          },
+        },
         donorOrg: { select: { name: true } },
         receiverSite: { select: { name: true, organisationName: true } },
       },
@@ -777,7 +849,12 @@ export class ConnectionDailyService {
       throw new BadRequestException('That connection is for a different site.');
     }
 
-    const timezone = target.donorSite.timezone || 'Australia/Brisbane';
+    const timezone = resolveDonorTimezone(target.donorSite.timezone);
+    if (!timezone) {
+      throw new ConflictException(
+        'Set this site’s timezone before moving the collection.',
+      );
+    }
     const now = new Date();
     const schedule = { ...target, timezone };
     const localDate = localDateAt(timezone, now);
@@ -905,6 +982,7 @@ export class ConnectionDailyService {
       windowStartMinutes: target.windowStartMinutes,
       windowEndMinutes: target.windowEndMinutes,
       cutoffAt: resolved.cutoffAt,
+      donorTimezone: timezone,
     });
 
     this.logger.log(
@@ -918,6 +996,35 @@ export class ConnectionDailyService {
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
+
+  private async alignPromptedWindow(
+    day: {
+      id: number;
+      outcome: ConnectionDayOutcome;
+      listingId: number | null;
+      windowStartAt: Date;
+      windowEndAt: Date;
+      cutoffAt: Date;
+    },
+    resolved: { windowStartAt: Date; windowEndAt: Date; cutoffAt: Date },
+  ) {
+    if (day.outcome !== ConnectionDayOutcome.PROMPTED || day.listingId) return day;
+    if (
+      day.windowStartAt.getTime() === resolved.windowStartAt.getTime() &&
+      day.windowEndAt.getTime() === resolved.windowEndAt.getTime() &&
+      day.cutoffAt.getTime() === resolved.cutoffAt.getTime()
+    ) {
+      return day;
+    }
+    return this.prisma.connectionDay.update({
+      where: { id: day.id },
+      data: {
+        windowStartAt: resolved.windowStartAt,
+        windowEndAt: resolved.windowEndAt,
+        cutoffAt: resolved.cutoffAt,
+      },
+    });
+  }
 
   private async requireDay(id: number) {
     const day = await this.prisma.connectionDay.findUnique({

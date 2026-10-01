@@ -3,7 +3,7 @@ import {
   CHARITY_CONFIRM_MINUTES, collectsOn, describeSchedule, formatClock12, formatWindow,
   formatWindowRange, instantForLocalTime, isoWeekdayOf, isBusinessListByDue, isPromptDue,
   LIST_BY_MINUTES, listByAt, localDateAt, nextOccurrence, offsetMinutesAt, parseLocalTime,
-  PROMPT_LEAD_MINUTES, resolveDay, validateSchedule,
+  PROMPT_LEAD_MINUTES, resolveDay, resolveDonorTimezone, validateSchedule,
 } from './connection.schedule';
 import { describe, expect, it } from '@jest/globals';
 
@@ -167,8 +167,31 @@ describe('Connection scheduling', () => {
       expect(isPromptDue(day, utc('2026-09-24T05:59:00Z'))).toBe(true);
     });
 
-    it('stops once the window has opened', () => {
-      expect(isPromptDue(day, utc('2026-09-24T06:00:00Z'))).toBe(false);
+    it('stays due after the window opens so a same-day accept still notifies', () => {
+      expect(isPromptDue(day, utc('2026-09-24T06:00:00Z'))).toBe(true);
+    });
+
+    it('stops once the pickup window has closed', () => {
+      expect(isPromptDue(day, utc('2026-09-24T07:00:00Z'))).toBe(false);
+    });
+  });
+
+  describe('donor timezone', () => {
+    it('uses only the donor site zone — the same clock the app shows', () => {
+      expect(resolveDonorTimezone('Australia/Melbourne')).toBe('Australia/Melbourne');
+      expect(resolveDonorTimezone('Asia/Kolkata')).toBe('Asia/Kolkata');
+      expect(resolveDonorTimezone(null)).toBeNull();
+      expect(resolveDonorTimezone('')).toBeNull();
+    });
+
+    it('fires the 4h prompt an hour earlier for Melbourne than Brisbane during AEDT', () => {
+      // First Sunday in October 2026 is the 4th — Melbourne is AEDT after that.
+      const localDate = utc('2026-10-08T00:00:00Z');
+      const melbourne = resolveDay(scheduleFor('Australia/Melbourne'), localDate);
+      const brisbane = resolveDay(scheduleFor(BRISBANE), localDate);
+      expect(melbourne.windowStartAt.toISOString()).toBe('2026-10-08T05:00:00.000Z'); // 4pm AEDT
+      expect(brisbane.windowStartAt.toISOString()).toBe('2026-10-08T06:00:00.000Z'); // 4pm AEST
+      expect(melbourne.promptAt.getTime()).toBe(brisbane.promptAt.getTime() - 60 * 60000);
     });
   });
 

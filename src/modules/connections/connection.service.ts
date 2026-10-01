@@ -15,8 +15,8 @@ import {
 } from './connection.rules';
 import {
   assertValidTimezone, collectsOn, describeSchedule, formatLocalTime, localDateAt,
-  CHARITY_CONFIRM_MINUTES, parseLocalTime, PROMPT_LEAD_MINUTES, resolveDay,
-  schedulesOverlap, validateSchedule,
+  CHARITY_CONFIRM_MINUTES, parseLocalTime, PROMPT_LEAD_MINUTES,
+  resolveDay, resolveDonorTimezone, schedulesOverlap, validateSchedule,
 } from './connection.schedule';
 import {
   AddDailySurplusDto, CreateConnectionDto, UpdateConnectionDto,
@@ -166,7 +166,7 @@ export class ConnectionService {
         invitationExpiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 864e5),
       },
       include: {
-        donorSite: { select: { name: true, organisationName: true } },
+        donorSite: { select: { name: true, organisationName: true, timezone: true } },
         donorOrg: { select: { name: true } },
       },
     });
@@ -436,14 +436,13 @@ export class ConnectionService {
       return opened ? this.shapeDay(opened) : null;
     }
 
-    const timezone =
-      connection.donorSite?.timezone ??
-      (
-        await this.prisma.site.findUnique({
-          where: { id: connection.donorSiteId },
-          select: { timezone: true },
-        })
-      )?.timezone;
+    const site = await this.prisma.site.findUnique({
+      where: { id: connection.donorSiteId },
+      select: { timezone: true },
+    });
+    const timezone = resolveDonorTimezone(
+      connection.donorSite?.timezone ?? site?.timezone,
+    );
     if (!timezone) return null;
 
     const scheduledDate = localDateAt(timezone, new Date());
@@ -475,15 +474,14 @@ export class ConnectionService {
       return null;
     }
 
-    const timezone =
-      connection.donorSite?.timezone ??
-      (
-        await this.prisma.site.findUnique({
-          where: { id: connection.donorSiteId },
-          select: { timezone: true },
-        })
-      )?.timezone ??
-      'Australia/Brisbane';
+    const site = await this.prisma.site.findUnique({
+      where: { id: connection.donorSiteId },
+      select: { timezone: true },
+    });
+    const timezone = resolveDonorTimezone(
+      connection.donorSite?.timezone ?? site?.timezone,
+    );
+    if (!timezone) return null;
 
     const now = new Date();
     const schedule = {
@@ -491,24 +489,29 @@ export class ConnectionService {
       daysOfWeek: connection.daysOfWeek,
       windowStartMinutes: connection.windowStartMinutes,
       windowEndMinutes: connection.windowEndMinutes,
-      leadTimeMinutes: connection.leadTimeMinutes ?? 60,
-      cutoffMinutes: connection.cutoffMinutes ?? 30,
+      leadTimeMinutes: connection.leadTimeMinutes ?? PROMPT_LEAD_MINUTES,
+      cutoffMinutes: connection.cutoffMinutes ?? CHARITY_CONFIRM_MINUTES,
     };
     const localDate = localDateAt(timezone, now);
     if (!collectsOn(schedule, localDate)) return null;
 
     const resolved = resolveDay(schedule, localDate);
     if (now >= resolved.windowEndAt) return null;
+    if (now < resolved.promptAt) return null;
 
     try {
-      const day = await this.prisma.connectionDay.upsert({
+      const existing = await this.prisma.connectionDay.findUnique({
         where: {
           connectionId_scheduledDate: {
             connectionId: connection.id,
             scheduledDate: resolved.scheduledDate,
           },
         },
-        create: {
+      });
+      if (existing) return this.alignPromptedDay(existing, resolved);
+
+      const day = await this.prisma.connectionDay.create({
+        data: {
           connectionId: connection.id,
           scheduledDate: resolved.scheduledDate,
           windowStartAt: resolved.windowStartAt,
@@ -517,8 +520,25 @@ export class ConnectionService {
           outcome: ConnectionDayOutcome.PROMPTED,
           promptedAt: now,
         },
-        update: {},
       });
+      const full = await this.prisma.connection.findUnique({
+        where: { id: connection.id },
+        include: { receiverSite: { select: { name: true, organisationName: true } } },
+      });
+      if (full) {
+        await this.notifier.dailyPrompt({
+          connectionId: connection.id,
+          connectionDayId: day.id,
+          donorSiteId: connection.donorSiteId,
+          charityName: full.receiverSite.name ?? full.receiverSite.organisationName,
+          windowStartMinutes: connection.windowStartMinutes,
+          windowEndMinutes: connection.windowEndMinutes,
+          windowStartAt: resolved.windowStartAt,
+          windowEndAt: resolved.windowEndAt,
+          cutoffAt: resolved.cutoffAt,
+          donorTimezone: timezone,
+        });
+      }
       return this.alignPromptedDay(day, resolved);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -671,6 +691,7 @@ export class ConnectionService {
       daysOfWeek: connection.daysOfWeek,
       windowStart: formatLocalTime(connection.windowStartMinutes),
       windowEnd: formatLocalTime(connection.windowEndMinutes),
+      donorTimezone: connection.donorSite?.timezone ?? null,
       schedule: describeSchedule(
         connection.daysOfWeek, connection.windowStartMinutes, connection.windowEndMinutes,
       ),

@@ -231,9 +231,22 @@ export function nextOccurrence(
   return null;
 }
 
-/** Whether the business should be prompted for this day right now. */
+/**
+ * Prompt from 4 hours before pickup until the window closes.
+ * Same-day accept / a window already open still gets one nudge.
+ */
 export function isPromptDue(day: ResolvedDay, now: Date): boolean {
-  return now >= day.promptAt && now < day.windowStartAt;
+  return now >= day.promptAt && now < day.windowEndAt;
+}
+
+/**
+ * The kitchen IANA zone required when a Connection is created.
+ * Never guess from region — Australia is not one zone, and a guess is how
+ * the 4h / 2.5h pushes drifted from the time the app shows.
+ */
+export function resolveDonorTimezone(siteTimezone?: string | null): string | null {
+  const timezone = siteTimezone?.trim();
+  return timezone || null;
 }
 
 /** Latest instant the business may still confirm today’s surplus. */

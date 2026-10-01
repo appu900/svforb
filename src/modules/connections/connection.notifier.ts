@@ -6,7 +6,6 @@ import {
   CHARITY_CONFIRM_MINUTES,
   describeSchedule,
   formatClock12,
-  formatWindow,
   formatWindowRange,
   LIST_BY_MINUTES,
 } from './connection.schedule';
@@ -104,7 +103,7 @@ export class ConnectionNotifier {
     windowEndMinutes: number;
     typicalSurplus: string | null;
     typicalQuantity?: string | null;
-    donorSite: { name: string | null; organisationName: string };
+    donorSite: { name: string | null; organisationName: string; timezone?: string | null };
     donorOrg: { name: string };
   }): Promise<void> {
     const siteName = connection.donorSite.name ?? connection.donorSite.organisationName;
@@ -120,6 +119,7 @@ export class ConnectionNotifier {
         type: CONNECTION_PUSH.INVITATION,
         connectionId: String(connection.id),
         schedule,
+        ...(connection.donorSite.timezone ? { donorTimezone: connection.donorSite.timezone } : {}),
         ...(connection.typicalSurplus ? { typicalSurplus: connection.typicalSurplus } : {}),
         ...(connection.typicalQuantity ? { typicalQuantity: connection.typicalQuantity } : {}),
       },
@@ -158,6 +158,7 @@ export class ConnectionNotifier {
     windowStartAt: Date;
     windowEndAt: Date;
     cutoffAt?: Date | null;
+    donorTimezone?: string;
   }): Promise<void> {
     const window = formatWindowRange(input.windowStartMinutes, input.windowEndMinutes);
     const addByMinutes = input.windowStartMinutes - LIST_BY_MINUTES;
@@ -174,7 +175,41 @@ export class ConnectionNotifier {
         charityName: input.charityName,
         windowStartAt: input.windowStartAt.toISOString(),
         windowEndAt: input.windowEndAt.toISOString(),
+        ...(input.donorTimezone ? { donorTimezone: input.donorTimezone } : {}),
         ...(input.cutoffAt ? { cutoffAt: input.cutoffAt.toISOString() } : {}),
+        categoryId: CONNECTION_PUSH.DAILY_PROMPT,
+        action: 'ADD_SURPLUS',
+        actionSecondary: 'NO_SURPLUS',
+        cta: "Add today’s surplus",
+        ctaSecondary: 'No surplus today',
+      },
+      'high',
+    );
+  }
+
+  /** 2.5 hours before pickup — last chance for the kitchen to list. */
+  async listByReminder(input: {
+    connectionId: number;
+    connectionDayId: number;
+    donorSiteId: number;
+    charityName: string;
+    windowStartMinutes: number;
+    windowEndMinutes: number;
+    donorTimezone?: string;
+  }): Promise<void> {
+    const window = formatWindowRange(input.windowStartMinutes, input.windowEndMinutes);
+    const addBy = formatClock12(input.windowStartMinutes - LIST_BY_MINUTES);
+    await this.push(
+      await this.siteStaffIds(input.donorSiteId),
+      'Add today’s surplus now',
+      `List-by is ${addBy} for your ${window} collection with ${input.charityName}. Add food and quantities now or they will be told there is no collection today.`,
+      {
+        type: CONNECTION_PUSH.DAILY_PROMPT,
+        connectionId: String(input.connectionId),
+        connectionDayId: String(input.connectionDayId),
+        siteId: String(input.donorSiteId),
+        charityName: input.charityName,
+        ...(input.donorTimezone ? { donorTimezone: input.donorTimezone } : {}),
         categoryId: CONNECTION_PUSH.DAILY_PROMPT,
         action: 'ADD_SURPLUS',
         actionSecondary: 'NO_SURPLUS',
@@ -199,6 +234,7 @@ export class ConnectionNotifier {
     windowEndMinutes: number;
     /** ISO datetime by which the charity must confirm (1.5 hrs before pickup). */
     cutoffAt?: Date | null;
+    donorTimezone?: string;
   }): Promise<void> {
     const window = formatWindowRange(input.windowStartMinutes, input.windowEndMinutes);
     const confirmBy = formatClock12(input.windowStartMinutes - CHARITY_CONFIRM_MINUTES);
@@ -217,6 +253,7 @@ export class ConnectionNotifier {
         listingId: String(input.listingId),
         ...(input.connectionDayId ? { connectionDayId: String(input.connectionDayId) } : {}),
         ...(input.donorName ? { donorName: input.donorName } : {}),
+        ...(input.donorTimezone ? { donorTimezone: input.donorTimezone } : {}),
         categoryId: CONNECTION_PUSH.COLLECTION_READY,
         action: 'CONFIRM_COLLECTION',
         actionSecondary: 'CANNOT_COLLECT',

@@ -13,6 +13,7 @@ import { Jwtpayload } from '../../../modules/auth/interface/jwt.interface';
 import { EmailQueueService } from '../../../modules/notifications/queues/email.queue.service';
 import { BillingService } from '../../billing/services/billing.service';
 import { SubscriptionAccessService } from '../../subscriptions/services/subscription-access.service';
+import { assertValidTimezone } from '../../connections/connection.schedule';
 import {
   AddStaffDto,
   AssignExistingSiteAdminDto,
@@ -213,6 +214,8 @@ export class SitesService {
     }
     await this.assertStructureTargets(org.id, dto);
 
+    const timezone = this.resolveSiteTimezone(dto.timezone);
+
     const now = new Date();
     let site;
     try {
@@ -233,6 +236,7 @@ export class SitesService {
           collectionStartTime: dto.collectionStartTime ?? null,
           collectionEndTime: dto.collectionEndTime ?? null,
           collectionInstructions: dto.collectionInstructions?.trim() || null,
+          timezone,
           activatedAt: now,
         },
       });
@@ -919,6 +923,11 @@ export class SitesService {
           ...(dto.collectionInstructions !== undefined && {
             collectionInstructions: dto.collectionInstructions?.trim() || null,
           }),
+          ...(dto.timezone !== undefined && {
+            timezone: dto.timezone.trim()
+              ? this.resolveSiteTimezone(dto.timezone)
+              : null,
+          }),
         },
       });
     } catch (err) {
@@ -1035,6 +1044,7 @@ export class SitesService {
     collectionStartTime?: string | null;
     collectionEndTime?: string | null;
     collectionInstructions?: string | null;
+    timezone?: string | null;
     groupSite?: { groupId: number } | null;
     clusterSite?: { clusterId: number } | null;
     territorySite?: { territoryId: number } | null;
@@ -1058,6 +1068,7 @@ export class SitesService {
       collectionStartTime: s.collectionStartTime ?? null,
       collectionEndTime: s.collectionEndTime ?? null,
       collectionInstructions: s.collectionInstructions ?? null,
+      timezone: s.timezone ?? null,
       groupId: s.groupSite?.groupId ?? null,
       clusterId: s.clusterSite?.clusterId ?? null,
       territoryId: s.territorySite?.territoryId ?? null,
@@ -1066,6 +1077,13 @@ export class SitesService {
 
   private autoSiteCode(siteId: number) {
     return `SITE-${String(siteId).padStart(6, '0')}`;
+  }
+
+  private resolveSiteTimezone(timezone?: string | null): string | null {
+    const explicit = timezone?.trim();
+    if (!explicit) return null;
+    assertValidTimezone(explicit);
+    return explicit;
   }
 
   /** Keep the assigned Site Admin (or pending invite) in sync with edited site-contact fields. */

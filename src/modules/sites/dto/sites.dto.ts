@@ -43,6 +43,8 @@ export class CreateSiteDto {
   @IsString() @IsOptional() collectionStartTime?: string;
   @IsString() @IsOptional() collectionEndTime?: string;
   @IsString() @IsOptional() @MaxLength(500) collectionInstructions?: string;
+  /** IANA kitchen zone, e.g. Australia/Melbourne or Asia/Kolkata. */
+  @IsString() @IsOptional() @MaxLength(80) timezone?: string;
 
   @Type(() => Number) @IsInt() @IsOptional() groupId?: number;
   @Type(() => Number) @IsInt() @IsOptional() clusterId?: number;
@@ -99,6 +101,8 @@ export class UpdateSiteDto {
   @IsString() @IsOptional() collectionStartTime?: string;
   @IsString() @IsOptional() collectionEndTime?: string;
   @IsString() @IsOptional() @MaxLength(500) collectionInstructions?: string;
+  /** IANA kitchen zone, e.g. Australia/Melbourne or Asia/Kolkata. */
+  @IsString() @IsOptional() @MaxLength(80) timezone?: string;
 
   @Transform(({ value }) => {
     if (value === undefined) return undefined;
