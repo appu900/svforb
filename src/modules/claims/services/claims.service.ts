@@ -642,7 +642,7 @@ export class ClaimsService {
     const claim = await this.prisma.foodClaim.findUnique({
       where: { id: claimId },
       include: {
-        claimItems: true,
+        claimItems: { include: { foodItem: { select: { name: true } } } },
         listing: true,
         claimantOrg: { select: { name: true } },
       },
@@ -764,14 +764,17 @@ export class ClaimsService {
       timestamp: new Date().toISOString(),
     });
 
-    if (dto.rating !== undefined) {
-      await this.notifyRestaurantToEvaluate({
-        claimId,
-        listingId: claim.listingId,
-        restaurantOrgId: claim.listing.organisationId,
-        claimantName: claim.claimantOrg?.name,
-      });
-    }
+    await this.notifyRestaurantCollected({
+      claimId,
+      listingId: claim.listingId,
+      restaurantOrgId: claim.listing.organisationId,
+      claimantName: claim.claimantOrg?.name,
+      collectedKg: totalQtyKg,
+      itemList: claim.claimItems
+        .filter((ci) => ci.qtyKg > 0)
+        .map((ci) => `${ci.foodItem?.name ?? `item ${ci.foodItemId}`} (${ci.qtyKg}kg)`)
+        .join(', '),
+    });
 
     return { message: 'Marked as collected' };
   }
@@ -1267,6 +1270,38 @@ export class ClaimsService {
   }
 
   /** After claimant collects + rates, ask the restaurant to confirm and evaluate. */
+  private async notifyRestaurantCollected(params: {
+    claimId: number;
+    listingId: number;
+    restaurantOrgId: number;
+    claimantName?: string | null;
+    collectedKg: number;
+    itemList: string;
+  }) {
+    const userIds = await this.getOrgUserIds(params.restaurantOrgId);
+    if (!userIds.length) return;
+
+    const partner = params.claimantName?.trim() || 'Your collection partner';
+    const items = params.itemList ? ` Items: ${params.itemList}.` : '';
+    await this.notificationService
+      .send({
+        title: 'Your listing was collected',
+        body: `${partner} collected ${params.collectedKg}kg.${items} Rate them now.`,
+        data: {
+          claimId: String(params.claimId),
+          listingId: String(params.listingId),
+          type: 'provider_feedback',
+          deepLink: 'updates',
+        },
+        targetUserIds: userIds.map(String),
+        priority: 'high',
+        allowEmptyTargets: true,
+      })
+      .catch((err) =>
+        this.logger.warn(`notifyRestaurantCollected non-critical error: ${err.message}`),
+      );
+  }
+
   private async notifyRestaurantToEvaluate(params: {
     claimId: number;
     listingId: number;
