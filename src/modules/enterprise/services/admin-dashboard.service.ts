@@ -86,6 +86,7 @@ type ListingRow = {
 
 const ORG_TYPE_SQL = Prisma.sql`
   CASE
+    WHEN ep.id IS NOT NULL THEN 'food_business'
     WHEN o."organizationType"::text LIKE 'CHARITY%' THEN 'charity'
     WHEN o."organizationType"::text LIKE 'FARMER%' THEN 'farmer'
     ELSE 'food_business'
@@ -194,17 +195,18 @@ export class AdminDashboardService {
       SELECT
         o.id,
         ${ORG_TYPE_SQL} AS org_type,
-        ep."accountStatus" AS account_status
+        (ep.id IS NOT NULL) AS is_enterprise,
+        COALESCE(ep."accountStatus"::text, 'ACTIVE') AS account_status
       FROM organisations o
-      JOIN enterprise_profiles ep ON ep."organisationId" = o.id
+      LEFT JOIN enterprise_profiles ep ON ep."organisationId" = o.id
       WHERE 1 = 1
       ${query.organisationId ? Prisma.sql`AND o.id = ${query.organisationId}` : Prisma.empty}
-      ${country ? Prisma.sql`AND upper(ep.country) = ${country}` : Prisma.empty}
+      ${country ? Prisma.sql`AND upper(COALESCE(ep.country, o.region::text, '')) = ${country}` : Prisma.empty}
       ${orgType ? Prisma.sql`AND (${ORG_TYPE_SQL}) = ${orgType}` : Prisma.empty}
       ${role === 'surplus_provider' ? Prisma.sql`AND (${ORG_TYPE_SQL}) = 'food_business'` : Prisma.empty}
       ${role === 'surplus_receiver' ? Prisma.sql`AND (${ORG_TYPE_SQL}) IN ('charity', 'farmer', 'circular')` : Prisma.empty}
       ${role === 'both' ? Prisma.sql`AND (${ORG_TYPE_SQL}) = 'circular'` : Prisma.empty}
-      ${accountStatus === 'Active' ? Prisma.sql`AND ep."accountStatus" = 'ACTIVE'` : Prisma.empty}
+      ${accountStatus === 'Active' ? Prisma.sql`AND (ep.id IS NULL OR ep."accountStatus" = 'ACTIVE')` : Prisma.empty}
       ${accountStatus === 'Prospect' ? Prisma.sql`AND ep."accountStatus" = 'PENDING'` : Prisma.empty}
       ${accountStatus === 'Suspended' ? Prisma.sql`AND ep."accountStatus" IN ('SUSPENDED', 'CLOSED')` : Prisma.empty}
     `;
@@ -212,8 +214,8 @@ export class AdminDashboardService {
     const [orgRows, siteRows, claimRows, listingRows, awaiting, recoverySites] = await Promise.all([
       this.prisma.$queryRaw<OrgRow[]>(Prisma.sql`
         SELECT org_type,
-          COUNT(*)::int AS organisations,
-          COUNT(*) FILTER (WHERE account_status = 'ACTIVE')::int AS active_organisations
+          COUNT(*) FILTER (WHERE is_enterprise)::int AS organisations,
+          COUNT(*) FILTER (WHERE is_enterprise AND account_status = 'ACTIVE')::int AS active_organisations
         FROM (${scoped}) scoped_orgs
         GROUP BY org_type
       `),
