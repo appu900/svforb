@@ -32,6 +32,7 @@ export interface SendStaffInvitePayload {
   password: string;
   siteName: string;
   role: string;
+  orgKind?: 'charity' | 'business' | 'farmer';
 }
 
 export interface SendEnterpriseInvitePayload {

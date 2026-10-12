@@ -44,7 +44,7 @@ export class EmailWorker extends WorkerHost {
       }
 
       case EmailJobName.SEND_STAFF_INVITE: {
-        const { to, name, email, password, siteName, role } =
+        const { to, name, email, password, siteName, role, orgKind } =
           job.data as SendStaffInvitePayload;
         await this.mailerService.sendStaffInvite(
           to,
@@ -53,6 +53,7 @@ export class EmailWorker extends WorkerHost {
           password,
           siteName,
           role,
+          orgKind,
         );
         break;
       }

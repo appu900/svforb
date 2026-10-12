@@ -533,6 +533,7 @@ export class SitesService {
         password: dto.password,
         siteName: site.organisationName,
         role: 'Site Manager',
+        orgKind: 'business',
       });
     } else {
       await this.notifySiteAdminAssigned({
@@ -740,6 +741,7 @@ export class SitesService {
         password: dto.password,
         siteName: site.organisationName,
         role: 'Staff',
+        orgKind: 'business',
       });
     }
 

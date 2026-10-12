@@ -129,6 +129,7 @@ export class FarmerConsumerService {
         password: dto.password,
         siteName: site.organisationName,
         role: this.getRoleDisplayName(dto.role),
+        orgKind: 'farmer',
       });
     }
 
@@ -404,6 +405,7 @@ export class FarmerConsumerService {
       password: newPassword,
       siteName: siteAccess?.site.organisationName ?? 'Farm',
       role: roleDisplay,
+      orgKind: 'farmer',
     });
 
     return { message: 'Invite resent successfully' };

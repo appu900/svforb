@@ -7,6 +7,8 @@ import Mail from 'nodemailer/lib/mailer';
 
 const LOGO_CID = 'saveful-logo@saveful';
 
+export type StaffInviteOrgKind = 'charity' | 'business' | 'farmer';
+
 @Injectable()
 export class MailerService {
   private readonly logger = new Logger(MailerService.name);
@@ -140,19 +142,36 @@ export class MailerService {
     password: string,
     siteName: string,
     role: string,
+    orgKind?: StaffInviteOrgKind,
   ): Promise<void> {
     const isDriver = role.trim().toLowerCase() === 'driver';
     const appStoreUrl = 'https://apps.apple.com/in/app/saveful-for-business/id6805761562';
     const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.saveful.business.app';
     const businessUrl = 'https://www.saveful.com/business';
+    const appName = isDriver ? 'Saveful for Business Driver' : 'Saveful for Business';
 
-    const inviteLine = isDriver
-      ? `You've been invited to join the <strong>${siteName}</strong> team on Saveful for Business as a driver.`
-      : `You've been invited to join the <strong>${siteName}</strong> team on Saveful for Business.`;
+    const addedLine = isDriver
+      ? `<strong>${siteName}</strong> has added you as a driver on their Saveful for Business team. Your account is ready.`
+      : `<strong>${siteName}</strong> has added you to their Saveful for Business team. Your account is ready.`;
 
-    const startLine = isDriver
-      ? 'To get started, download the Saveful for Business Driver app and sign in using the login details below:'
-      : 'To get started, download the Saveful for Business app and sign in using the login details below:';
+    const aboutLine =
+      orgKind === 'charity'
+        ? 'Saveful for Business connects your charity with local businesses offering surplus food, helping your team find and collect food for the people you support — all in one place. It’s free for charities to use.'
+        : orgKind === 'farmer'
+          ? 'Saveful for Business connects your farm with local businesses offering surplus food that isn’t fit for people — ideal for livestock feed and other agricultural re-use — all in one place.'
+          : orgKind === 'business'
+            ? 'Saveful for Business helps your business list surplus food for local charities and farmers to collect, and shows the impact you’re making — all in one place.'
+            : 'Saveful for Business helps organisations recover more surplus food, connect with recovery partners and measure their environmental and social impact.';
+
+    const logInHelp = isDriver
+      ? 'Your account has already been created. On the welcome screen, tap <strong>Log in</strong>.'
+      : 'Your account has already been created. On the welcome screen, tap <strong>Log in</strong>. <strong>Do not tap Create an Account.</strong>';
+
+    const changePasswordPath = isDriver
+      ? 'Profile &rarr; Change Password'
+      : 'Account &rarr; Personal Details &rarr; Change Password';
+
+    const stepTitle = 'margin:0 0 6px;font-weight:700;color:#1a1a1a;';
 
     const storeButtons = isDriver
       ? `
@@ -207,52 +226,57 @@ export class MailerService {
         <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#333;line-height:1.5;">
           ${this.logoMarkup(200)}
 
-          <p style="margin:0 0 16px;">Hello ${name},</p>
+          <p style="margin:0 0 16px;">Hi ${name},</p>
 
           <h2 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#1a1a1a;">
-            Welcome to Saveful for Business${isDriver ? ' Driver' : ''}
+            Welcome to ${appName}
           </h2>
 
           <p style="margin:0 0 16px;">
-            ${inviteLine}
+            ${addedLine}
           </p>
 
           <p style="margin:0 0 20px;">
-            Saveful for Business helps organisations recover more surplus food,
-            connect with recovery partners and measure their environmental and social impact.
+            ${aboutLine}
           </p>
 
-          <p style="margin:0 0 12px;">
-            ${startLine}
-          </p>
+          <p style="margin:0 0 16px;font-weight:700;">Follow these three steps:</p>
+
+          <p style="${stepTitle}">1. Download the ${appName} app</p>
 
           ${storeButtons}
 
-          <p style="margin:0 0 8px;font-weight:700;">Your login details</p>
-          <div style="background:#f4f4f4;padding:20px 24px;border-radius:8px;margin:0 0 28px;">
+          <p style="${stepTitle}">2. Open the app and tap Log in</p>
+          <p style="margin:0 0 20px;">
+            ${logInHelp}
+          </p>
+
+          <p style="${stepTitle}">3. Enter these login details</p>
+          <div style="background:#f4f4f4;padding:20px 24px;border-radius:8px;margin:0 0 16px;">
             <p style="margin:0 0 8px;"><strong>Email:</strong> ${email}</p>
-            <p style="margin:0;"><strong>Temporary Password:</strong> ${password}</p>
+            <p style="margin:0;"><strong>Temporary password:</strong> ${password}</p>
           </div>
 
-          <div style="text-align:center;margin:0 0 28px;">
+          <p style="margin:0 0 16px;">
+            Once you’re logged in, change your password under ${changePasswordPath}.
+          </p>
+
+          <p style="margin:0 0 20px;">
+            Can’t log in? Contact the person at <strong>${siteName}</strong> who invited you.
+          </p>
+
+          <p style="margin:0 0 24px;font-weight:700;">
+            Together, we’re helping good food go further.
+          </p>
+
+          <p style="margin:0 0 12px;font-weight:700;">Want to know more?</p>
+          <div style="margin:0 0 8px;">
             <a href="${businessUrl}"
                style="display:inline-block;background:#1a1a1a;color:#ffffff;text-decoration:none;
                       padding:12px 22px;border-radius:6px;font-size:14px;font-weight:600;">
               Learn more about Saveful for Business &nbsp;&rsaquo;
             </a>
           </div>
-
-          <p style="margin:0 0 16px;font-weight:700;">
-            Together, we're helping good food go further.
-          </p>
-
-          <p style="margin:0 0 12px;font-size:13px;color:#555;">
-            For your security, please change your password after logging in for the first time.
-          </p>
-
-          <p style="margin:0;font-size:13px;color:#888;">
-            If you did not expect this invitation, please contact your organisation administrator.
-          </p>
         </div>
       `,
     });

@@ -182,6 +182,7 @@ export class CharityService {
         password: dto.adminPassword,
         siteName: dto.locationName,
         role: 'Location Admin',
+        orgKind: 'charity',
       });
     } catch (error) {
       this.logger.error(
@@ -638,6 +639,7 @@ export class CharityService {
         password: dto.password,
         siteName: site?.organisationName ?? 'Head Office',
         role: this.getRoleDisplayName(dto.role),
+        orgKind: 'charity',
       });
     }
 
@@ -1016,6 +1018,7 @@ export class CharityService {
         membership.orgRole,
         siteAccess?.siteRole,
       ),
+      orgKind: 'charity',
     });
 
     return { message: 'Invite resent successfully' };
