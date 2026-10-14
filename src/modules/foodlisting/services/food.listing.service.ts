@@ -564,6 +564,13 @@ export class FoodListingService {
             OR fl."releasedAt" IS NOT NULL
             OR fl."exclusiveToOrgId" = ${claimantOrgId}
           )
+          -- Released after this charity said "Can't collect": offered to everyone else.
+          AND NOT COALESCE(
+            fl."exclusiveToOrgId" = ${claimantOrgId}
+              AND fl."releasedAt" IS NOT NULL
+              AND fl."releasedReason" = 'CHARITY_DECLINED',
+            false
+          )
           AND fl."listingType" IN (${typeFilter})
           AND fl."bestBefore" > NOW()
           AND (fl."pickupByTime" IS NULL OR fl."pickupByTime" > NOW())
@@ -597,6 +604,12 @@ export class FoodListingService {
             fl."exclusiveToOrgId" IS NULL
             OR fl."releasedAt" IS NOT NULL
             OR fl."exclusiveToOrgId" = ${claimantOrgId}
+          )
+          AND NOT COALESCE(
+            fl."exclusiveToOrgId" = ${claimantOrgId}
+              AND fl."releasedAt" IS NOT NULL
+              AND fl."releasedReason" = 'CHARITY_DECLINED',
+            false
           )
           AND fl."listingType" IN (${typeFilter})
           AND fl."bestBefore" > NOW()

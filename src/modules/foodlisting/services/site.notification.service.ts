@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ListingReleaseReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { resolveCallerSiteId } from '../utils/resolve-caller-site';
@@ -14,10 +15,26 @@ export class SiteNotificationService {
 
     const now = new Date();
     const skip = (page - 1) * limit;
+    const where: Prisma.SiteNotificationWhereInput = {
+      siteId,
+      expiresAt: { gt: now },
+      // Released after this charity said "Can't collect": offered to everyone else.
+      ...(caller.orgId
+        ? {
+            NOT: {
+              listing: {
+                exclusiveToOrgId: caller.orgId,
+                releasedAt: { not: null },
+                releasedReason: ListingReleaseReason.CHARITY_DECLINED,
+              },
+            },
+          }
+        : {}),
+    };
 
     const [notifications, total] = await Promise.all([
       this.prisma.siteNotification.findMany({
-        where: { siteId, expiresAt: { gt: now } },
+        where,
         include: {
           listing: {
             select: {
@@ -37,13 +54,11 @@ export class SiteNotificationService {
         skip,
         take: limit,
       }),
-      this.prisma.siteNotification.count({
-        where: { siteId, expiresAt: { gt: now } },
-      }),
+      this.prisma.siteNotification.count({ where }),
     ]);
 
     const unreadCount = await this.prisma.siteNotification.count({
-      where: { siteId, expiresAt: { gt: now }, isRead: false },
+      where: { ...where, isRead: false },
     });
 
     return {

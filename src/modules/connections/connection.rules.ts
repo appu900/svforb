@@ -17,6 +17,7 @@ import {
 
 export const CONNECTION_ERROR = {
   NOT_EXCLUSIVE_HOLDER: 'NOT_EXCLUSIVE_HOLDER',
+  DECLINED_BY_VIEWER: 'DECLINED_BY_VIEWER',
   CONNECTION_EXISTS: 'CONNECTION_EXISTS',
   INVALID_TRANSITION: 'INVALID_TRANSITION',
   SITE_TIMEZONE_MISSING: 'SITE_TIMEZONE_MISSING',
@@ -79,6 +80,23 @@ export function isCollecting(status: ConnectionStatus): boolean {
 export interface ExclusivityView {
   exclusiveToOrgId: number | null;
   releasedAt: Date | null;
+  releasedReason?: ListingReleaseReason | null;
+}
+
+/**
+ * The preferred charity said “Can’t collect today”, so the listing went to the
+ * rest of the network — not back to them.
+ */
+export function declinedByViewer(
+  listing: ExclusivityView,
+  viewerOrgId: number | null | undefined,
+): boolean {
+  return (
+    viewerOrgId != null &&
+    listing.exclusiveToOrgId === viewerOrgId &&
+    listing.releasedAt !== null &&
+    listing.releasedReason === ListingReleaseReason.CHARITY_DECLINED
+  );
 }
 
 /**
@@ -106,6 +124,13 @@ export function assertCanClaim(
   listing: ExclusivityView,
   viewerOrgId: number | null | undefined,
 ): void {
+  if (declinedByViewer(listing, viewerOrgId)) {
+    throw new ConflictException({
+      error: CONNECTION_ERROR.DECLINED_BY_VIEWER,
+      message:
+        'You said you can’t collect this one, so it has been offered to other charities.',
+    });
+  }
   if (canAccessListing(listing, viewerOrgId)) return;
   throw new ConflictException({
     error: CONNECTION_ERROR.NOT_EXCLUSIVE_HOLDER,
