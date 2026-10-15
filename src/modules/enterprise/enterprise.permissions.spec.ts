@@ -3,6 +3,7 @@ import {
   assignableRolesFor,
   isPortalRole,
   isUnrestricted,
+  isViewOnlyRole,
   PERMISSION,
   PORTAL_ROLES,
   roleHasPermission,
@@ -10,13 +11,12 @@ import {
 } from './enterprise.permissions';
 
 describe('Enterprise role matrix', () => {
-  describe('the portal defines five roles', () => {
-    it('offers exactly the five from Roles & Permissions', () => {
+  describe('the portal defines four roles', () => {
+    it('offers exactly the four from Roles & Permissions', () => {
       expect(PORTAL_ROLES).toEqual([
         EnterpriseRole.SUPER_ADMIN,
         EnterpriseRole.ENTERPRISE_ADMIN,
         EnterpriseRole.GROUP_ADMIN,
-        EnterpriseRole.REPORTING_USER,
         EnterpriseRole.SITE_ADMIN,
       ]);
     });
@@ -57,13 +57,12 @@ describe('Enterprise role matrix', () => {
 
     it('leaves a Group Admin able to staff their own scope', () => {
       expect(assignableRolesFor(EnterpriseRole.GROUP_ADMIN)).toEqual([
-        EnterpriseRole.REPORTING_USER,
         EnterpriseRole.SITE_ADMIN,
       ]);
     });
 
     it('gives roles that cannot manage users nothing to assign', () => {
-      expect(assignableRolesFor(EnterpriseRole.REPORTING_USER)).toEqual([]);
+      expect(assignableRolesFor(EnterpriseRole.ENTERPRISE_ADMIN)).toEqual([]);
       expect(assignableRolesFor(EnterpriseRole.SITE_ADMIN)).toEqual([]);
       expect(assignableRolesFor(null)).toEqual([]);
     });
@@ -77,7 +76,6 @@ describe('Enterprise role matrix', () => {
 
     it('requires a scope grant for everyone else', () => {
       expect(isUnrestricted(EnterpriseRole.GROUP_ADMIN)).toBe(false);
-      expect(isUnrestricted(EnterpriseRole.REPORTING_USER)).toBe(false);
       expect(isUnrestricted(EnterpriseRole.SITE_ADMIN)).toBe(false);
     });
 
@@ -99,10 +97,16 @@ describe('Enterprise role matrix', () => {
       ).toBe(false);
     });
 
-    it('keeps a Reporting User read-only', () => {
-      expect(
-        roleHasPermission(EnterpriseRole.REPORTING_USER, PERMISSION.STRUCTURE_VIEW),
-      ).toBe(true);
+    it('keeps an Enterprise Admin view only across the whole Enterprise', () => {
+      for (const read of [
+        PERMISSION.STRUCTURE_VIEW,
+        PERMISSION.SITES_VIEW,
+        PERMISSION.USERS_VIEW,
+        PERMISSION.REPORTS_VIEW,
+        PERMISSION.AUDIT_VIEW,
+      ]) {
+        expect(roleHasPermission(EnterpriseRole.ENTERPRISE_ADMIN, read)).toBe(true);
+      }
       for (const write of [
         PERMISSION.STRUCTURE_CREATE,
         PERMISSION.STRUCTURE_MANAGE,
@@ -111,7 +115,12 @@ describe('Enterprise role matrix', () => {
         PERMISSION.USERS_MANAGE,
         PERMISSION.PROFILE_MANAGE,
       ]) {
-        expect(roleHasPermission(EnterpriseRole.REPORTING_USER, write)).toBe(false);
+        expect(roleHasPermission(EnterpriseRole.ENTERPRISE_ADMIN, write)).toBe(false);
+      }
+      expect(assignableRolesFor(EnterpriseRole.ENTERPRISE_ADMIN)).toEqual([]);
+      expect(isViewOnlyRole(EnterpriseRole.ENTERPRISE_ADMIN)).toBe(true);
+      for (const role of Object.values(EnterpriseRole)) {
+        if (role !== EnterpriseRole.ENTERPRISE_ADMIN) expect(isViewOnlyRole(role)).toBe(false);
       }
     });
 

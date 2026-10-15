@@ -125,9 +125,8 @@ enum InvoiceStatus {
 /// which slice of the Enterprise they may see.
 enum EnterpriseRole {
   SUPER_ADMIN
-  /// Full administration across the Enterprise, per Roles & Permissions (page 17)
+  /// View-only across the whole Enterprise; cannot add, edit or change anything
   ENTERPRISE_ADMIN
-  REPORTING_USER
   GROUP_ADMIN
   CLUSTER_ADMIN
   SITE_ADMIN

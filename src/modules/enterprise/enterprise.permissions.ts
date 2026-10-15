@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import { EnterpriseRole } from '@prisma/client';
 
 /**
@@ -39,7 +40,7 @@ export interface RoleDefinition {
   assignable: readonly EnterpriseRole[];
   /**
    * True when the role means nothing without an explicit scope grant. A
-   * Reporting User with no scope sees nothing, which is the safe default —
+   * Site Admin with no scope sees nothing, which is the safe default —
    * whereas an Enterprise Admin covers everything by definition.
    */
   requiresScope: boolean;
@@ -50,14 +51,13 @@ export interface RoleDefinition {
 const ALL: readonly EnterprisePermission[] = Object.values(PERMISSION);
 
 /**
- * The five roles the Enterprise Portal defines, in the order the screen lists
+ * The four roles the Enterprise Portal defines, in the order the screen lists
  * them — broadest reach first.
  */
 export const PORTAL_ROLES: readonly EnterpriseRole[] = [
   EnterpriseRole.SUPER_ADMIN,
   EnterpriseRole.ENTERPRISE_ADMIN,
   EnterpriseRole.GROUP_ADMIN,
-  EnterpriseRole.REPORTING_USER,
   EnterpriseRole.SITE_ADMIN,
 ];
 
@@ -71,18 +71,21 @@ export const ROLE_DEFINITIONS: Record<EnterpriseRole, RoleDefinition> = {
     requiresScope: false,
   },
 
+  // Head-office visibility: every site and report across the Enterprise, but
+  // nothing can be added, edited or removed.
   [EnterpriseRole.ENTERPRISE_ADMIN]: {
     role: EnterpriseRole.ENTERPRISE_ADMIN,
-    label: 'Enterprise Admin',
-    description: "Administration across the Enterprise, subject to this role's permissions.",
-    permissions: ALL,
-    // Only a Super Admin may mint another Super Admin.
-    assignable: [
-      EnterpriseRole.ENTERPRISE_ADMIN,
-      EnterpriseRole.GROUP_ADMIN,
-      EnterpriseRole.REPORTING_USER,
-      EnterpriseRole.SITE_ADMIN,
+    label: 'Enterprise Admin (View only)',
+    description:
+      'View everything across the Enterprise — dashboard, all sites, activity, insights and reports. Cannot add, edit or change anything.',
+    permissions: [
+      PERMISSION.STRUCTURE_VIEW,
+      PERMISSION.SITES_VIEW,
+      PERMISSION.USERS_VIEW,
+      PERMISSION.REPORTS_VIEW,
+      PERMISSION.AUDIT_VIEW,
     ],
+    assignable: [],
     requiresScope: false,
   },
 
@@ -104,20 +107,7 @@ export const ROLE_DEFINITIONS: Record<EnterpriseRole, RoleDefinition> = {
       PERMISSION.REPORTS_VIEW,
       PERMISSION.AUDIT_VIEW,
     ],
-    assignable: [EnterpriseRole.REPORTING_USER, EnterpriseRole.SITE_ADMIN],
-    requiresScope: true,
-  },
-
-  [EnterpriseRole.REPORTING_USER]: {
-    role: EnterpriseRole.REPORTING_USER,
-    label: 'Reporting User',
-    description: 'Reporting and visibility within assigned scope.',
-    permissions: [
-      PERMISSION.STRUCTURE_VIEW,
-      PERMISSION.SITES_VIEW,
-      PERMISSION.REPORTS_VIEW,
-    ],
-    assignable: [],
+    assignable: [EnterpriseRole.SITE_ADMIN],
     requiresScope: true,
   },
 
@@ -136,7 +126,7 @@ export const ROLE_DEFINITIONS: Record<EnterpriseRole, RoleDefinition> = {
   },
 
   // ─── Legacy ────────────────────────────────────────────────────────────────
-  // Rows created before the portal defined five roles. They keep working; the
+  // Rows created before the portal defined its roles. They keep working; the
   // portal neither offers nor accepts them.
 
   [EnterpriseRole.CLUSTER_ADMIN]: {
@@ -164,6 +154,22 @@ export const ROLE_DEFINITIONS: Record<EnterpriseRole, RoleDefinition> = {
     legacy: true,
   },
 };
+
+/**
+ * Roles that can see what is in reach but must never create, edit or cancel
+ * anything — including listings, which are otherwise open to any member.
+ */
+const VIEW_ONLY_ROLES: readonly EnterpriseRole[] = [EnterpriseRole.ENTERPRISE_ADMIN];
+
+export function isViewOnlyRole(role: EnterpriseRole | null | undefined): boolean {
+  return Boolean(role && VIEW_ONLY_ROLES.includes(role));
+}
+
+export function assertNotViewOnly(caller: { enterpriseRole?: EnterpriseRole | null }) {
+  if (isViewOnlyRole(caller.enterpriseRole)) {
+    throw new ForbiddenException('Your role is view only. Ask an Enterprise Super Admin to make this change.');
+  }
+}
 
 export function isPortalRole(role: EnterpriseRole): boolean {
   return !ROLE_DEFINITIONS[role]?.legacy;

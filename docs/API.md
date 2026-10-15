@@ -2137,7 +2137,7 @@ Invite user
 | `lastName` | `string` | yes | max length 80 |
 | `email` | `string (email)` | yes | — |
 | `mobile` | `string` | no | max length 30 |
-| `role` | `SUPER_ADMIN | ENTERPRISE_ADMIN | REPORTING_USER | GROUP_ADMIN | CLUSTER_ADMIN | SITE_ADMIN | SITE_USER` | yes | — |
+| `role` | `SUPER_ADMIN | ENTERPRISE_ADMIN | GROUP_ADMIN | CLUSTER_ADMIN | SITE_ADMIN | SITE_USER` | yes | — |
 | `scopes` | `ScopeGrantDto[]` | no | — |
 | `scopes[].scopeType` | `ENTERPRISE | GROUP | CLUSTER | TERRITORY | SITE` | yes | — |
 | `scopes[].scopeId` | `number` | no | — |
@@ -2890,7 +2890,7 @@ Everyone in the Enterprise — members and people still on an invitation —
 | `page` | query | no | number |
 | `pageSize` | query | no | number |
 | `search` | query | no | string |
-| `role` | query | no | SUPER_ADMIN | ENTERPRISE_ADMIN | REPORTING_USER | GROUP_ADMIN | CLUSTER_ADMIN | SITE_ADMIN | SITE_USER |
+| `role` | query | no | SUPER_ADMIN | ENTERPRISE_ADMIN | GROUP_ADMIN | CLUSTER_ADMIN | SITE_ADMIN | SITE_USER |
 | `status` | query | no | ACTIVE | INVITED | DEACTIVATED |
 | `scopeType` | query | no | ENTERPRISE | GROUP | CLUSTER | TERRITORY | SITE |
 | `scopeId` | query | no | number |
@@ -2910,7 +2910,7 @@ Invite
 | `lastName` | `string` | yes | max length 80 |
 | `email` | `string (email)` | yes | — |
 | `mobile` | `string` | no | max length 30 |
-| `role` | `SUPER_ADMIN | ENTERPRISE_ADMIN | REPORTING_USER | GROUP_ADMIN | CLUSTER_ADMIN | SITE_ADMIN | SITE_USER` | yes | — |
+| `role` | `SUPER_ADMIN | ENTERPRISE_ADMIN | GROUP_ADMIN | CLUSTER_ADMIN | SITE_ADMIN | SITE_USER` | yes | — |
 | `scopes` | `ScopeGrantDto[]` | no | — |
 | `scopes[].scopeType` | `ENTERPRISE | GROUP | CLUSTER | TERRITORY | SITE` | yes | — |
 | `scopes[].scopeId` | `number` | no | — |
@@ -2949,7 +2949,7 @@ Update
 | `firstName` | `string` | no | — |
 | `lastName` | `string` | no | — |
 | `mobile` | `string` | no | — |
-| `role` | `SUPER_ADMIN | ENTERPRISE_ADMIN | REPORTING_USER | GROUP_ADMIN | CLUSTER_ADMIN | SITE_ADMIN | SITE_USER` | no | — |
+| `role` | `SUPER_ADMIN | ENTERPRISE_ADMIN | GROUP_ADMIN | CLUSTER_ADMIN | SITE_ADMIN | SITE_USER` | no | — |
 
 
 ### `POST` /api/v1/enterprise/users/{userId}/activate

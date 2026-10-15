@@ -8,6 +8,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../auth/interface/jwt.interface';
+import { assertNotViewOnly } from '../enterprise/enterprise.permissions';
 import { ConnectionNotifier } from './connection.notifier';
 import {
   assertDistinctSites, assertTransition, CONNECTION_ERROR, isCollecting,
@@ -255,6 +256,7 @@ export class ConnectionService {
     connectionId: number,
     status: ConnectionStatus,
   ) {
+    assertNotViewOnly(caller);
     const connection = await this.requireConnection(connectionId);
     await this.assertEitherSide(caller, connection);
     assertTransition(connection.status, status);

@@ -14,6 +14,7 @@ import { EmailQueueService } from '../../../modules/notifications/queues/email.q
 import { BillingService } from '../../billing/services/billing.service';
 import { SubscriptionAccessService } from '../../subscriptions/services/subscription-access.service';
 import { assertValidTimezone } from '../../connections/connection.schedule';
+import { assertNotViewOnly } from '../../enterprise/enterprise.permissions';
 import {
   AddStaffDto,
   AssignExistingSiteAdminDto,
@@ -704,6 +705,7 @@ export class SitesService {
   // Same findOrCreate pattern as assignSiteManager — upserts the SiteAccess row.
 
   async addStaff(caller: Jwtpayload, siteId: number, dto: AddStaffDto) {
+    assertNotViewOnly(caller);
     await this.assertSiteAccess(caller, siteId);
 
     const site = await this.assertSiteInOrg(siteId, caller.orgId!);
@@ -803,6 +805,7 @@ export class SitesService {
   // Only SUPER_ADMINs can remove a SITE_ADMIN — staff can be removed by managers.
 
   async removeAccess(caller: Jwtpayload, siteId: number, targetUserId: number) {
+    assertNotViewOnly(caller);
     await this.assertSiteInOrg(siteId, caller.orgId!);
     await this.assertSiteAccess(caller, siteId);
 
@@ -1263,27 +1266,18 @@ export class SitesService {
     };
   }
 
-  /** Super Admin or Enterprise Admin may add and assign sites. */
+  /** Only a Super Admin may add and assign sites. */
   private assertCanManageSites(caller: Jwtpayload) {
     if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
-    if (
-      caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
-      caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN
-    ) {
-      return;
-    }
-    throw new ForbiddenException('Only an Enterprise Super Admin or Enterprise Admin can manage sites');
+    if (caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN) return;
+    throw new ForbiddenException('Only an Enterprise Super Admin can manage sites');
   }
 
-  /** Super/Enterprise Admin, or the Site Admin of this site. */
+  /** Super Admin, or the Site Admin of this site. */
   private async assertCanEditSite(caller: Jwtpayload, siteId: number) {
     if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
-    if (
-      caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
-      caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN
-    ) {
-      return;
-    }
+    if (caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN) return;
+    assertNotViewOnly(caller);
     await this.assertSiteAccess(caller, siteId);
   }
 

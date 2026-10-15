@@ -3041,7 +3041,6 @@
               "enum": [
                 "SUPER_ADMIN",
                 "ENTERPRISE_ADMIN",
-                "REPORTING_USER",
                 "GROUP_ADMIN",
                 "CLUSTER_ADMIN",
                 "SITE_ADMIN",
@@ -8484,7 +8483,6 @@
             "enum": [
               "SUPER_ADMIN",
               "ENTERPRISE_ADMIN",
-              "REPORTING_USER",
               "GROUP_ADMIN",
               "CLUSTER_ADMIN",
               "SITE_ADMIN",
@@ -8526,7 +8524,6 @@
             "enum": [
               "SUPER_ADMIN",
               "ENTERPRISE_ADMIN",
-              "REPORTING_USER",
               "GROUP_ADMIN",
               "CLUSTER_ADMIN",
               "SITE_ADMIN",

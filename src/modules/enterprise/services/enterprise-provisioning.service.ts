@@ -22,6 +22,7 @@ import {
   UpdateProvisioningDto,
 } from '../dto/enterprise.dto';
 import { ENTERPRISE_ERROR, ENTERPRISE_PLAN_NAME } from '../enterprise.constants';
+import { roleLabel } from '../enterprise.permissions';
 import { S3Service } from '../../../uploads/s3/s3.service';
 import { EnterpriseAuditService } from './enterprise-audit.service';
 import { EnterpriseInvitationService } from './enterprise-invitation.service';
@@ -351,7 +352,7 @@ export class EnterpriseProvisioningService {
         lastName: row.lastName,
         email: row.email,
         role: row.enterpriseRole,
-        roleLabel: this.roleLabel(row.enterpriseRole),
+        roleLabel: roleLabel(row.enterpriseRole),
         status: 'INVITED' as const,
         invitationSentAt: row.sentAt,
         expiresAt: row.expiresAt,
@@ -500,7 +501,7 @@ export class EnterpriseProvisioningService {
           email: row.email,
           mobile: row.mobile,
           role: row.enterpriseRole,
-          roleLabel: this.roleLabel(row.enterpriseRole),
+          roleLabel: roleLabel(row.enterpriseRole),
           status: 'INVITED' as const,
           invitationSentAt: row.sentAt,
           expiresAt: row.expiresAt,
@@ -641,7 +642,7 @@ export class EnterpriseProvisioningService {
       email: user.email,
       mobile: user.phoneNumber,
       role,
-      roleLabel: this.roleLabel(role),
+      roleLabel: roleLabel(role),
       status: !user.isActive
         ? 'DEACTIVATED'
         : user.termsAcceptedAt || user.lastLoginAt
@@ -650,18 +651,5 @@ export class EnterpriseProvisioningService {
       lastLoginAt: user.lastLoginAt,
       joinedAt: membership.joinedAt,
     };
-  }
-
-  private roleLabel(role: EnterpriseRole): string {
-    const map: Record<EnterpriseRole, string> = {
-      SUPER_ADMIN: 'Enterprise Super Admin',
-      ENTERPRISE_ADMIN: 'Enterprise Admin',
-      REPORTING_USER: 'Reporting User',
-      GROUP_ADMIN: 'Group Admin',
-      SITE_ADMIN: 'Site Admin',
-      CLUSTER_ADMIN: 'Cluster Admin',
-      SITE_USER: 'Site User',
-    };
-    return map[role];
   }
 }

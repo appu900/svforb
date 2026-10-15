@@ -23,6 +23,7 @@ import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { EmailQueueService } from '../../notifications/queues/email.queue.service';
 import { ENTERPRISE_ERROR } from '../enterprise.constants';
+import { roleLabel } from '../enterprise.permissions';
 import { AuditActor, EnterpriseAuditService } from './enterprise-audit.service';
 
 /** How long an activation link stays usable. */
@@ -221,7 +222,7 @@ export class EnterpriseInvitationService {
         entityId: invitationId,
         entityLabel: email,
         newValue: { role: input.role, scopes: input.scopes.length },
-        summary: `${input.firstName} ${input.lastName} invited as ${this.roleLabel(input.role)}`,
+        summary: `${input.firstName} ${input.lastName} invited as ${roleLabel(input.role)}`,
       });
     }
 
@@ -360,7 +361,7 @@ export class EnterpriseInvitationService {
       firstName: invitation.firstName,
       lastName: invitation.lastName,
       enterprise: invitation.organisation.name,
-      role: this.roleLabel(invitation.enterpriseRole),
+      role: roleLabel(invitation.enterpriseRole),
       expiresAt: invitation.expiresAt,
       termsVersion: TERMS_VERSION,
       invitedByName: invitedByName || undefined,
@@ -533,7 +534,7 @@ export class EnterpriseInvitationService {
       userId: user.id,
       email: user.email,
       enterprise: invitation.organisation.name,
-      role: this.roleLabel(invitation.enterpriseRole),
+      role: roleLabel(invitation.enterpriseRole),
     };
   }
 
@@ -626,7 +627,7 @@ export class EnterpriseInvitationService {
       to: meta.email,
       name: meta.firstName,
       enterpriseName: meta.organisationName,
-      role: this.roleLabel(meta.role),
+      role: roleLabel(meta.role),
       activationUrl: link,
       expiresInHours: INVITATION_TTL_HOURS,
       invitedByName: invitedByName || undefined,
@@ -664,18 +665,6 @@ export class EnterpriseInvitationService {
     return name || undefined;
   }
 
-  private roleLabel(role: EnterpriseRole): string {
-    const map: Record<EnterpriseRole, string> = {
-      SUPER_ADMIN: 'Enterprise Super Admin',
-      ENTERPRISE_ADMIN: 'Enterprise Admin',
-      GROUP_ADMIN: 'Group Admin',
-      REPORTING_USER: 'Reporting User',
-      SITE_ADMIN: 'Site Admin',
-      CLUSTER_ADMIN: 'Cluster Admin',
-      SITE_USER: 'Site User',
-    };
-    return map[role];
-  }
 }
 
 /** Kept for callers that need the Prisma payload shape. */

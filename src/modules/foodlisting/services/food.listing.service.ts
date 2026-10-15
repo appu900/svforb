@@ -25,6 +25,7 @@ import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 import { resolveCallerSiteId } from '../utils/resolve-caller-site';
 import { canAccessListing, ExclusivityView } from '../../connections/connection.rules';
+import { assertNotViewOnly } from '../../enterprise/enterprise.permissions';
 
 const PHOTO_FOLDER = 'food-listing-photos';
 const DEFAULT_LIMIT = 20;
@@ -94,6 +95,7 @@ export class FoodListingService {
     dto: CreateFoodListingDto,
     photos?: Express.Multer.File[],
   ) {
+    assertNotViewOnly(caller);
     if (!dto.foodItems?.length) {
       throw new BadRequestException('At least one food item is required');
     }
@@ -711,6 +713,7 @@ export class FoodListingService {
   }
 
   async cancelListing(caller: Jwtpayload, id: number) {
+    assertNotViewOnly(caller);
     const listing = await this.prisma.foodListing.findFirst({
       where: { id, organisationId: caller.orgId },
     });

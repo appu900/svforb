@@ -7,10 +7,7 @@ import { EnterpriseAuditService } from './enterprise-audit.service';
 import { EnterpriseScopeService } from './enterprise-scope.service';
 
 /** Roles permitted to edit organisation details. */
-const PROFILE_EDITORS: EnterpriseRole[] = [
-  EnterpriseRole.SUPER_ADMIN,
-  EnterpriseRole.ENTERPRISE_ADMIN,
-];
+const PROFILE_EDITORS: EnterpriseRole[] = [EnterpriseRole.SUPER_ADMIN];
 
 /**
  * Organisation Profile — the first page inside Enterprise Settings.
