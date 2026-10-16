@@ -18,6 +18,7 @@ export type AdminConnectionDays = {
   collected: number;
   released: number;
   noFood: number;
+  notListed: number;
   missed: number;
   open: number;
 };
@@ -87,6 +88,7 @@ type RawConnection = {
   days_collected: number;
   days_released: number;
   days_no_food: number;
+  days_not_listed: number;
   days_missed: number;
   days_open: number;
 };
@@ -215,6 +217,7 @@ export class AdminConnectionsService {
           COALESCE(day_stats.collected, 0)::int AS days_collected,
           COALESCE(day_stats.released, 0)::int AS days_released,
           COALESCE(day_stats.no_food, 0)::int AS days_no_food,
+          COALESCE(day_stats.not_listed, 0)::int AS days_not_listed,
           COALESCE(day_stats.missed, 0)::int AS days_missed,
           COALESCE(day_stats.open, 0)::int AS days_open
         FROM connections cn
@@ -244,7 +247,8 @@ export class AdminConnectionsService {
             COUNT(*) FILTER (WHERE d.outcome::text = 'COLLECTED') AS collected,
             COUNT(*) FILTER (WHERE d.outcome::text = 'RELEASED') AS released,
             COUNT(*) FILTER (WHERE d.outcome::text = 'NO_SURPLUS') AS no_food,
-            COUNT(*) FILTER (WHERE d.outcome::text IN ('NO_RESPONSE', 'MISSED')) AS missed,
+            COUNT(*) FILTER (WHERE d.outcome::text = 'NO_RESPONSE') AS not_listed,
+            COUNT(*) FILTER (WHERE d.outcome::text = 'MISSED') AS missed,
             COUNT(*) FILTER (WHERE d.outcome::text IN ('PROMPTED', 'PUBLISHED')) AS open
           FROM connection_days d
           WHERE d."connectionId" = cn.id AND ${inPeriod(SCHEDULED_DAY_SQL)}
@@ -307,6 +311,7 @@ export class AdminConnectionsService {
           collected: num(row.days_collected),
           released: num(row.days_released),
           noFood: num(row.days_no_food),
+          notListed: num(row.days_not_listed),
           missed: num(row.days_missed),
           open: num(row.days_open),
         },
