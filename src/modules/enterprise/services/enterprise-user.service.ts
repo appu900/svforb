@@ -547,6 +547,66 @@ export class EnterpriseUserService {
     return this.getUser(caller, userId);
   }
 
+  /**
+   * Saveful admin switching an existing member to an Enterprise-wide role.
+   * Site-scoped roles need a site picked, so those stay on the site screens.
+   */
+  async setRoleForOrganisation(
+    caller: Jwtpayload,
+    organisationId: number,
+    userId: number,
+    role: EnterpriseRole,
+  ) {
+    if (caller.platformRole !== PlatformRole.PLATFORM_ADMIN) {
+      throw new ForbiddenException('Platform admin access required');
+    }
+    if (!isPortalRole(role) || !isUnrestricted(role)) {
+      throw new BadRequestException(
+        'Choose Enterprise Super Admin or Enterprise Admin (View only). Site roles are set from the site.',
+      );
+    }
+
+    const membership = await this.requireMembership(userId, organisationId);
+    const previousRole = membership.enterpriseRole ?? this.legacyRole(membership.orgRole);
+    if (previousRole === role) return { message: 'No change', role, roleLabel: roleLabel(role) };
+    await this.assertNotLastSuperAdmin(organisationId, userId, role, previousRole);
+
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.orgMemeberShip.update({
+        where: { id: membership.id },
+        data: {
+          enterpriseRole: role,
+          orgRole: role === EnterpriseRole.SUPER_ADMIN ? OrgRole.SUPER_ADMIN : OrgRole.ORG_MEMBER,
+        },
+      });
+      await tx.userScope.deleteMany({ where: { userId, organisationId } });
+    });
+
+    await this.audit.recordFor(caller, {
+      organisationId,
+      area: AuditArea.USERS,
+      action: 'user.role_changed',
+      entityType: 'User',
+      entityId: userId,
+      entityLabel: user.email,
+      previousValue: { role: previousRole },
+      newValue: { role },
+      summary:
+        `${user.firstName} ${user.lastName} changed from ` +
+        `${roleLabel(previousRole)} to ${roleLabel(role)}`,
+    });
+
+    this.logger.log(
+      `Role set by platform admin: user=${userId} org=${organisationId} ${previousRole} -> ${role} by=${caller.sub}`,
+    );
+    return { message: 'Role updated', role, roleLabel: roleLabel(role) };
+  }
+
   /** Replaces a user's scope grants wholesale. */
   async setScopes(caller: Jwtpayload, userId: number, dto: SetUserScopesDto) {
     const orgId = await this.assertUserAdmin(caller);

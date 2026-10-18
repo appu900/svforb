@@ -152,6 +152,10 @@ export class UpdateEnterpriseUserDto {
   @IsEnum(EnterpriseRole) @IsOptional() role?: EnterpriseRole;
 }
 
+export class SetMemberRoleDto {
+  @IsEnum(EnterpriseRole) role!: EnterpriseRole;
+}
+
 export class SetUserScopesDto {
   @IsArray()
   @ValidateNested({ each: true })

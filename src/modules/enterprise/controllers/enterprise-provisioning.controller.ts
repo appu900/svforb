@@ -16,12 +16,14 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { PlatformAdminGuard } from '../../../common/guards/platform-admin.guard';
+import { InvalidatesCache } from '../../../infra/http-cache/http-cache.decorators';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 import {
   InviteSiteUserDto,
   InviteUserDto,
   ProvisionEnterpriseDto,
+  SetMemberRoleDto,
   UpdateProvisioningDto,
 } from '../dto/enterprise.dto';
 import { SitesService } from '../../sites/service/sites.service';
@@ -172,6 +174,17 @@ export class EnterpriseProvisioningController {
     @Body() dto: InviteUserDto,
   ) {
     return this.users.inviteUserForOrganisation(req.user, organisationId, dto);
+  }
+
+  @Patch(':organisationId/users/:userId/role')
+  @InvalidatesCache('structure', 'identity')
+  setUserRole(
+    @Req() req: Request & { user: Jwtpayload },
+    @Param('organisationId', ParseIntPipe) organisationId: number,
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: SetMemberRoleDto,
+  ) {
+    return this.users.setRoleForOrganisation(req.user, organisationId, userId, dto.role);
   }
 
   @Get(':organisationId')
