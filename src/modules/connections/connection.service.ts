@@ -604,40 +604,42 @@ export class ConnectionService {
   }
 
   /**
-   * Setting up a standing relationship is an admin act: a site admin for that
-   * site, or an organisation admin above it.
+   * Any admin or staff member of the site may set up and edit regular
+   * collections. Drivers and view-only enterprise roles may not.
    */
   private async assertSiteAdmin(caller: Jwtpayload, siteId: number) {
     await this.assertSiteMember(caller, siteId);
-    if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
-
-    const access = await this.prisma.siteAccess.findFirst({
-      where: { userId: caller.sub, siteId, siteRole: SiteRole.SITE_ADMIN },
-      select: { id: true },
-    });
-    if (!access) {
-      throw new ForbiddenException(
-        'Only a site admin or organisation admin can manage regular collections.',
-      );
-    }
+    await this.assertCanManageSite(
+      caller,
+      siteId,
+      'You do not have permission to manage regular collections for this site.',
+    );
   }
 
-  /** Accepting commits vans and volunteers — not a volunteer's decision. */
   private async assertCharitySide(caller: Jwtpayload, connection: { receiverOrgId: number; receiverSiteId: number }) {
     if (caller.orgId !== connection.receiverOrgId) {
       throw new ForbiddenException('This invitation belongs to another organisation.');
     }
-    if (caller.orgRole === OrgRole.SUPER_ADMIN) return;
+    await this.assertCanManageSite(
+      caller,
+      connection.receiverSiteId,
+      'You do not have permission to answer regular collection invitations for this site.',
+    );
+  }
+
+  private async assertCanManageSite(caller: Jwtpayload, siteId: number, message: string) {
+    assertNotViewOnly(caller);
+    if (caller.orgRole === OrgRole.SUPER_ADMIN || caller.orgRole === OrgRole.ORG_ADMIN) return;
 
     const access = await this.prisma.siteAccess.findFirst({
-      where: { userId: caller.sub, siteId: connection.receiverSiteId, siteRole: SiteRole.SITE_ADMIN },
+      where: {
+        userId: caller.sub,
+        siteId,
+        siteRole: { in: [SiteRole.SITE_ADMIN, SiteRole.STAFF] },
+      },
       select: { id: true },
     });
-    if (!access) {
-      throw new ForbiddenException(
-        'Only a site admin or organisation admin can answer a regular collection invitation.',
-      );
-    }
+    if (!access) throw new ForbiddenException(message);
   }
 
   private async assertEitherSide(
