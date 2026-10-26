@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { ClaimStatus, DriverPickupStatus, OrgRole, OrgType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
+import { isUnrestricted } from '../../enterprise/enterprise.permissions';
 import {
   ANIMAL_ORG_TYPES,
   CHARITY_ORG_TYPES,
@@ -135,6 +136,7 @@ export class ImpactService {
   /** Org-wide impact (All sites) — includes claims not tagged to a specific site. */
   async getOrgImpact(caller: Jwtpayload, orgId: number, period: ImpactPeriod = 'week') {
     await this.assertCanAccessOrg(caller, orgId);
+    const siteIds = await this.siteScopeFor(caller, orgId);
 
     const organisation = await this.prisma.organisation.findUnique({
       where: { id: orgId },
@@ -147,19 +149,14 @@ export class ImpactService {
       : 'DONOR';
 
     const site = await this.prisma.site.findFirst({
-      where: { organisationId: orgId },
+      where: siteIds ? { id: { in: siteIds } } : { organisationId: orgId },
       orderBy: { createdAt: 'asc' },
     });
     if (!site) throw new NotFoundException('No sites found for this organisation');
 
     const { start, end } = this.getPeriodRange(period);
     const buckets = this.buildBuckets(period, start);
-
-    // DONOR org aggregate: all sites' listings. RECEIVER: all claims for the org.
-    const claims =
-      mode === 'DONOR'
-        ? await this.fetchDonorOrgClaims(orgId, start, end)
-        : await this.fetchClaims(mode, null, organisation, start, end);
+    const claims = await this.fetchScopedClaims(mode, organisation, siteIds, start, end);
 
     return this.buildResponse(site, organisation, mode, period, start, end, claims, buckets);
   }
@@ -171,6 +168,7 @@ export class ImpactService {
     endDate?: string,
   ) {
     await this.assertCanAccessOrg(caller, orgId);
+    const siteIds = await this.siteScopeFor(caller, orgId);
 
     const organisation = await this.prisma.organisation.findUnique({
       where: { id: orgId },
@@ -183,7 +181,7 @@ export class ImpactService {
       : 'DONOR';
 
     const site = await this.prisma.site.findFirst({
-      where: { organisationId: orgId },
+      where: siteIds ? { id: { in: siteIds } } : { organisationId: orgId },
       orderBy: { createdAt: 'asc' },
     });
     if (!site) throw new NotFoundException('No sites found for this organisation');
@@ -191,13 +189,68 @@ export class ImpactService {
     const start = new Date(startDate);
     const end = endDate ? new Date(endDate) : new Date();
     const buckets = this.buildBucketsForRange(start, end);
-
-    const claims =
-      mode === 'DONOR'
-        ? await this.fetchDonorOrgClaims(orgId, start, end)
-        : await this.fetchClaims(mode, null, organisation, start, end);
+    const claims = await this.fetchScopedClaims(mode, organisation, siteIds, start, end);
 
     return this.buildResponse(site, organisation, mode, 'range' as any, start, end, claims, buckets);
+  }
+
+  /**
+   * Organisation-wide figures belong to head office. Anyone else in a
+   * multi-site organisation only sees the sites they have access to.
+   * Returns null when the caller may see the whole organisation.
+   */
+  private async siteScopeFor(caller: Jwtpayload, orgId: number): Promise<number[] | null> {
+    const membership = await this.prisma.orgMemeberShip.findFirst({
+      where: { userId: caller.sub, organisationId: orgId },
+      select: { orgRole: true, enterpriseRole: true },
+    });
+    const sameOrg = caller.orgId === orgId;
+    const orgRole = membership?.orgRole ?? (sameOrg ? caller.orgRole : undefined);
+    const enterpriseRole = membership ? membership.enterpriseRole : sameOrg ? caller.enterpriseRole : null;
+    if (orgRole === OrgRole.SUPER_ADMIN || orgRole === OrgRole.ORG_ADMIN || isUnrestricted(enterpriseRole)) {
+      return null;
+    }
+
+    const [accesses, siteCount] = await Promise.all([
+      this.prisma.siteAccess.findMany({
+        where: { userId: caller.sub, site: { organisationId: orgId } },
+        select: { siteId: true },
+      }),
+      this.prisma.site.count({ where: { organisationId: orgId } }),
+    ]);
+    const siteIds = [...new Set(accesses.map((access) => access.siteId))];
+    if (siteIds.length === 0 || siteIds.length >= siteCount) return null;
+    return siteIds;
+  }
+
+  private async fetchScopedClaims(
+    mode: ImpactMode,
+    organisation: { id: number; organizationType: OrgType },
+    siteIds: number[] | null,
+    start: Date | null,
+    end: Date,
+  ): Promise<ClaimRow[]> {
+    if (siteIds) {
+      const perSite = await Promise.all(
+        siteIds.map((siteId) => this.fetchClaims(mode, siteId, organisation, start, end)),
+      );
+      return perSite.flat();
+    }
+    // DONOR org aggregate: all sites' listings. RECEIVER: all claims for the org.
+    return mode === 'DONOR'
+      ? this.fetchDonorOrgClaims(organisation.id, start, end)
+      : this.fetchClaims(mode, null, organisation, start, end);
+  }
+
+  private orgScopeFilter(mode: ImpactMode, orgId: number, siteIds: number[] | null): Prisma.Sql {
+    if (mode === 'RECEIVER') {
+      return siteIds
+        ? Prisma.sql`fc."claimantOrgId" = ${orgId} AND fc."claimantSiteId" IN (${Prisma.join(siteIds)})`
+        : Prisma.sql`fc."claimantOrgId" = ${orgId}`;
+    }
+    return siteIds
+      ? Prisma.sql`fl."siteId" IN (${Prisma.join(siteIds)})`
+      : Prisma.sql`fl."organisationId" = ${orgId}`;
   }
 
   private async assertCanAccessOrg(caller: Jwtpayload, orgId: number) {
@@ -486,10 +539,8 @@ export class ImpactService {
     const collectedFilter = this.buildTopFoodsCollectedFilter(start, end);
 
     // Donors own listings; receivers claim other orgs' listings.
-    const scopeFilter =
-      mode === 'RECEIVER'
-        ? Prisma.sql`fc."claimantOrgId" = ${orgId}`
-        : Prisma.sql`fl."organisationId" = ${orgId}`;
+    const siteIds = await this.siteScopeFor(caller, orgId);
+    const scopeFilter = this.orgScopeFilter(mode, orgId, siteIds);
 
     const rows = await this.queryTopFoodRows(scopeFilter, collectedFilter);
     return this.buildTopFoodsResponse(
@@ -718,10 +769,8 @@ export class ImpactService {
     const end = endDate ? new Date(endDate) : new Date();
 
     // Donors own the listing; receivers own the claim.
-    const scopeFilter =
-      mode === 'RECEIVER'
-        ? Prisma.sql`fc."claimantOrgId" = ${orgId}`
-        : Prisma.sql`fl."organisationId" = ${orgId}`;
+    const siteIds = await this.siteScopeFor(caller, orgId);
+    const scopeFilter = this.orgScopeFilter(mode, orgId, siteIds);
 
     const [rows, foodRows] = await Promise.all([
       this.queryRecipientRows(scopeFilter, start, end, mode),
