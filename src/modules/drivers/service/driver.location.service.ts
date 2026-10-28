@@ -12,6 +12,7 @@ import { RedisService } from '../../../infra/redis/redis.service';
 import { S3Service } from '../../../uploads/s3/s3.service';
 import { NotificationService } from '../../../modules/notifications/services/notification.service';
 import { canMarkConnectionDayCollected } from '../../connections/connection.rules';
+import { siteAudienceUserIds } from '../../../common/site-audience';
 
 const DRIVER_TTL_SECONDS = 8 * 60 * 60;
 const PHOTO_FOLDER = 'driver-pickups';
@@ -355,7 +356,9 @@ export class DriverLocationService {
         claim: {
           include: {
             claimItems: true,
-            listing: { select: { id: true, status: true, organisationId: true, remainingQtyKg: true } },
+            listing: {
+              select: { id: true, status: true, organisationId: true, siteId: true, remainingQtyKg: true },
+            },
             claimantOrg: { select: { id: true, name: true } },
           },
         },
@@ -503,7 +506,10 @@ export class DriverLocationService {
           );
       }
 
-      const restaurantUserIds = await this.getOrgUserIds(pickup.claim.listing.organisationId);
+      const restaurantUserIds = await this.getOrgUserIds(
+        pickup.claim.listing.organisationId,
+        pickup.claim.listing.siteId,
+      );
       if (restaurantUserIds.length > 0) {
         await this.notificationService
           .send({
@@ -672,6 +678,7 @@ export class DriverLocationService {
         listing: {
           select: {
             organisationId: true,
+            siteId: true,
           },
         },
       },
@@ -702,7 +709,7 @@ export class DriverLocationService {
 
       const [charityUserIds, restaurantUserIds] = await Promise.all([
         this.getOrgUserIds(pickup.claim.claimantOrgId),
-        this.getOrgUserIds(pickup.listing.organisationId),
+        this.getOrgUserIds(pickup.listing.organisationId, pickup.listing.siteId),
       ]);
 
       const notifyUserIds = [...new Set([...charityUserIds, ...restaurantUserIds])];
@@ -952,14 +959,8 @@ export class DriverLocationService {
     };
   }
 
-  private async getOrgUserIds(orgId: number): Promise<number[]> {
-    const users = await this.prisma.user.findMany({
-      where: {
-        isActive: true,
-        orgMemeberShips: { some: { organisationId: orgId } },
-      },
-      select: { id: true },
-    });
-    return users.map((u) => u.id);
+  /** Pass the listing's site so multi-site organisations only notify that site and head office. */
+  private async getOrgUserIds(orgId: number, siteId?: number | null): Promise<number[]> {
+    return siteAudienceUserIds(this.prisma, orgId, siteId, { activeOnly: true });
   }
 }

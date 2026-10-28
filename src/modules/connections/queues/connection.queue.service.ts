@@ -14,7 +14,7 @@ export const CONNECTION_JOBS = {
 } as const;
 
 /**
- * The 4h prompt and 2.5h list-by push land at most this late. A window can
+ * The 4h prompt and 1h list-by push land at most this late. A window can
  * start on any minute (10:31), so anything coarser visibly misses it. A sweep
  * that misses a tick still catches up on the next one.
  */

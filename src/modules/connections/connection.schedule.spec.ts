@@ -87,7 +87,7 @@ describe('Connection scheduling', () => {
 
     it('speaks the daily reminder window and the add-by time', () => {
       expect(formatWindowRange(16 * 60, 17 * 60)).toBe('4:00–5:00 pm');
-      expect(formatClock12(16 * 60 - LIST_BY_MINUTES)).toBe('1:30 pm');
+      expect(formatClock12(16 * 60 - LIST_BY_MINUTES)).toBe('3:00 pm');
       expect(formatWindowRange(23 * 60, 60)).toBe('11:00 pm–1:00 am');
     });
   });
@@ -141,7 +141,7 @@ describe('Connection scheduling', () => {
       expect(day.cutoffAt < day.windowStartAt).toBe(true);
     });
 
-    it('reminds the business 4 hours before pickup and asks the charity to confirm 1.5 hours before', () => {
+    it('reminds the business 4 hours before pickup and asks the charity to confirm 30 minutes before', () => {
       const day = resolveDay(
         scheduleFor(BRISBANE, {
           leadTimeMinutes: PROMPT_LEAD_MINUTES,
@@ -150,10 +150,16 @@ describe('Connection scheduling', () => {
         localDate,
       );
       expect(PROMPT_LEAD_MINUTES).toBe(240);
-      expect(LIST_BY_MINUTES).toBe(150);
-      expect(CHARITY_CONFIRM_MINUTES).toBe(90);
+      expect(LIST_BY_MINUTES).toBe(60);
+      expect(CHARITY_CONFIRM_MINUTES).toBe(30);
       expect(day.promptAt.toISOString()).toBe('2026-09-24T02:00:00.000Z'); // 12:00pm
-      expect(day.cutoffAt.toISOString()).toBe('2026-09-24T04:30:00.000Z'); // 2:30pm
+      expect(day.cutoffAt.toISOString()).toBe('2026-09-24T05:30:00.000Z'); // 3:30pm
+    });
+
+    it('keeps the charity deadline after the business list-by for connections saved at 90 minutes', () => {
+      const day = resolveDay(scheduleFor(BRISBANE, { cutoffMinutes: 90 }), localDate);
+      expect(day.cutoffAt.toISOString()).toBe('2026-09-24T05:30:00.000Z'); // 3:30pm
+      expect(listByAt(day.windowStartAt) < day.cutoffAt).toBe(true);
     });
 
     it('carries a window that crosses midnight into the next day', () => {
@@ -239,11 +245,11 @@ describe('Connection scheduling', () => {
   });
 
   describe('business list-by deadline', () => {
-    it('is 2.5 hours before pickup', () => {
+    it('is 1 hour before pickup', () => {
       const start = utc('2026-09-24T06:00:00.000Z');
-      expect(listByAt(start).toISOString()).toBe('2026-09-24T03:30:00.000Z');
-      expect(isBusinessListByDue(start, utc('2026-09-24T03:29:00Z'))).toBe(false);
-      expect(isBusinessListByDue(start, utc('2026-09-24T03:30:00Z'))).toBe(true);
+      expect(listByAt(start).toISOString()).toBe('2026-09-24T05:00:00.000Z');
+      expect(isBusinessListByDue(start, utc('2026-09-24T04:59:00Z'))).toBe(false);
+      expect(isBusinessListByDue(start, utc('2026-09-24T05:00:00Z'))).toBe(true);
     });
   });
 

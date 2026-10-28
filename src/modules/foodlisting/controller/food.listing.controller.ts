@@ -50,13 +50,14 @@ export class FoodListingController {
 
   @Get('org/:orgId')
   getByOrg(
+    @Req() req: Request & { user: Jwtpayload },
     @Param('orgId', ParseIntPipe) orgId: number,
     @Query('page', new ParseIntPipe({ optional: true })) page = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
     @Query('status') status?: ListingStatus,
     @Query('fresh') fresh?: string,
   ) {
-    return this.service.getOrgListings(orgId, page, limit, status, fresh === "1" || fresh === "true");
+    return this.service.getOrgListings(req.user, orgId, page, limit, status, fresh === "1" || fresh === "true");
   }
 
   @Get('/site')

@@ -86,7 +86,7 @@ export class ConnectionService {
     const windowStartMinutes = parseLocalTime(dto.windowStart);
     const windowEndMinutes = parseLocalTime(dto.windowEnd);
     const leadTimeMinutes = dto.leadTimeMinutes ?? PROMPT_LEAD_MINUTES;
-    const cutoffMinutes = dto.cutoffMinutes ?? CHARITY_CONFIRM_MINUTES;
+    const cutoffMinutes = Math.min(dto.cutoffMinutes ?? CHARITY_CONFIRM_MINUTES, CHARITY_CONFIRM_MINUTES);
 
     validateSchedule({
       daysOfWeek: dto.daysOfWeek, windowStartMinutes, windowEndMinutes,
@@ -307,7 +307,10 @@ export class ConnectionService {
       ? parseLocalTime(dto.windowEnd) : connection.windowEndMinutes;
     const daysOfWeek = dto.daysOfWeek ?? connection.daysOfWeek;
     const leadTimeMinutes = dto.leadTimeMinutes ?? connection.leadTimeMinutes;
-    const cutoffMinutes = dto.cutoffMinutes ?? connection.cutoffMinutes;
+    const cutoffMinutes = Math.min(
+      dto.cutoffMinutes ?? connection.cutoffMinutes,
+      CHARITY_CONFIRM_MINUTES,
+    );
 
     validateSchedule({
       daysOfWeek, windowStartMinutes, windowEndMinutes, leadTimeMinutes, cutoffMinutes,

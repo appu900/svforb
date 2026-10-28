@@ -173,7 +173,7 @@ export function releaseReasonFor(trigger: ReleaseTrigger): ListingReleaseReason 
 }
 
 /**
- * Charity must confirm 1.5 hours before pickup. If they had that window and
+ * Charity must confirm 30 minutes before pickup. If they had that window and
  * stay silent, release to nearby. A listing created after that deadline
  * (late surplus) stays reserved until the pickup window ends.
  */

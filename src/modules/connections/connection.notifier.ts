@@ -227,7 +227,7 @@ export class ConnectionNotifier {
     );
   }
 
-  /** 2.5 hours before pickup — last chance for the kitchen to list. */
+  /** 1 hour before pickup — last chance for the kitchen to list. */
   async listByReminder(input: {
     connectionId: number;
     connectionDayId: number;
@@ -274,7 +274,7 @@ export class ConnectionNotifier {
     items: Array<{ name: string; quantityKg: number }>;
     windowStartMinutes: number;
     windowEndMinutes: number;
-    /** ISO datetime by which the charity must confirm (1.5 hrs before pickup). */
+    /** ISO datetime by which the charity must confirm (30 minutes before pickup). */
     cutoffAt?: Date | null;
     donorTimezone?: string;
   }): Promise<void> {

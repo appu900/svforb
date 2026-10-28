@@ -27,7 +27,7 @@ export class ConnectionWorker extends WorkerHost {
 
       case CONNECTION_JOBS.SWEEP_UNCONFIRMED: {
         const { escalated, released } = await this.daily.sweepUnconfirmed();
-        // Business silence at the 2.5-hour deadline — notify the charity.
+        // Business silence at the 1-hour deadline — notify the charity.
         const missed = await this.daily.sweepMissed();
         if (escalated || released || missed) await this.invalidateCache();
         break;

@@ -26,6 +26,7 @@ import { CreateClaimDto, MarkCollectedDto, ProviderFeedbackDto, RateClaimDto, Ra
 import { resolveCallerSiteId } from '../../foodlisting/utils/resolve-caller-site';
 import { canMarkConnectionDayCollected } from '../../connections/connection.rules';
 import { assertCanClaim } from '../../connections/connection.rules';
+import { siteAudienceUserIds } from '../../../common/site-audience';
 
 const DEFAULT_LIMIT = 20;
 
@@ -246,7 +247,10 @@ export class ClaimsService {
     // The body distinguishes a full claim from a partial one and carries the
     // remaining weight, so the provider knows from the notification alone
     // whether anything is still on offer rather than having to open the app.
-    const restaurantUserIds = await this.getOrgUserIds(result.listing.organisationId);
+    const restaurantUserIds = await this.getOrgUserIds(
+      result.listing.organisationId,
+      result.listing.siteId,
+    );
     if (restaurantUserIds.length) {
       const claimantName = claimantOrg?.name ?? 'An organisation';
       const isFullyClaimed = result.newStatus === ListingStatus.CLAIMED;
@@ -616,7 +620,10 @@ export class ClaimsService {
       ? result.claim.listing.organisationId
       : result.claim.claimantOrgId;
 
-    const userIds = await this.getOrgUserIds(notifyOrgId);
+    const userIds = await this.getOrgUserIds(
+      notifyOrgId,
+      result.isClaimant ? result.claim.listing.siteId : null,
+    );
     if (userIds.length) {
       await this.notificationService.send({
         title: 'Claim cancelled',
@@ -768,6 +775,7 @@ export class ClaimsService {
       claimId,
       listingId: claim.listingId,
       restaurantOrgId: claim.listing.organisationId,
+      restaurantSiteId: claim.listing.siteId,
       claimantName: claim.claimantOrg?.name,
       collectedKg: totalQtyKg,
       itemList: claim.claimItems
@@ -790,7 +798,7 @@ export class ClaimsService {
     const claim = await this.prisma.foodClaim.findUnique({
       where: { id: claimId },
       include: {
-        listing: { select: { organisationId: true, id: true } },
+        listing: { select: { organisationId: true, id: true, siteId: true } },
         claimantOrg: { select: { name: true } },
       },
     });
@@ -849,6 +857,7 @@ export class ClaimsService {
       claimId,
       listingId: claim.listingId,
       restaurantOrgId: claim.listing.organisationId,
+      restaurantSiteId: claim.listing.siteId,
       claimantName: claim.claimantOrg?.name,
     });
 
@@ -1258,15 +1267,9 @@ export class ClaimsService {
     });
   }
 
-  private async getOrgUserIds(orgId: number): Promise<number[]> {
-    const users = await this.prisma.user.findMany({
-      where: {
-        isActive: true,
-        orgMemeberShips: { some: { organisationId: orgId } },
-      },
-      select: { id: true },
-    });
-    return users.map((u) => u.id);
+  /** Pass the listing's site so multi-site organisations only notify that site and head office. */
+  private async getOrgUserIds(orgId: number, siteId?: number | null): Promise<number[]> {
+    return siteAudienceUserIds(this.prisma, orgId, siteId, { activeOnly: true });
   }
 
   /** After claimant collects + rates, ask the restaurant to confirm and evaluate. */
@@ -1274,11 +1277,12 @@ export class ClaimsService {
     claimId: number;
     listingId: number;
     restaurantOrgId: number;
+    restaurantSiteId?: number | null;
     claimantName?: string | null;
     collectedKg: number;
     itemList: string;
   }) {
-    const userIds = await this.getOrgUserIds(params.restaurantOrgId);
+    const userIds = await this.getOrgUserIds(params.restaurantOrgId, params.restaurantSiteId);
     if (!userIds.length) return;
 
     const partner = params.claimantName?.trim() || 'Your collection partner';
@@ -1306,9 +1310,10 @@ export class ClaimsService {
     claimId: number;
     listingId: number;
     restaurantOrgId: number;
+    restaurantSiteId?: number | null;
     claimantName?: string | null;
   }) {
-    const userIds = await this.getOrgUserIds(params.restaurantOrgId);
+    const userIds = await this.getOrgUserIds(params.restaurantOrgId, params.restaurantSiteId);
     if (!userIds.length) return;
 
     const partner = params.claimantName?.trim() || 'Your collection partner';

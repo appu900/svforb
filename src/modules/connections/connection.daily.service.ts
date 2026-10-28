@@ -486,7 +486,7 @@ export class ConnectionDailyService {
   }
 
   /**
-   * Business silence at the 2.5-hour deadline. Marked NO_RESPONSE so it stays
+   * Business silence at the 1-hour deadline. Marked NO_RESPONSE so it stays
    * distinct from an explicit “no surplus” in reporting, and the charity is told
    * not to wait.
    */

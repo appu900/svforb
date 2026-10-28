@@ -11,7 +11,9 @@ import {
   ConnectionDayOutcome,
   FoodListingType,
   ListingStatus,
+  OrgRole,
   OrgType,
+  PlatformRole,
   Prisma,
   DriverPickupStatus,
 } from '@prisma/client';
@@ -25,7 +27,7 @@ import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 import { resolveCallerSiteId } from '../utils/resolve-caller-site';
 import { canAccessListing, ExclusivityView } from '../../connections/connection.rules';
-import { assertNotViewOnly } from '../../enterprise/enterprise.permissions';
+import { assertNotViewOnly, isUnrestricted } from '../../enterprise/enterprise.permissions';
 
 const PHOTO_FOLDER = 'food-listing-photos';
 const DEFAULT_LIMIT = 20;
@@ -237,21 +239,66 @@ export class FoodListingService {
     })
     return allFoodListings;
   }
+  /**
+   * Members only. Head office sees every site; site staff in a multi-site
+   * organisation see only their own sites. Returns null for the whole organisation.
+   */
+  private async orgListingSiteScope(caller: Jwtpayload, orgId: number): Promise<number[] | null> {
+    if (caller.platformRole === PlatformRole.PLATFORM_ADMIN) return null;
+
+    const [membership, accesses, siteCount] = await Promise.all([
+      this.prisma.orgMemeberShip.findFirst({
+        where: { userId: caller.sub, organisationId: orgId },
+        select: { orgRole: true, enterpriseRole: true },
+      }),
+      this.prisma.siteAccess.findMany({
+        where: { userId: caller.sub, site: { organisationId: orgId } },
+        select: { siteId: true },
+      }),
+      this.prisma.site.count({ where: { organisationId: orgId } }),
+    ]);
+
+    const sameOrg = caller.orgId === orgId;
+    if (!membership && !sameOrg && accesses.length === 0) {
+      throw new ForbiddenException('You do not have access to this organisation');
+    }
+
+    const orgRole = membership?.orgRole ?? (sameOrg ? caller.orgRole : undefined);
+    const enterpriseRole = membership ? membership.enterpriseRole : sameOrg ? caller.enterpriseRole : null;
+    if (orgRole === OrgRole.SUPER_ADMIN || orgRole === OrgRole.ORG_ADMIN || isUnrestricted(enterpriseRole)) {
+      return null;
+    }
+
+    const siteIds = [...new Set(accesses.map((access) => access.siteId))];
+    if (siteIds.length === 0 || siteIds.length >= siteCount) return null;
+    return siteIds;
+  }
+
   async getOrgListings(
+    caller: Jwtpayload,
     orgId: number,
     page = 1,
     limit = DEFAULT_LIMIT,
     status?: ListingStatus,
     fresh = false,
   ) {
-    const cacheKey = status || fresh ? null : await this.cache.getOrgPage(orgId, page);
+    const siteIds = await this.orgListingSiteScope(caller, orgId);
+    // The org page cache holds whole-organisation results only.
+    const useCache = !siteIds && !status && !fresh;
+
+    const cacheKey = useCache ? await this.cache.getOrgPage(orgId, page) : null;
     if (cacheKey) return cacheKey;
 
     const skip = (page - 1) * limit;
+    const where: Prisma.FoodListingWhereInput = {
+      organisationId: orgId,
+      ...(siteIds ? { siteId: { in: siteIds } } : {}),
+      ...(status ? { status } : {}),
+    };
 
     const [listings, total] = await Promise.all([
       this.prisma.foodListing.findMany({
-        where: { organisationId: orgId, ...(status ? { status } : {}) },
+        where,
         include: {
           foodItems: true,
           _count: { select: { foodClaims: true } },
@@ -323,9 +370,7 @@ export class FoodListingService {
         skip,
         take: limit,
       }),
-      this.prisma.foodListing.count({
-        where: { organisationId: orgId, ...(status ? { status } : {}) },
-      }),
+      this.prisma.foodListing.count({ where }),
     ]);
 
     // Heal: driver already COLLECTED but claim row never flipped (legacy completePickup bug).
@@ -381,7 +426,7 @@ export class FoodListingService {
       totalPages: Math.ceil(total / limit),
     };
 
-    if (!status && !fresh) await this.cache.setOrgPage(orgId, page, result);
+    if (useCache) await this.cache.setOrgPage(orgId, page, result);
 
     return result;
   }

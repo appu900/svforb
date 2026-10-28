@@ -18,9 +18,12 @@ export const MINUTES_IN_DAY = 24 * 60;
 /** Business is reminded this long before the pickup window starts. */
 export const PROMPT_LEAD_MINUTES = 4 * 60;
 /** Business must add food and quantities this long before pickup. */
-export const LIST_BY_MINUTES = 150;
-/** Charity must confirm collection this long before pickup. */
-export const CHARITY_CONFIRM_MINUTES = 90;
+export const LIST_BY_MINUTES = 60;
+/**
+ * Charity must confirm collection this long before pickup. Must stay below
+ * LIST_BY_MINUTES so the charity always has time after the business lists.
+ */
+export const CHARITY_CONFIRM_MINUTES = 30;
 
 /** ISO weekday: 1 = Monday … 7 = Sunday, matching `Date.getUTCDay()` remapped. */
 export type IsoWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -199,10 +202,14 @@ export function resolveDay(
     schedule.timezone, endDate, schedule.windowEndMinutes,
   );
 
+  // Connections saved under the old 90-minute rule would cut the charity off
+  // before the business is due to list.
+  const cutoffMinutes = Math.min(schedule.cutoffMinutes, CHARITY_CONFIRM_MINUTES);
+
   return {
     scheduledDate: localDate,
     promptAt: new Date(windowStartAt.getTime() - schedule.leadTimeMinutes * 60000),
-    cutoffAt: new Date(windowStartAt.getTime() - schedule.cutoffMinutes * 60000),
+    cutoffAt: new Date(windowStartAt.getTime() - cutoffMinutes * 60000),
     windowStartAt,
     windowEndAt,
   };
@@ -272,7 +279,7 @@ export function dayWordFor(
 /**
  * The kitchen IANA zone required when a Connection is created.
  * Never guess from region — Australia is not one zone, and a guess is how
- * the 4h / 2.5h pushes drifted from the time the app shows.
+ * the 4h / 1h pushes drifted from the time the app shows.
  */
 export function resolveDonorTimezone(siteTimezone?: string | null): string | null {
   const timezone = siteTimezone?.trim();
