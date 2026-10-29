@@ -3,6 +3,7 @@ import { ClaimStatus, DriverPickupStatus, OrgRole, OrgType, Prisma } from '@pris
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { isUnrestricted } from '../../enterprise/enterprise.permissions';
+import { instantForLocalTime } from '../../connections/connection.schedule';
 import {
   ANIMAL_ORG_TYPES,
   CHARITY_ORG_TYPES,
@@ -27,6 +28,29 @@ interface ClaimRow {
   partnerOrgId: number;
   isPeople: boolean;
   isAnimal: boolean;
+}
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Sites without a saved timezone are read as Australian eastern time. */
+const FALLBACK_TIMEZONE = 'Australia/Melbourne';
+
+/**
+ * A YYYY-MM-DD bound covers that whole calendar day where the site is, so a
+ * range ending "29 Oct" includes everything collected on 29 Oct. Full
+ * timestamps are used exactly as sent.
+ */
+export function rangeBound(value: string, edge: 'start' | 'end', timezone?: string | null): Date {
+  if (!DATE_ONLY.test(value)) return new Date(value);
+  const day = new Date(`${value}T00:00:00.000Z`);
+  const localMidnight = edge === 'start' ? day : new Date(day.getTime() + DAY_MS);
+  let instant: Date;
+  try {
+    instant = instantForLocalTime(timezone || FALLBACK_TIMEZONE, localMidnight, 0);
+  } catch {
+    instant = instantForLocalTime(FALLBACK_TIMEZONE, localMidnight, 0);
+  }
+  return edge === 'start' ? instant : new Date(instant.getTime() - 1);
 }
 
 function round1(n: number): number {
@@ -124,8 +148,8 @@ export class ImpactService {
       ? 'RECEIVER'
       : 'DONOR';
 
-    const start = new Date(startDate);
-    const end = endDate ? new Date(endDate) : new Date();
+    const start = rangeBound(startDate, 'start', site.timezone);
+    const end = endDate ? rangeBound(endDate, 'end', site.timezone) : new Date();
 
     const claims = await this.fetchClaims(mode, siteId, organisation, start, end);
     const buckets = this.buildBucketsForRange(start, end);
@@ -186,8 +210,8 @@ export class ImpactService {
     });
     if (!site) throw new NotFoundException('No sites found for this organisation');
 
-    const start = new Date(startDate);
-    const end = endDate ? new Date(endDate) : new Date();
+    const start = rangeBound(startDate, 'start', site.timezone);
+    const end = endDate ? rangeBound(endDate, 'end', site.timezone) : new Date();
     const buckets = this.buildBucketsForRange(start, end);
     const claims = await this.fetchScopedClaims(mode, organisation, siteIds, start, end);
 
@@ -221,6 +245,15 @@ export class ImpactService {
     const siteIds = [...new Set(accesses.map((access) => access.siteId))];
     if (siteIds.length === 0 || siteIds.length >= siteCount) return null;
     return siteIds;
+  }
+
+  private async orgTimezone(orgId: number): Promise<string | null> {
+    const site = await this.prisma.site.findFirst({
+      where: { organisationId: orgId, timezone: { not: null } },
+      orderBy: { createdAt: 'asc' },
+      select: { timezone: true },
+    });
+    return site?.timezone ?? null;
   }
 
   private async fetchScopedClaims(
@@ -534,8 +567,9 @@ export class ImpactService {
       ? 'RECEIVER'
       : 'DONOR';
 
-    const start = startDate ? new Date(startDate) : null;
-    const end = endDate ? new Date(endDate) : new Date();
+    const timezone = await this.orgTimezone(orgId);
+    const start = startDate ? rangeBound(startDate, 'start', timezone) : null;
+    const end = endDate ? rangeBound(endDate, 'end', timezone) : new Date();
     const collectedFilter = this.buildTopFoodsCollectedFilter(start, end);
 
     // Donors own listings; receivers claim other orgs' listings.
@@ -564,7 +598,7 @@ export class ImpactService {
 
     const site = await this.prisma.site.findUnique({
       where: { id: siteId },
-      select: { organisationId: true },
+      select: { organisationId: true, timezone: true },
     });
     if (!site) throw new NotFoundException('Site not found');
 
@@ -578,8 +612,8 @@ export class ImpactService {
       ? 'RECEIVER'
       : 'DONOR';
 
-    const start = startDate ? new Date(startDate) : null;
-    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? rangeBound(startDate, 'start', site.timezone) : null;
+    const end = endDate ? rangeBound(endDate, 'end', site.timezone) : new Date();
     const collectedFilter = this.buildTopFoodsCollectedFilter(start, end);
 
     // Receiver claims: org-wide for All sites; site-tagged for a specific site.
@@ -617,9 +651,9 @@ export class ImpactService {
       }[]
     >`
       SELECT
-        fi.name            AS "foodName",
-        fi.unit            AS "unit",
-        fi.category        AS "category",
+        MIN(TRIM(fi.name))                   AS "foodName",
+        MIN(fi.unit)                         AS "unit",
+        MIN(NULLIF(TRIM(fi.category), ''))   AS "category",
         CAST(SUM(ci."qtyKg") AS FLOAT) AS "totalKg",
         CAST(SUM(
           CASE
@@ -648,7 +682,9 @@ export class ImpactService {
         ${scopeFilter}
         AND fc.status != 'CANCELLED'
         ${collectedFilter}
-      GROUP BY fi.name, fi.unit, fi.category
+      -- Quantities are all kg, so the same food listed with a different unit,
+      -- case or spacing is still one food.
+      GROUP BY LOWER(TRIM(fi.name)), LOWER(COALESCE(TRIM(fi.category), ''))
       ORDER BY "totalKg" DESC
       LIMIT 10
     `;
@@ -765,8 +801,9 @@ export class ImpactService {
       ? 'RECEIVER'
       : 'DONOR';
 
-    const start = startDate ? new Date(startDate) : null;
-    const end = endDate ? new Date(endDate) : new Date();
+    const timezone = await this.orgTimezone(orgId);
+    const start = startDate ? rangeBound(startDate, 'start', timezone) : null;
+    const end = endDate ? rangeBound(endDate, 'end', timezone) : new Date();
 
     // Donors own the listing; receivers own the claim.
     const siteIds = await this.siteScopeFor(caller, orgId);
@@ -791,7 +828,7 @@ export class ImpactService {
 
     const site = await this.prisma.site.findUnique({
       where: { id: siteId },
-      select: { organisationId: true },
+      select: { organisationId: true, timezone: true },
     });
     if (!site) throw new NotFoundException('Site not found');
 
@@ -805,8 +842,8 @@ export class ImpactService {
       ? 'RECEIVER'
       : 'DONOR';
 
-    const start = startDate ? new Date(startDate) : null;
-    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? rangeBound(startDate, 'start', site.timezone) : null;
+    const end = endDate ? rangeBound(endDate, 'end', site.timezone) : new Date();
 
     const scopeFilter =
       mode === 'RECEIVER'
@@ -911,11 +948,11 @@ export class ImpactService {
       }[]
     >`
       SELECT
-        ${partner}                     AS "partnerOrgId",
-        fi.name                        AS "foodName",
-        fi.category                    AS "category",
-        fi.unit                        AS "unit",
-        CAST(SUM(ci."qtyKg") AS FLOAT) AS "totalKg"
+        ${partner}                          AS "partnerOrgId",
+        MIN(TRIM(fi.name))                  AS "foodName",
+        MIN(NULLIF(TRIM(fi.category), ''))  AS "category",
+        MIN(fi.unit)                        AS "unit",
+        CAST(SUM(ci."qtyKg") AS FLOAT)      AS "totalKg"
       FROM claim_items ci
       JOIN food_items    fi ON fi.id = ci."foodItemId"
       JOIN food_claims   fc ON fc.id = ci."claimId"
@@ -924,7 +961,7 @@ export class ImpactService {
         ${scopeFilter}
         AND fc.status != 'CANCELLED'
         ${collectedFilter}
-      GROUP BY ${partner}, fi.name, fi.category, fi.unit
+      GROUP BY ${partner}, LOWER(TRIM(fi.name)), LOWER(COALESCE(TRIM(fi.category), ''))
       ORDER BY "totalKg" DESC
     `;
   }
