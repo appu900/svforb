@@ -973,11 +973,15 @@ export class SitesService {
           'A user with this email already exists but is not a member of your organisation',
         );
       }
-      // Reactivate in case they were previously deactivated
-      await this.prisma.user.update({
-        where: { id: existing.id },
-        data: { isActive: true },
-      });
+      if (!existing.isActive) {
+        // Re-adding a removed person: use the password the admin just entered and
+        // report as new so the credentials email goes out, else they cannot log in.
+        await this.prisma.user.update({
+          where: { id: existing.id },
+          data: { isActive: true, passwordHash: await bcrypt.hash(dto.password, 10) },
+        });
+        return { user: existing, isNewUser: true };
+      }
       return { user: existing, isNewUser: false };
     }
 

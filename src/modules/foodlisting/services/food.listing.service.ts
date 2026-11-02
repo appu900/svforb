@@ -118,6 +118,14 @@ export class FoodListingService {
 
     const totalQtyKg = dto.foodItems.reduce((sum, i) => sum + i.totalQtyKg, 0);
 
+    // Expiry is the earlier of best-before and pickup end, so a best-before inside
+    // the window would expire the listing before it can be collected.
+    const pickupByTime = dto.pickupByTime ? new Date(dto.pickupByTime) : null;
+    let bestBefore = new Date(dto.bestBefore);
+    if (pickupByTime && bestBefore.getTime() < pickupByTime.getTime()) {
+      bestBefore = pickupByTime;
+    }
+
     // Classification is captured now so reassigning the site later cannot
     // rewrite what this listing reported at the time.
     const snapshot = await this.enterpriseScope.snapshotForSite(dto.siteId);
@@ -135,11 +143,11 @@ export class FoodListingService {
           pickupPostcode: dto.pickupPostcode,
           pickupLat: dto.pickupLat,
           pickupLng: dto.pickupLng,
-          bestBefore: new Date(dto.bestBefore),
+          bestBefore,
           pickupFromTime: dto.pickupFromTime
             ? new Date(dto.pickupFromTime)
             : null,
-          pickupByTime: dto.pickupByTime ? new Date(dto.pickupByTime) : null,
+          pickupByTime,
           needsRefrigeration: dto.needsRefrigeration ?? false,
           needsAmbient: dto.needsAmbient ?? false,
           needsFreezer: dto.needsFreezer ?? false,
@@ -191,7 +199,7 @@ export class FoodListingService {
         pickupAddress: dto.pickupAddress,
         businessName: site.organisationName,
         totalQtyKg,
-        bestBefore: dto.bestBefore,
+        bestBefore: bestBefore.toISOString(),
       }),
       this.listingQueue.enqueueListingExpiry(
         listing!.id,
