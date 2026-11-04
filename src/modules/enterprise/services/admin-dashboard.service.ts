@@ -32,6 +32,13 @@ export type AdminDashboardSummary = {
   previousSitesWithRecovery: number;
   recoveredKg: number;
   previousRecoveredKg: number;
+  /** Food-for-people kg only; meals are never calculated from non-edible pathways. */
+  previousEdibleKg: number;
+  previousLivestockKg: number;
+  /** Active people with a membership in the scoped organisations. */
+  users: number;
+  newUsers: number;
+  previousNewUsers: number;
   collections: number;
   previousCollections: number;
   pathways: { pathway: PathwayId; kg: number }[];
@@ -211,7 +218,9 @@ export class AdminDashboardService {
       ${accountStatus === 'Suspended' ? Prisma.sql`AND ep."accountStatus" IN ('SUSPENDED', 'CLOSED')` : Prisma.empty}
     `;
 
-    const [orgRows, siteRows, claimRows, listingRows, awaiting, recoverySites] = await Promise.all([
+    const joinedDay = Prisma.sql`(m."joinedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Australia/Sydney')::date`;
+
+    const [orgRows, siteRows, claimRows, listingRows, awaiting, recoverySites, userRows] = await Promise.all([
       this.prisma.$queryRaw<OrgRow[]>(Prisma.sql`
         SELECT org_type,
           COUNT(*) FILTER (WHERE is_enterprise)::int AS organisations,
@@ -335,6 +344,22 @@ export class AdminDashboardService {
         FROM claim_rows
         WHERE (${pathway}::text IS NULL OR pathway = ${pathway})
       `),
+      this.prisma.$queryRaw<Array<{ users: number; new_users: number; previous_new_users: number }>>(Prisma.sql`
+        WITH scoped_orgs AS (${scoped})
+        SELECT
+          COUNT(DISTINCT m."userId")::int AS users,
+          COUNT(DISTINCT m."userId") FILTER (
+            WHERE ${joinedDay} <= ${currentTo}::date
+              ${currentFrom ? Prisma.sql`AND ${joinedDay} >= ${currentFrom}::date` : Prisma.empty}
+          )::int AS new_users,
+          COUNT(DISTINCT m."userId") FILTER (
+            WHERE ${previousFrom && previousTo ? Prisma.sql`${joinedDay} >= ${previousFrom}::date AND ${joinedDay} <= ${previousTo}::date` : Prisma.sql`false`}
+          )::int AS previous_new_users
+        FROM org_membership m
+        JOIN users u ON u.id = m."userId"
+        JOIN scoped_orgs so ON so.id = m."organisationId"
+        WHERE u."isActive"
+      `),
     ]);
 
     return this.assemble({
@@ -349,6 +374,9 @@ export class AdminDashboardService {
       awaiting: num(awaiting[0]?.awaiting),
       sitesWithRecovery: num(recoverySites[0]?.current_sites),
       previousSitesWithRecovery: num(recoverySites[0]?.previous_sites),
+      users: num(userRows[0]?.users),
+      newUsers: num(userRows[0]?.new_users),
+      previousNewUsers: num(userRows[0]?.previous_new_users),
     });
   }
 
@@ -364,6 +392,9 @@ export class AdminDashboardService {
     awaiting: number;
     sitesWithRecovery: number;
     previousSitesWithRecovery: number;
+    users: number;
+    newUsers: number;
+    previousNewUsers: number;
   }): AdminDashboardSummary {
     const inCurrent = (day: string) =>
       (!input.currentFrom || day >= input.currentFrom) && day <= input.currentTo;
@@ -408,6 +439,8 @@ export class AdminDashboardService {
     const daily = new Map<string, { kg: number; collections: number }>();
     let recoveredKg = 0;
     let previousRecoveredKg = 0;
+    let previousEdibleKg = 0;
+    let previousLivestockKg = 0;
     let collections = 0;
     let previousCollections = 0;
     let unresolved = 0;
@@ -436,6 +469,8 @@ export class AdminDashboardService {
       }
       if (previous) {
         previousRecoveredKg += kg;
+        if (row.pathway === 'people') previousEdibleKg += kg;
+        if (row.pathway === 'livestock') previousLivestockKg += kg;
         previousCollections += count;
       }
     }
@@ -493,6 +528,11 @@ export class AdminDashboardService {
       previousSitesWithRecovery: input.previousSitesWithRecovery,
       recoveredKg,
       previousRecoveredKg,
+      previousEdibleKg,
+      previousLivestockKg,
+      users: input.users,
+      newUsers: input.newUsers,
+      previousNewUsers: input.previousNewUsers,
       collections,
       previousCollections,
       pathways: PATHWAY_IDS.map((id) => ({ pathway: id, kg: pathwayKg.get(id) ?? 0 })),
