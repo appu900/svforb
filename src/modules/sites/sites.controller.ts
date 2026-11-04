@@ -13,6 +13,7 @@ import {
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../modules/auth/interface/jwt.interface';
 import { SiteAdminOrAboveGuard } from './guards/site-admin-or-above.guard';
+import { SiteViewerGuard } from './guards/site-viewer.guard';
 import { SuperAdminGuard } from './guards/super-admin.guard';
 import {
   AddStaffDto,
@@ -47,11 +48,11 @@ export class SitesController {
   /**
    * GET /sites/organisation
    * Fetch organisation overview.
-   * SUPER_ADMIN → full org details + all sites with their managers and staff.
-   * SITE_ADMIN  → their assigned site + all staff under that site.
+   * SUPER_ADMIN / ENTERPRISE_ADMIN → full org details + all sites with their managers and staff.
+   * SITE_ADMIN / SITE_USER → their assigned sites + all staff under those sites.
    */
   @Get('organisation')
-  @UseGuards(SiteAdminOrAboveGuard)
+  @UseGuards(SiteViewerGuard)
   getOrganisationOverview(@Req() req: Request & { user: Jwtpayload }) {
     return this.sitesService.getOrganisationOverview(req.user);
   }
@@ -59,10 +60,10 @@ export class SitesController {
   /**
    * GET /sites/:siteId/details
    * Fetch a single site's full details including managers and staff.
-   * SUPER_ADMIN or the SITE_ADMIN of that specific site.
+   * Enterprise-wide roles, or anyone assigned to that specific site.
    */
   @Get(':siteId/details')
-  @UseGuards(SiteAdminOrAboveGuard)
+  @UseGuards(SiteViewerGuard)
   getSiteDetails(
     @Req() req: Request & { user: Jwtpayload },
     @Param('siteId', ParseIntPipe) siteId: number,
