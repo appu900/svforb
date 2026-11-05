@@ -29,6 +29,7 @@ import {
 import { ENTERPRISE_ERROR } from '../enterprise.constants';
 import { pageRequest, paginate } from '../enterprise.pagination';
 import {
+  acceptsScopes,
   assignableRolesFor,
   isPortalRole,
   isUnrestricted,
@@ -549,13 +550,15 @@ export class EnterpriseUserService {
 
   /**
    * Saveful admin switching an existing member to an Enterprise-wide role.
-   * Site-scoped roles need a site picked, so those stay on the site screens.
+   * A view-only admin may be limited to chosen sites; no sites means all of them.
+   * Site Admin / Site User roles need a site picked, so those stay on the site screens.
    */
   async setRoleForOrganisation(
     caller: Jwtpayload,
     organisationId: number,
     userId: number,
     role: EnterpriseRole,
+    siteIds: number[] = [],
   ) {
     if (caller.platformRole !== PlatformRole.PLATFORM_ADMIN) {
       throw new ForbiddenException('Platform admin access required');
@@ -568,8 +571,31 @@ export class EnterpriseUserService {
 
     const membership = await this.requireMembership(userId, organisationId);
     const previousRole = membership.enterpriseRole ?? this.legacyRole(membership.orgRole);
-    if (previousRole === role) return { message: 'No change', role, roleLabel: roleLabel(role) };
-    await this.assertNotLastSuperAdmin(organisationId, userId, role, previousRole);
+    const nextSiteIds = acceptsScopes(role) ? [...new Set(siteIds)].sort((a, b) => a - b) : [];
+    const sites = nextSiteIds.length
+      ? await this.prisma.site.findMany({
+          where: { id: { in: nextSiteIds }, organisationId },
+          select: { id: true, name: true, organisationName: true },
+        })
+      : [];
+    if (sites.length !== nextSiteIds.length) {
+      throw new BadRequestException('One or more of the chosen sites is not part of this organisation.');
+    }
+
+    const before = await this.prisma.userScope.findMany({
+      where: { userId, organisationId },
+      select: { scopeType: true, scopeId: true },
+    });
+    const previousSiteIds = before
+      .filter((scope) => scope.scopeType === ScopeType.SITE && scope.scopeId != null)
+      .map((scope) => scope.scopeId as number)
+      .sort((a, b) => a - b);
+    const sameSites =
+      before.length === previousSiteIds.length && previousSiteIds.join(',') === nextSiteIds.join(',');
+    if (previousRole === role && sameSites) {
+      return { message: 'No change', role, roleLabel: roleLabel(role), siteIds: nextSiteIds };
+    }
+    if (previousRole !== role) await this.assertNotLastSuperAdmin(organisationId, userId, role, previousRole);
 
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
@@ -585,26 +611,40 @@ export class EnterpriseUserService {
         },
       });
       await tx.userScope.deleteMany({ where: { userId, organisationId } });
+      if (nextSiteIds.length) {
+        await tx.userScope.createMany({
+          data: nextSiteIds.map((siteId) => ({
+            userId,
+            organisationId,
+            scopeType: ScopeType.SITE,
+            scopeId: siteId,
+            grantedBy: caller.sub,
+          })),
+        });
+      }
     });
 
+    const siteNames = sites.map((site) => site.name ?? site.organisationName);
+    const reach = siteNames.length ? siteNames.join(', ') : 'all sites';
     await this.audit.recordFor(caller, {
       organisationId,
       area: AuditArea.USERS,
-      action: 'user.role_changed',
+      action: previousRole === role ? 'user.access_changed' : 'user.role_changed',
       entityType: 'User',
       entityId: userId,
       entityLabel: user.email,
-      previousValue: { role: previousRole },
-      newValue: { role },
+      previousValue: { role: previousRole, siteIds: previousSiteIds },
+      newValue: { role, siteIds: nextSiteIds },
       summary:
-        `${user.firstName} ${user.lastName} changed from ` +
-        `${roleLabel(previousRole)} to ${roleLabel(role)}`,
+        previousRole === role
+          ? `${user.firstName} ${user.lastName} can now see ${reach}`
+          : `${user.firstName} ${user.lastName} changed from ${roleLabel(previousRole)} to ${roleLabel(role)} (${reach})`,
     });
 
     this.logger.log(
-      `Role set by platform admin: user=${userId} org=${organisationId} ${previousRole} -> ${role} by=${caller.sub}`,
+      `Role set by platform admin: user=${userId} org=${organisationId} ${previousRole} -> ${role} sites=${nextSiteIds.length || 'all'} by=${caller.sub}`,
     );
-    return { message: 'Role updated', role, roleLabel: roleLabel(role) };
+    return { message: 'Role updated', role, roleLabel: roleLabel(role), siteIds: nextSiteIds };
   }
 
   /** Replaces a user's scope grants wholesale. */
@@ -613,7 +653,7 @@ export class EnterpriseUserService {
     const membership = await this.requireMembership(userId, orgId);
 
     const role = membership.enterpriseRole ?? this.legacyRole(membership.orgRole);
-    if (isUnrestricted(role)) {
+    if (!acceptsScopes(role)) {
       throw new BadRequestException(
         `A ${roleLabel(role)} already covers the entire Enterprise and cannot be scoped.`,
       );
@@ -921,7 +961,7 @@ export class EnterpriseUserService {
     role: EnterpriseRole,
     scopes?: ScopeGrantDto[],
   ): ScopeGrantDto[] {
-    if (isUnrestricted(role)) return [];
+    if (!acceptsScopes(role)) return [];
     return scopes ?? [];
   }
 
@@ -1010,7 +1050,7 @@ export class EnterpriseUserService {
     fallbackSiteIds: number[],
     index: Map<string, number[]>,
   ): number[] | null {
-    if (isUnrestricted(role)) return null;
+    if (isUnrestricted(role) && !(acceptsScopes(role) && grants.length)) return null;
     if (!grants.length) return fallbackSiteIds;
 
     const reach = new Set<number>();

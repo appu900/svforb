@@ -154,6 +154,10 @@ export class UpdateEnterpriseUserDto {
 
 export class SetMemberRoleDto {
   @IsEnum(EnterpriseRole) role!: EnterpriseRole;
+
+  /** Enterprise Admin (View only) only: limit them to these sites. Empty or omitted means every site. */
+  @IsArray() @IsOptional() @Type(() => Number) @IsInt({ each: true })
+  siteIds?: number[];
 }
 
 export class SetUserScopesDto {

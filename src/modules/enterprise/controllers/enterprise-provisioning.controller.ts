@@ -184,7 +184,7 @@ export class EnterpriseProvisioningController {
     @Param('userId', ParseIntPipe) userId: number,
     @Body() dto: SetMemberRoleDto,
   ) {
-    return this.users.setRoleForOrganisation(req.user, organisationId, userId, dto.role);
+    return this.users.setRoleForOrganisation(req.user, organisationId, userId, dto.role, dto.siteIds);
   }
 
   @Get(':organisationId')

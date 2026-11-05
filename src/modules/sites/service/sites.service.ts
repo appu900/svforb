@@ -15,6 +15,7 @@ import { BillingService } from '../../billing/services/billing.service';
 import { SubscriptionAccessService } from '../../subscriptions/services/subscription-access.service';
 import { assertValidTimezone } from '../../connections/connection.schedule';
 import { assertNotViewOnly } from '../../enterprise/enterprise.permissions';
+import { viewOnlySiteIds } from '../../enterprise/enterprise-reach';
 import {
   AddStaffDto,
   AssignExistingSiteAdminDto,
@@ -283,11 +284,7 @@ export class SitesService {
     if (!org) throw new NotFoundException('Organisation not found');
 
     // Site-scoped roles — return every site they can actually operate, not only JWT.siteId.
-    const enterpriseRole = caller.enterpriseRole;
-    const isEnterpriseWide =
-      caller.orgRole === OrgRole.SUPER_ADMIN ||
-      enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
-      enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN;
+    const isEnterpriseWide = await this.isEnterpriseWide(caller);
     if (!isEnterpriseWide) {
       const assignedIds = await this.assignedSiteIds(caller);
       if (!assignedIds.length) throw new ForbiddenException('No site assigned to your account');
@@ -451,11 +448,7 @@ export class SitesService {
   // SUPER_ADMIN gets all sites. SITE_ADMIN/STAFF gets only their assigned site.
 
   async listSites(caller: Jwtpayload) {
-    const isEnterpriseWide =
-      caller.orgRole === OrgRole.SUPER_ADMIN ||
-      caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
-      caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN;
-    if (isEnterpriseWide) {
+    if (await this.isEnterpriseWide(caller)) {
       const sites = await this.prisma.site.findMany({
         where: { organisationId: caller.orgId },
         orderBy: { createdAt: 'asc' },
@@ -1306,23 +1299,27 @@ export class SitesService {
    * SUPER_ADMIN bypasses this check — they can access any site in their org.
    */
   private async assertSiteAccess(caller: Jwtpayload, siteId: number) {
-    if (
-      caller.orgRole === OrgRole.SUPER_ADMIN ||
-      caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN ||
-      caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN
-    ) {
-      return;
-    }
+    if (await this.isEnterpriseWide(caller)) return;
     if (caller.siteId === siteId) return;
     const assigned = await this.assignedSiteIds(caller);
     if (assigned.includes(siteId)) return;
     throw new ForbiddenException('You do not have access to this site');
   }
 
+  /** Super Admins, and view-only Enterprise Admins who have not been limited to chosen sites. */
+  private async isEnterpriseWide(caller: Jwtpayload): Promise<boolean> {
+    if (caller.orgRole === OrgRole.SUPER_ADMIN || caller.enterpriseRole === EnterpriseRole.SUPER_ADMIN) return true;
+    if (caller.enterpriseRole !== EnterpriseRole.ENTERPRISE_ADMIN || !caller.orgId) return false;
+    return (await viewOnlySiteIds(this.prisma, caller.sub, caller.orgId)) === null;
+  }
+
   private async assignedSiteIds(caller: Jwtpayload): Promise<number[]> {
     const ids = new Set<number>();
     if (caller.siteId) ids.add(caller.siteId);
     if (!caller.orgId || !caller.sub) return [...ids];
+    if (caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN) {
+      (await viewOnlySiteIds(this.prisma, caller.sub, caller.orgId))?.forEach((id) => ids.add(id));
+    }
     const [accesses, scopes] = await Promise.all([
       this.prisma.siteAccess.findMany({
         where: { userId: caller.sub, organisationId: caller.orgId },

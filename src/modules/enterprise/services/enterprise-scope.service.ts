@@ -9,6 +9,7 @@ import {
   roleHasPermission,
   roleLabel,
 } from '../enterprise.permissions';
+import { viewOnlySiteIds } from '../enterprise-reach';
 
 export interface ResolvedScope {
   scopeType: ScopeType;
@@ -222,6 +223,7 @@ export class EnterpriseScopeService {
     if (!orgId) return [];
 
     const role = await this.getEnterpriseRole(caller);
+    if (role === EnterpriseRole.ENTERPRISE_ADMIN) return viewOnlySiteIds(this.prisma, caller.sub, orgId);
     if (isUnrestricted(role)) return null; // whole Enterprise
 
     const scopes = await this.prisma.userScope.findMany({

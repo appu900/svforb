@@ -1,5 +1,6 @@
 import { EnterpriseRole } from '@prisma/client';
 import {
+  acceptsScopes,
   assignableRolesFor,
   isPortalRole,
   isUnrestricted,
@@ -81,6 +82,14 @@ describe('Enterprise role matrix', () => {
 
     it('treats an unknown caller as having no reach', () => {
       expect(isUnrestricted(null)).toBe(false);
+    });
+
+    it('lets a view-only admin be narrowed to chosen sites, but never a Super Admin', () => {
+      expect(acceptsScopes(EnterpriseRole.ENTERPRISE_ADMIN)).toBe(true);
+      expect(acceptsScopes(EnterpriseRole.SUPER_ADMIN)).toBe(false);
+      expect(acceptsScopes(EnterpriseRole.GROUP_ADMIN)).toBe(true);
+      expect(acceptsScopes(EnterpriseRole.SITE_ADMIN)).toBe(true);
+      expect(acceptsScopes(null)).toBe(false);
     });
   });
 

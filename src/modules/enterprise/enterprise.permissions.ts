@@ -44,6 +44,11 @@ export interface RoleDefinition {
    * whereas an Enterprise Admin covers everything by definition.
    */
   requiresScope: boolean;
+  /**
+   * The role covers the whole Enterprise by default, but may be narrowed to
+   * chosen sites. With no grants it stays Enterprise-wide.
+   */
+  scopeOptional?: true;
   /** Retained for existing rows; never offered in the portal. */
   legacy?: true;
 }
@@ -77,7 +82,7 @@ export const ROLE_DEFINITIONS: Record<EnterpriseRole, RoleDefinition> = {
     role: EnterpriseRole.ENTERPRISE_ADMIN,
     label: 'Enterprise Admin (View only)',
     description:
-      'View everything across the Enterprise — dashboard, all sites, activity, insights and reports. Cannot add, edit or change anything.',
+      'View the dashboard, sites, activity, insights and reports — across the whole Enterprise or only for chosen sites. Cannot add, edit or change anything.',
     permissions: [
       PERMISSION.STRUCTURE_VIEW,
       PERMISSION.SITES_VIEW,
@@ -87,6 +92,7 @@ export const ROLE_DEFINITIONS: Record<EnterpriseRole, RoleDefinition> = {
     ],
     assignable: [],
     requiresScope: false,
+    scopeOptional: true,
   },
 
   [EnterpriseRole.GROUP_ADMIN]: {
@@ -208,6 +214,13 @@ export function isUnrestricted(role: EnterpriseRole | null | undefined): boolean
   return !ROLE_DEFINITIONS[role].requiresScope;
 }
 
+/** Whether scope grants on this role mean anything, so they should be kept. */
+export function acceptsScopes(role: EnterpriseRole | null | undefined): boolean {
+  if (!role) return false;
+  const def = ROLE_DEFINITIONS[role];
+  return def.requiresScope || Boolean(def.scopeOptional);
+}
+
 /** Backs GET /enterprise/roles — the same table the guards read. */
 export function rolesMatrix() {
   return {
@@ -219,6 +232,7 @@ export function rolesMatrix() {
         label: def.label,
         description: def.description,
         requiresScope: def.requiresScope,
+        scopeOptional: Boolean(def.scopeOptional),
         permissions: def.permissions,
         canAssign: def.assignable,
       };

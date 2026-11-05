@@ -23,7 +23,7 @@ import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { EmailQueueService } from '../../notifications/queues/email.queue.service';
 import { ENTERPRISE_ERROR } from '../enterprise.constants';
-import { roleLabel } from '../enterprise.permissions';
+import { isViewOnlyRole, roleLabel } from '../enterprise.permissions';
 import { AuditActor, EnterpriseAuditService } from './enterprise-audit.service';
 
 /** How long an activation link stays usable. */
@@ -122,11 +122,16 @@ export class EnterpriseInvitationService {
       const existingKeys = new Set(
         pending.scopes.map((scope) => `${scope.scopeType}:${scope.scopeId ?? ''}`),
       );
-      const extraScopes = input.scopes.filter(
-        (scope) => !existingKeys.has(`${scope.scopeType}:${scope.scopeId ?? ''}`),
-      );
+      // A view-only admin's sites are the whole of their reach, so a re-invite replaces them.
+      const replaceScopes = isViewOnlyRole(input.role);
+      const extraScopes = replaceScopes
+        ? input.scopes
+        : input.scopes.filter((scope) => !existingKeys.has(`${scope.scopeType}:${scope.scopeId ?? ''}`));
 
       await this.prisma.$transaction(async (tx) => {
+        if (replaceScopes) {
+          await tx.enterpriseInvitationScope.deleteMany({ where: { invitationId: pending.id } });
+        }
         if (extraScopes.length) {
           await tx.enterpriseInvitationScope.createMany({
             data: extraScopes.map((scope) => ({
@@ -455,11 +460,14 @@ export class EnterpriseInvitationService {
       }
 
       // Add Site invitations grant operational access for every site on the invite.
+      // A view-only admin's sites only limit what they can see; they never operate a site.
       const siteIds = new Set<number>();
       if (invitation.siteAdminForSiteId) siteIds.add(invitation.siteAdminForSiteId);
-      for (const scope of invitation.scopes) {
-        if (scope.scopeType === ScopeType.SITE && scope.scopeId != null) {
-          siteIds.add(scope.scopeId);
+      if (!isViewOnlyRole(invitation.enterpriseRole)) {
+        for (const scope of invitation.scopes) {
+          if (scope.scopeType === ScopeType.SITE && scope.scopeId != null) {
+            siteIds.add(scope.scopeId);
+          }
         }
       }
       for (const siteId of siteIds) {

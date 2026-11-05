@@ -1,8 +1,9 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ClaimStatus, DriverPickupStatus, OrgRole, OrgType, Prisma } from '@prisma/client';
+import { ClaimStatus, DriverPickupStatus, EnterpriseRole, OrgRole, OrgType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { isUnrestricted } from '../../enterprise/enterprise.permissions';
+import { viewOnlySiteIds } from '../../enterprise/enterprise-reach';
 import { instantForLocalTime } from '../../connections/connection.schedule';
 import {
   ANIMAL_ORG_TYPES,
@@ -231,9 +232,13 @@ export class ImpactService {
     const sameOrg = caller.orgId === orgId;
     const orgRole = membership?.orgRole ?? (sameOrg ? caller.orgRole : undefined);
     const enterpriseRole = membership ? membership.enterpriseRole : sameOrg ? caller.enterpriseRole : null;
-    if (orgRole === OrgRole.SUPER_ADMIN || orgRole === OrgRole.ORG_ADMIN || isUnrestricted(enterpriseRole)) {
-      return null;
+    if (orgRole === OrgRole.SUPER_ADMIN || orgRole === OrgRole.ORG_ADMIN) return null;
+    if (enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN) {
+      const limited = await viewOnlySiteIds(this.prisma, caller.sub, orgId);
+      // Site id 0 never exists, so an empty reach matches nothing instead of everything.
+      return limited ? (limited.length ? limited : [0]) : null;
     }
+    if (isUnrestricted(enterpriseRole)) return null;
 
     const [accesses, siteCount] = await Promise.all([
       this.prisma.siteAccess.findMany({

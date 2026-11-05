@@ -9,6 +9,7 @@ import {
 import {
   ClaimStatus,
   ConnectionDayOutcome,
+  EnterpriseRole,
   FoodListingType,
   ListingStatus,
   OrgRole,
@@ -28,6 +29,7 @@ import { CreateFoodListingDto } from '../dto/food.listing.dto';
 import { resolveCallerSiteId } from '../utils/resolve-caller-site';
 import { canAccessListing, ExclusivityView } from '../../connections/connection.rules';
 import { assertNotViewOnly, isUnrestricted } from '../../enterprise/enterprise.permissions';
+import { viewOnlySiteIds } from '../../enterprise/enterprise-reach';
 
 const PHOTO_FOLDER = 'food-listing-photos';
 const DEFAULT_LIMIT = 20;
@@ -273,9 +275,13 @@ export class FoodListingService {
 
     const orgRole = membership?.orgRole ?? (sameOrg ? caller.orgRole : undefined);
     const enterpriseRole = membership ? membership.enterpriseRole : sameOrg ? caller.enterpriseRole : null;
-    if (orgRole === OrgRole.SUPER_ADMIN || orgRole === OrgRole.ORG_ADMIN || isUnrestricted(enterpriseRole)) {
-      return null;
+    if (orgRole === OrgRole.SUPER_ADMIN || orgRole === OrgRole.ORG_ADMIN) return null;
+    if (enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN) {
+      const limited = await viewOnlySiteIds(this.prisma, caller.sub, orgId);
+      // Site id 0 never exists, so an empty reach matches nothing instead of everything.
+      return limited ? (limited.length ? limited : [0]) : null;
     }
+    if (isUnrestricted(enterpriseRole)) return null;
 
     const siteIds = [...new Set(accesses.map((access) => access.siteId))];
     if (siteIds.length === 0 || siteIds.length >= siteCount) return null;
