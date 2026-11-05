@@ -145,8 +145,12 @@ export class MailerService {
     orgKind?: StaffInviteOrgKind,
   ): Promise<void> {
     const isDriver = role.trim().toLowerCase() === 'driver';
-    const appStoreUrl = 'https://apps.apple.com/in/app/saveful-for-business/id6805761562';
-    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.saveful.business.app';
+    const appStoreUrl = isDriver
+      ? 'https://apps.apple.com/us/app/saveful-for-business-driver/id6824013311'
+      : 'https://apps.apple.com/in/app/saveful-for-business/id6805761562';
+    const playStoreUrl = isDriver
+      ? 'https://play.google.com/store/apps/details?id=com.saveful.driver.app'
+      : 'https://play.google.com/store/apps/details?id=com.saveful.business.app';
     const businessUrl = 'https://www.saveful.com/business';
     const appName = isDriver ? 'Saveful for Business Driver' : 'Saveful for Business';
 
@@ -173,29 +177,7 @@ export class MailerService {
 
     const stepTitle = 'margin:0 0 6px;font-weight:700;color:#1a1a1a;';
 
-    const storeButtons = isDriver
-      ? `
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px;border-collapse:collapse;">
-            <tr>
-              <td valign="middle" height="48" style="height:48px;padding:0 5px;vertical-align:middle;">
-                <span
-                   style="display:block;box-sizing:border-box;width:156px;height:48px;background:#000000;
-                          color:#ffffff;text-decoration:none;border-radius:8px;text-align:center;">
-                  <span style="display:block;padding:7px 10px 0;font-size:9px;line-height:1;letter-spacing:0.2px;">Download on the</span>
-                  <span style="display:block;padding:3px 10px 0;font-size:16px;line-height:1.1;font-weight:600;">App Store</span>
-                </span>
-              </td>
-              <td valign="middle" height="48" style="height:48px;padding:0 5px;vertical-align:middle;">
-                <span
-                   style="display:block;box-sizing:border-box;width:156px;height:48px;background:#000000;
-                          color:#ffffff;text-decoration:none;border-radius:8px;text-align:center;">
-                  <span style="display:block;padding:7px 10px 0;font-size:9px;line-height:1;letter-spacing:0.2px;">GET IT ON</span>
-                  <span style="display:block;padding:3px 10px 0;font-size:16px;line-height:1.1;font-weight:600;">Google Play</span>
-                </span>
-              </td>
-            </tr>
-          </table>`
-      : `
+    const storeButtons = `
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px;border-collapse:collapse;">
             <tr>
               <td valign="middle" height="48" style="height:48px;padding:0 5px;vertical-align:middle;">
