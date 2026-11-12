@@ -1871,6 +1871,14 @@ enum ConsolidatedRejectionReason {
   OTHER
 }
 
+/// A site joins a group only once someone who runs it accepts (Canva CM1:
+/// "invitation and accept process"). Existing rows default to ACCEPTED.
+enum ConsolidatedSiteInvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
 enum ConsolidatedChangeRequestStatus {
   PENDING
   APPROVED
@@ -1946,6 +1954,14 @@ model ConsolidatedGroupSite {
   addedAt   DateTime  @default(now())
   addedBy   Int
   removedAt DateTime?
+
+  /// Only ACCEPTED sites take part in collections.
+  invitationStatus  ConsolidatedSiteInvitationStatus @default(ACCEPTED)
+  invitedAt         DateTime?
+  invitedByUserId   Int?
+  respondedAt       DateTime?
+  respondedByUserId Int?
+  declineReason     String?
 
   @@unique([groupId, siteId])
   @@index([siteId])

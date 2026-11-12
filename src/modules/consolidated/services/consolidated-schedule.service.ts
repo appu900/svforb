@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
-  ConsolidatedCollectionStatus, ConsolidatedScheduleStatus, Prisma,
+  ConsolidatedCollectionStatus, ConsolidatedScheduleStatus, Prisma, ConsolidatedSiteInvitationStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
@@ -42,7 +42,8 @@ export class ConsolidatedScheduleService {
     });
     if (!point) throw new NotFoundException('Collection point not found in this group.');
 
-    const activeSiteIds = group.sites.map((s) => s.siteId);
+    // Invited sites take part only once they have accepted (Canva CM1).
+    const activeSiteIds = acceptedSiteIds(group.sites);
     const participating = this.resolveParticipants(dto.participatingSiteIds, activeSiteIds);
 
     const normalised = validateScheduleInput({
@@ -260,7 +261,7 @@ export class ConsolidatedScheduleService {
 
     const participating = this.resolveParticipants(
       dto.participatingSiteIds ?? existing.participatingSiteIds,
-      group.sites.map((s) => s.siteId),
+      acceptedSiteIds(group.sites),
     );
     const actor = await this.audit.actorFrom(caller, req);
 
@@ -446,15 +447,27 @@ export class ConsolidatedScheduleService {
 
   /** Empty means every active site in the group (SPEC §7.3). */
   private resolveParticipants(requested: number[] | undefined, activeSiteIds: number[]): number[] {
+    if (activeSiteIds.length === 0) {
+      throw new BadRequestException(
+        'No site has accepted this group yet. Sites can take part once they accept their invitation.',
+      );
+    }
     if (!requested || requested.length === 0) return activeSiteIds;
 
     const active = new Set(activeSiteIds);
     const outside = requested.filter((id) => !active.has(id));
     if (outside.length > 0) {
       throw new BadRequestException(
-        `Site ${outside[0]} is not an active site in this collection group.`,
+        `Site ${outside[0]} is not taking part in this group — it may not have accepted its invitation yet.`,
       );
     }
     return [...new Set(requested)];
   }
+}
+
+/** Sites still in the group that have accepted their invitation. */
+function acceptedSiteIds(sites: { siteId: number; invitationStatus: ConsolidatedSiteInvitationStatus }[]): number[] {
+  return sites
+    .filter((s) => s.invitationStatus === ConsolidatedSiteInvitationStatus.ACCEPTED)
+    .map((s) => s.siteId);
 }

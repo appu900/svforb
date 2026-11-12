@@ -74,6 +74,19 @@ the database. `migrate deploy` is the only safe command there.
 
 ---
 
+## 2a. A second migration is NOT yet applied
+
+`20261113000000_consolidated_site_invitations` adds site invitations (accept /
+decline before a site joins a group). It is additive only: one enum and six
+columns on `consolidated_group_sites`, all nullable or defaulted to `ACCEPTED`,
+so any existing row keeps working unchanged.
+
+Apply it before (or with) the deploy that ships this code:
+
+```bash
+npx prisma migrate deploy
+```
+
 ## 3. What existing behaviour changed
 
 Twelve existing files gained filters from

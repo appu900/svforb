@@ -101,13 +101,14 @@ async function main() {
         'handoverOverdue', 'lateContribution', 'lateDecided', 'handoverConfirmed',
         'receiptRecorded', 'published', 'claimed', 'pickupSoon', 'changeRequested',
         'materialChange', 'itemCheckDue', 'completed', 'collectionCancelled', 'expired',
+        'sitesInvited', 'invitationAnswered',
       ]);
       const cacheStub: any = stub(['invalidateAllNearby', 'invalidateRecentPage1',
         'invalidateOrgPage1', 'getListing', 'setListing', 'getOrgPage']);
       const queueStub: any = stub(['enqueueNewListing', 'enqueueListingExpiry']);
 
       const listings = new FoodListingService(px, cacheStub, stub(['uploadFile']), queueStub, scope);
-      const groups = new ConsolidatedGroupService(px, access, audit);
+      const groups = new ConsolidatedGroupService(px, access, audit, notifier);
       const schedules = new ConsolidatedScheduleService(px, access, audit);
       const collections = new ConsolidatedCollectionService(px, access, audit, notifier);
       const contributions = new ConsolidatedContributionService(

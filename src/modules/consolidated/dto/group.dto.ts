@@ -78,3 +78,7 @@ export class GroupListQueryDto {
 
   @IsString() @IsOptional() @MaxLength(120) search?: string;
 }
+
+export class DeclineInvitationDto {
+  @IsString() @IsOptional() @MaxLength(500) reason?: string;
+}

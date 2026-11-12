@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { ConsolidatedAccessService } from './consolidated-access.service';
+import { ConsolidatedGroupService } from './consolidated-group.service';
 import { ConsolidatedPublishService } from './consolidated-publish.service';
 
 /**
@@ -114,6 +115,7 @@ export class ConsolidatedViewService {
     private readonly prisma: PrismaService,
     private readonly access: ConsolidatedAccessService,
     private readonly publishing: ConsolidatedPublishService,
+    private readonly groups: ConsolidatedGroupService,
   ) {}
 
   // ─── Who is asking ─────────────────────────────────────────────────────────
@@ -718,8 +720,14 @@ export class ConsolidatedViewService {
       );
     }
 
+    const pendingInvitationCount = await this.groups
+      .listInvitations(caller)
+      .then((rows) => rows.length)
+      .catch(() => 0);
+
     return {
       ...summary,
+      pendingInvitationCount,
       managedGroupIds: [...new Set(managed)],
       receiverGroupIds: [...new Set(received)],
       siteIdsWithOpenCollections,

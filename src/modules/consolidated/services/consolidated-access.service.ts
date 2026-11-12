@@ -153,7 +153,7 @@ export class ConsolidatedAccessService {
       where: { id: groupId, organisationId: this.orgId(caller) },
       include: {
         members: { where: { userId: caller.sub }, select: { role: true } },
-        sites: { where: { removedAt: null }, select: { siteId: true } },
+        sites: { where: { removedAt: null }, select: { siteId: true, invitationStatus: true } },
       },
     });
     if (!group) throw new NotFoundException('Collection group not found.');

@@ -118,6 +118,16 @@ The site cannot change the method.
 
 ---
 
+### 2.5a Site invitations (client requirement, Canva CM1)
+
+A site added to a group takes part only after someone who runs it **accepts**.
+- Who answers: the site's Site Admins; for a site with no Site Admin, the org owner/admins.
+- A site joins immediately (no invitation) when the person adding it could answer for it anyway.
+- Only ACCEPTED sites are participating sites for schedules and collections. Accepting adds the
+  site to the group's active schedules and to its SCHEDULED/OPEN (non-detached) collections.
+- Declining removes the site from the group (row kept, `removedAt` set); re-adding sends a new invitation.
+- Pushes: `consolidated_invitation` (to responders), `consolidated_invitation_accepted|declined` (to managers).
+
 ## 3. End-to-end flow
 
 ```
@@ -288,6 +298,9 @@ Errors use the existing Nest format `{ statusCode, message }`.
 | POST | `/groups/:id/points` | point body as above |
 | PATCH | `/groups/:id/points/:pointId` | partial point body, `{ isActive?, isDefault? }` |
 | GET | `/groups/eligible-sites` | sites the caller may add |
+| GET | `/invitations` | pending site invitations the caller can answer (see §2.5a) |
+| POST | `/invitations/:id/accept` | – site joins; added to the group's active schedules and its SCHEDULED/OPEN collections |
+| POST | `/invitations/:id/decline` | `{ reason? }` – site leaves the group (history kept); the manager can invite it again |
 | GET | `/groups/eligible-users` | org users for manager/receiver pickers (`canManage` flag included) |
 
 ### 7.3 Schedules and collections (operations)

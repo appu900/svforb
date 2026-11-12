@@ -148,6 +148,77 @@ export class ConsolidatedNotifierService {
 
   // ─── Events ────────────────────────────────────────────────────────────────
 
+  /**
+   * Who answers a site's invitation: its Site Admins, or — for a site nobody
+   * administers — the organisation's owner and admins.
+   */
+  async invitationResponderIds(siteId: number, organisationId: number): Promise<number[]> {
+    const admins = await this.prisma.siteAccess.findMany({
+      where: { siteId, siteRole: SiteRole.SITE_ADMIN },
+      select: { userId: true },
+    });
+    if (admins.length) return [...new Set(admins.map((a) => a.userId))];
+    const orgAdmins = await this.prisma.orgMemeberShip.findMany({
+      where: { organisationId, orgRole: { in: ['SUPER_ADMIN', 'ORG_ADMIN'] } },
+      select: { userId: true },
+    });
+    return [...new Set(orgAdmins.map((m) => m.userId))];
+  }
+
+  /** "Join a shared collection?" — to whoever can accept for each invited site. */
+  async sitesInvited(groupSiteIds: number[]): Promise<void> {
+    if (!groupSiteIds.length) return;
+    const rows = await this.prisma.consolidatedGroupSite.findMany({
+      where: { id: { in: groupSiteIds } },
+      include: {
+        site: { select: { id: true, name: true, organisationName: true } },
+        group: { select: { id: true, name: true, organisationId: true } },
+      },
+    });
+    for (const row of rows) {
+      const recipients = await this.invitationResponderIds(row.siteId, row.group.organisationId);
+      const siteName = row.site.name ?? row.site.organisationName;
+      await this.push(
+        recipients,
+        'Shared collection invitation',
+        `${siteName} has been invited to join ${row.group.name}. Review and accept to take part.`,
+        {
+          type: 'consolidated_invitation',
+          invitationId: String(row.id),
+          groupId: String(row.group.id),
+          deepLink: 'consolidated/invitations',
+        },
+        'high',
+      );
+    }
+  }
+
+  /** Tells the group's managers a site answered. */
+  async invitationAnswered(groupSiteId: number, accepted: boolean): Promise<void> {
+    const row = await this.prisma.consolidatedGroupSite.findUnique({
+      where: { id: groupSiteId },
+      include: {
+        site: { select: { name: true, organisationName: true } },
+        group: { select: { id: true, name: true } },
+      },
+    });
+    if (!row) return;
+    const managers = await this.groupMemberIds(row.group.id, [ConsolidatedMemberRole.MANAGER]);
+    const siteName = row.site.name ?? row.site.organisationName;
+    await this.push(
+      managers,
+      accepted ? 'Site joined your collection group' : 'Site declined your invitation',
+      accepted
+        ? `${siteName} accepted and will take part in ${row.group.name} collections.`
+        : `${siteName} declined to join ${row.group.name}.${row.declineReason ? ` Reason: ${row.declineReason}` : ''}`,
+      {
+        type: accepted ? 'consolidated_invitation_accepted' : 'consolidated_invitation_declined',
+        groupId: String(row.group.id),
+        deepLink: `consolidated/groups/${row.group.id}`,
+      },
+    );
+  }
+
   async collectionsScheduled(collectionIds: number[]): Promise<void> {
     for (const id of collectionIds) {
       const c = await this.collectionWith(id);

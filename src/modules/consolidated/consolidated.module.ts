@@ -12,6 +12,7 @@ import { ConsolidatedContributionsController } from './controllers/consolidated-
 import { ConsolidatedGroupsController } from './controllers/consolidated-groups.controller';
 import { ConsolidatedReportsController } from './controllers/consolidated-reports.controller';
 import { ConsolidatedViewsController } from './controllers/consolidated-views.controller';
+import { ConsolidatedInvitationsController } from './controllers/consolidated-invitations.controller';
 import { CONSOLIDATED_QUEUE, ConsolidatedQueueService } from './queues/consolidated.queue.service';
 import { ConsolidatedAccessService } from './services/consolidated-access.service';
 import { ConsolidatedAuditService } from './services/consolidated-audit.service';
@@ -51,6 +52,7 @@ import { ConsolidatedWorker } from './workers/consolidated.worker';
     ConsolidatedCharityController,
     ConsolidatedReportsController,
     ConsolidatedViewsController,
+    ConsolidatedInvitationsController,
   ],
   providers: [
     ConsolidatedEnabledGuard,

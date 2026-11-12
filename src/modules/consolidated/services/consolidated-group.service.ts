@@ -2,7 +2,8 @@ import {
   BadRequestException, ConflictException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import {
-  ConsolidatedCollectionStatus, ConsolidatedMemberRole, ConsolidatedScheduleStatus, Prisma,
+  ConsolidatedCollectionStatus, ConsolidatedMemberRole, ConsolidatedScheduleStatus,
+  ConsolidatedSiteInvitationStatus, OrgRole, Prisma, SiteRole,
 } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
@@ -14,6 +15,7 @@ import {
 } from '../dto/group.dto';
 import { CONSOLIDATED_ACTION, ConsolidatedAuditService, RequestContext } from './consolidated-audit.service';
 import { ConsolidatedAccessService } from './consolidated-access.service';
+import { ConsolidatedNotifierService } from './consolidated-notifier.service';
 
 /** Statuses where a group is in the middle of something and must not be archived. */
 const LIVE_STATUSES: ConsolidatedCollectionStatus[] = [
@@ -30,7 +32,213 @@ export class ConsolidatedGroupService {
     private readonly prisma: PrismaService,
     private readonly access: ConsolidatedAccessService,
     private readonly audit: ConsolidatedAuditService,
+    private readonly notifier?: ConsolidatedNotifierService,
   ) {}
+
+  // ─── Invitations (Canva CM1: "invitation and accept process") ─────────────
+
+  /**
+   * Can this caller answer for the site? Its Site Admins can; for a site with
+   * no Site Admin, the organisation's owner and admins answer instead.
+   */
+  private async canRespondFor(caller: Jwtpayload, siteIds: number[]): Promise<Set<number>> {
+    if (!siteIds.length || !caller.orgId) return new Set();
+    const admins = await this.prisma.siteAccess.findMany({
+      where: { siteId: { in: siteIds }, siteRole: SiteRole.SITE_ADMIN },
+      select: { siteId: true, userId: true },
+    });
+    const orgAdmin = caller.orgRole === OrgRole.SUPER_ADMIN || caller.orgRole === OrgRole.ORG_ADMIN;
+    const out = new Set<number>();
+    for (const siteId of siteIds) {
+      const siteAdmins = admins.filter((a) => a.siteId === siteId);
+      if (siteAdmins.some((a) => a.userId === caller.sub)) out.add(siteId);
+      else if (siteAdmins.length === 0 && orgAdmin) out.add(siteId);
+    }
+    return out;
+  }
+
+  /**
+   * A site joins straight away when the person adding it is someone who could
+   * accept for it anyway; any other site gets an invitation to accept.
+   */
+  private async invitationData(caller: Jwtpayload, siteIds: number[]) {
+    const own = await this.canRespondFor(caller, siteIds);
+    const now = new Date();
+    return new Map(
+      siteIds.map((siteId) => [
+        siteId,
+        own.has(siteId)
+          ? {
+              invitationStatus: ConsolidatedSiteInvitationStatus.ACCEPTED,
+              invitedAt: now, invitedByUserId: caller.sub,
+              respondedAt: now, respondedByUserId: caller.sub, declineReason: null,
+            }
+          : {
+              invitationStatus: ConsolidatedSiteInvitationStatus.PENDING,
+              invitedAt: now, invitedByUserId: caller.sub,
+              respondedAt: null, respondedByUserId: null, declineReason: null,
+            },
+      ]),
+    );
+  }
+
+  /** Invitations the caller can answer, newest first. */
+  async listInvitations(caller: Jwtpayload) {
+    this.access.assertProductAccess(caller);
+    if (!caller.orgId) return [];
+    const pending = await this.prisma.consolidatedGroupSite.findMany({
+      where: {
+        invitationStatus: ConsolidatedSiteInvitationStatus.PENDING,
+        removedAt: null,
+        group: { organisationId: caller.orgId, isActive: true },
+      },
+      include: {
+        site: { select: { id: true, name: true, organisationName: true, address: true } },
+        group: {
+          select: {
+            id: true, name: true, description: true,
+            hostSite: { select: { name: true, organisationName: true } },
+            points: {
+              where: { isActive: true },
+              orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+              take: 1,
+              select: { name: true, address: true, directions: true },
+            },
+            members: {
+              where: { role: ConsolidatedMemberRole.MANAGER },
+              select: { user: { select: { firstName: true, lastName: true } } },
+            },
+            _count: { select: { sites: { where: { removedAt: null } } } },
+          },
+        },
+      },
+      orderBy: { invitedAt: 'desc' },
+    });
+    const mine = await this.canRespondFor(caller, [...new Set(pending.map((p) => p.siteId))]);
+    const inviterIds = [...new Set(pending.map((p) => p.invitedByUserId).filter((id): id is number => !!id))];
+    const inviters = inviterIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: inviterIds } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : [];
+    const inviterName = new Map(inviters.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+
+    return pending
+      .filter((row) => mine.has(row.siteId))
+      .map((row) => ({
+        id: row.id,
+        status: row.invitationStatus,
+        invitedAt: row.invitedAt,
+        invitedBy: row.invitedByUserId
+          ? { id: row.invitedByUserId, name: inviterName.get(row.invitedByUserId) ?? 'A manager' }
+          : null,
+        site: { id: row.site.id, name: row.site.name ?? row.site.organisationName, address: row.site.address },
+        group: {
+          id: row.group.id,
+          name: row.group.name,
+          description: row.group.description,
+          hostSiteName: row.group.hostSite?.name ?? row.group.hostSite?.organisationName ?? null,
+          siteCount: row.group._count.sites,
+          managers: row.group.members.map((m) => `${m.user.firstName} ${m.user.lastName}`.trim()),
+          point: row.group.points[0] ?? null,
+        },
+      }));
+  }
+
+  async respondToInvitation(
+    caller: Jwtpayload, groupSiteId: number, accept: boolean, reason?: string, req?: RequestContext,
+  ) {
+    this.access.assertProductAccess(caller);
+    const row = await this.prisma.consolidatedGroupSite.findFirst({
+      where: { id: groupSiteId, group: { organisationId: caller.orgId } },
+      include: {
+        site: { select: { name: true, organisationName: true } },
+        group: { select: { id: true, name: true, organisationId: true } },
+      },
+    });
+    if (!row || row.removedAt) throw new NotFoundException('Invitation not found.');
+    if (!(await this.canRespondFor(caller, [row.siteId])).has(row.siteId)) {
+      throw new NotFoundException('Invitation not found.');
+    }
+    if (row.invitationStatus !== ConsolidatedSiteInvitationStatus.PENDING) {
+      throw new ConflictException(`This invitation was already ${row.invitationStatus.toLowerCase()}.`);
+    }
+
+    const actor = await this.audit.actorFrom(caller, req);
+    const now = new Date();
+    const siteName = row.site.name ?? row.site.organisationName;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.consolidatedGroupSite.update({
+        where: { id: groupSiteId },
+        data: accept
+          ? {
+              invitationStatus: ConsolidatedSiteInvitationStatus.ACCEPTED,
+              respondedAt: now, respondedByUserId: caller.sub, declineReason: null,
+            }
+          : {
+              invitationStatus: ConsolidatedSiteInvitationStatus.DECLINED,
+              respondedAt: now, respondedByUserId: caller.sub,
+              declineReason: reason?.trim() || null,
+              // Out of the group, history kept; the manager can invite it again.
+              removedAt: now,
+            },
+      });
+
+      let joined = 0;
+      if (accept) {
+        // A recurring series set to "all sites" should pick the newcomer up for
+        // every occurrence that has not opened for listing yet or is still open.
+        const schedules = await tx.consolidatedSchedule.findMany({
+          where: { groupId: row.groupId, status: ConsolidatedScheduleStatus.ACTIVE },
+          select: { id: true, participatingSiteIds: true },
+        });
+        for (const schedule of schedules) {
+          if (!schedule.participatingSiteIds.includes(row.siteId)) {
+            await tx.consolidatedSchedule.update({
+              where: { id: schedule.id },
+              data: { participatingSiteIds: { push: row.siteId } },
+            });
+          }
+        }
+        const collections = await tx.consolidatedCollection.findMany({
+          where: {
+            groupId: row.groupId,
+            isDetached: false,
+            status: { in: [ConsolidatedCollectionStatus.SCHEDULED, ConsolidatedCollectionStatus.OPEN] },
+            NOT: { participatingSiteIds: { has: row.siteId } },
+          },
+          select: { id: true },
+        });
+        for (const collection of collections) {
+          await tx.consolidatedCollection.update({
+            where: { id: collection.id },
+            data: { participatingSiteIds: { push: row.siteId } },
+          });
+        }
+        joined = collections.length;
+      }
+
+      await this.audit.log(tx, actor, {
+        organisationId: row.group.organisationId,
+        action: CONSOLIDATED_ACTION.GROUP_SITES_CHANGED,
+        entityType: 'ConsolidatedGroup',
+        entityId: row.groupId,
+        entityLabel: row.group.name,
+        newValue: { siteId: row.siteId, invitationStatus: accept ? 'ACCEPTED' : 'DECLINED', reason: reason ?? null },
+        summary: accept
+          ? `${siteName} accepted the invitation to "${row.group.name}"` +
+            (joined ? ` and joined ${joined} upcoming collection(s).` : '.')
+          : `${siteName} declined the invitation to "${row.group.name}"${reason ? `: ${reason.trim()}` : '.'}`,
+      });
+
+      return { id: groupSiteId, status: accept ? 'ACCEPTED' : 'DECLINED', collectionsJoined: joined };
+    });
+
+    await this.notifier?.invitationAnswered(groupSiteId, accept).catch(() => undefined);
+    return result;
+  }
 
   // ─── Create ────────────────────────────────────────────────────────────────
 
@@ -48,8 +256,9 @@ export class ConsolidatedGroupService {
     await this.assertMembersManageable(orgId, members);
 
     const actor = await this.audit.actorFrom(caller, req);
+    const invitations = await this.invitationData(caller, siteIds);
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const group = await tx.consolidatedGroup.create({
         data: {
           organisationId: orgId,
@@ -60,7 +269,7 @@ export class ConsolidatedGroupService {
           createdByUserId: caller.sub,
           points: { create: { ...this.pointData(dto.collectionPoint), isDefault: true } },
           sites: {
-            create: siteIds.map((siteId) => ({ siteId, addedBy: caller.sub })),
+            create: siteIds.map((siteId) => ({ siteId, addedBy: caller.sub, ...invitations.get(siteId)! })),
           },
           members: { create: members.map((m) => ({ ...m, addedBy: caller.sub })) },
         },
@@ -79,6 +288,12 @@ export class ConsolidatedGroupService {
 
       return group;
     });
+
+    const pendingIds = created.sites
+      .filter((s) => s.invitationStatus === ConsolidatedSiteInvitationStatus.PENDING)
+      .map((s) => s.id);
+    await this.notifier?.sitesInvited(pendingIds).catch(() => undefined);
+    return created;
   }
 
   // ─── Read ──────────────────────────────────────────────────────────────────
@@ -101,6 +316,7 @@ export class ConsolidatedGroupService {
       include: {
         hostSite: { select: { id: true, name: true, organisationName: true } },
         _count: { select: { sites: { where: { removedAt: null } }, points: true } },
+        sites: { where: { removedAt: null }, select: { invitationStatus: true } },
         collections: {
           where: { status: { in: [ConsolidatedCollectionStatus.SCHEDULED, ConsolidatedCollectionStatus.OPEN] } },
           orderBy: { scheduledDate: 'asc' },
@@ -115,6 +331,8 @@ export class ConsolidatedGroupService {
       name: g.name,
       hostSite: g.hostSite ? { id: g.hostSite.id, name: g.hostSite.name ?? g.hostSite.organisationName } : null,
       siteCount: g._count.sites,
+      acceptedSiteCount: g.sites.filter((s) => s.invitationStatus === ConsolidatedSiteInvitationStatus.ACCEPTED).length,
+      pendingSiteCount: g.sites.filter((s) => s.invitationStatus === ConsolidatedSiteInvitationStatus.PENDING).length,
       pointCount: g._count.points,
       nextCollection: g.collections[0] ?? null,
       isActive: g.isActive,
@@ -129,8 +347,11 @@ export class ConsolidatedGroupService {
       include: {
         hostSite: { select: { id: true, name: true, organisationName: true } },
         points: { where: { isActive: true }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] },
+        // Declined sites stay visible (with removedAt set) so the manager can re-invite.
         sites: {
-          where: { removedAt: null },
+          where: {
+            OR: [{ removedAt: null }, { invitationStatus: ConsolidatedSiteInvitationStatus.DECLINED }],
+          },
           include: { site: { select: { id: true, name: true, organisationName: true, timezone: true } } },
         },
         members: {
@@ -244,8 +465,9 @@ export class ConsolidatedGroupService {
     const added = siteIds.filter((id) => !current.includes(id));
     const removed = current.filter((id) => !siteIds.includes(id));
     const actor = await this.audit.actorFrom(caller, req);
+    const invitations = await this.invitationData(caller, added);
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       if (removed.length) {
         await tx.consolidatedGroupSite.updateMany({
           where: { groupId, siteId: { in: removed }, removedAt: null },
@@ -257,8 +479,9 @@ export class ConsolidatedGroupService {
         // A site that was removed before is restored rather than duplicated.
         await tx.consolidatedGroupSite.upsert({
           where: { groupId_siteId: { groupId, siteId } },
-          create: { groupId, siteId, addedBy: caller.sub },
-          update: { removedAt: null, addedAt: new Date(), addedBy: caller.sub },
+          create: { groupId, siteId, addedBy: caller.sub, ...invitations.get(siteId)! },
+          // Re-adding a removed or declined site sends a fresh invitation.
+          update: { removedAt: null, addedAt: new Date(), addedBy: caller.sub, ...invitations.get(siteId)! },
         });
       }
 
@@ -266,9 +489,16 @@ export class ConsolidatedGroupService {
 
       // Collections that have not opened yet follow the group. Anything already
       // open keeps the site list it was generated with.
+      // Only sites that have accepted take part; invited ones join when they accept.
+      const accepted = (
+        await tx.consolidatedGroupSite.findMany({
+          where: { groupId, removedAt: null, invitationStatus: ConsolidatedSiteInvitationStatus.ACCEPTED },
+          select: { siteId: true },
+        })
+      ).map((s) => s.siteId);
       await tx.consolidatedCollection.updateMany({
         where: { groupId, status: ConsolidatedCollectionStatus.SCHEDULED, isDetached: false },
-        data: { participatingSiteIds: siteIds },
+        data: { participatingSiteIds: accepted },
       });
 
       await this.audit.log(tx, actor, {
@@ -286,6 +516,16 @@ export class ConsolidatedGroupService {
 
       return { siteIds, hostSiteId, added, removed };
     });
+
+    const invited = await this.prisma.consolidatedGroupSite.findMany({
+      where: {
+        groupId, siteId: { in: added },
+        invitationStatus: ConsolidatedSiteInvitationStatus.PENDING,
+      },
+      select: { id: true },
+    });
+    await this.notifier?.sitesInvited(invited.map((r) => r.id)).catch(() => undefined);
+    return { ...result, invited: invited.length };
   }
 
   async setMembers(caller: Jwtpayload, groupId: number, dto: SetGroupMembersDto, req?: RequestContext) {

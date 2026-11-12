@@ -5,7 +5,7 @@
  */
 import 'reflect-metadata';
 import { ValidationPipe, type ArgumentMetadata } from '@nestjs/common';
-import { CreateGroupDto, SetGroupMembersDto, SetGroupSitesDto, UpdateCollectionPointDto } from '../src/modules/consolidated/dto/group.dto';
+import { CreateGroupDto, DeclineInvitationDto, SetGroupMembersDto, SetGroupSitesDto, UpdateCollectionPointDto } from '../src/modules/consolidated/dto/group.dto';
 import { CreateScheduleDto, UpdateScheduleDto } from '../src/modules/consolidated/dto/schedule.dto';
 import { CollectionListQueryDto, ReopenSubmissionsDto, UpdateCollectionDto } from '../src/modules/consolidated/dto/collection.dto';
 import { CreateContributionDto, UpdateContributionDto } from '../src/modules/consolidated/dto/contribution.dto';
@@ -36,6 +36,8 @@ async function check(name: string, metatype: new () => object, value: unknown, t
     members: [{ userId: 7, role: 'MANAGER' }, { userId: 9, role: 'RECEIVER' }],
   });
   await check('PUT group sites (+host)', SetGroupSitesDto, { siteIds: [1, 2, 3], hostSiteId: 3 });
+  await check('POST invitations/:id/decline', DeclineInvitationDto, { reason: 'We close early on match days' });
+  await check('POST invitations/:id/decline (no reason)', DeclineInvitationDto, {});
   await check('PUT group members', SetGroupMembersDto, { members: [{ userId: 7, role: 'MANAGER' }] });
   await check('PATCH point', UpdateCollectionPointDto, { isActive: false });
   const schedule = {
