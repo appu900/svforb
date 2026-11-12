@@ -43,7 +43,9 @@ export const DECLARATIONS = {
   },
 } as const;
 
-/** Controllers and the sweep are inert unless this is on (B13 rollout). */
+/** Controllers and the sweep are inert when this is off. */
 export function consolidatedEnabled(): boolean {
-  return process.env.CONSOLIDATED_ENABLED === 'true';
+  // On by default. Set CONSOLIDATED_ENABLED=false (and restart) as an
+  // emergency off switch: endpoints return 404 and the sweep stops; no data is lost.
+  return process.env.CONSOLIDATED_ENABLED !== 'false';
 }

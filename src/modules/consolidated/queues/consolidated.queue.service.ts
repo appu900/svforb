@@ -26,7 +26,7 @@ export class ConsolidatedQueueService implements OnModuleInit {
 
   async onModuleInit() {
     if (!consolidatedEnabled()) {
-      this.logger.log('CONSOLIDATED_ENABLED is not set — sweep not scheduled.');
+      this.logger.log('CONSOLIDATED_ENABLED=false — sweep not scheduled.');
       return;
     }
 

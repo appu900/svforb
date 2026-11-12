@@ -4,38 +4,30 @@ Read this before deploying or running migrations after pulling this change.
 
 ---
 
-## 1. The feature is off by default
+## 1. The feature is ON by default
 
-Everything is gated behind one environment variable:
-
-```
-CONSOLIDATED_ENABLED=true
-```
-
-**While it is unset, the feature is invisible.** All 44 endpoints under
-`/api/v1/consolidated/*` return **404**, and the 5-minute sweep worker is not
-scheduled. 404 rather than 403 is deliberate: a feature that is switched off
-should look like it does not exist, not like something you are being kept out of.
-
-Nothing changes for any existing user until somebody sets it. Pulling this
-branch and deploying it is safe on its own.
-
-To turn it on:
-
-```bash
-CONSOLIDATED_ENABLED=true npm run start:dev
-```
-
-On boot you should see:
+`CONSOLIDATED_ENABLED` is now an **off switch**: the feature runs unless the
+environment sets
 
 ```
-Scheduled consolidated sweep every 5m
+CONSOLIDATED_ENABLED=false
 ```
 
-If you see `CONSOLIDATED_ENABLED is not set — sweep not scheduled.` instead,
-the flag has not reached the process.
+With it off, all `/api/v1/consolidated/*` endpoints return **404** and the
+5-minute sweep is not scheduled. Turn it off (and restart) only as an emergency
+measure — no data is lost and turning it back on resumes where it left off.
 
----
+**Order matters on deploy:** run `npx prisma migrate deploy` *before* (or as
+part of) the deploy that ships this code, because the feature starts working
+the moment the new code boots.
+
+On boot you should see `Scheduled consolidated sweep every 5m`.
+
+What existing users notice: nothing on the current store app (it has no
+Consolidated Collections code). On the new app build, Org Owners see a
+"Manage Consolidated Collection Groups" row in Account and a managers section in
+Manage Access; everything else appears only for people who are in a group, or
+whose site has been invited.
 
 ## 2. The migration is already applied to production
 
