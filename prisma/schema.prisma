@@ -236,12 +236,13 @@ model User {
   deviceTokens    DeviceToken[]
   userScopes      UserScope[]
 
-  invitationsSent    EnterpriseInvitation[]       @relation("InvitationsSent")
-  invitationAccepted EnterpriseInvitation?        @relation("InvitationAccepted")
-  auditLogs          AuditLog[]
-  notificationPrefs  UserNotificationPreference[]
-  enterpriseReports  EnterpriseReport[]
-  siteImportJobs     SiteImportJob[]
+  invitationsSent         EnterpriseInvitation[]       @relation("InvitationsSent")
+  invitationAccepted      EnterpriseInvitation?        @relation("InvitationAccepted")
+  auditLogs               AuditLog[]
+  notificationPrefs       UserNotificationPreference[]
+  consolidatedMemberships ConsolidatedGroupMember[]
+  enterpriseReports       EnterpriseReport[]
+  siteImportJobs          SiteImportJob[]
 
   @@index([email])
   @@index([phoneNumber])
@@ -382,9 +383,10 @@ model Organisation {
   enterpriseReports     EnterpriseReport[]
   siteImportJobs        SiteImportJob[]
   groupSites            GroupSite[]
-  donorConnections      Connection[] @relation("DonorOrgConnections")
-  receiverConnections   Connection[] @relation("ReceiverOrgConnections")
-  exclusiveListings     FoodListing[] @relation("ExclusiveToOrg")
+  donorConnections      Connection[]                    @relation("DonorOrgConnections")
+  receiverConnections   Connection[]                    @relation("ReceiverOrgConnections")
+  consolidatedGroups    ConsolidatedGroup[]
+  exclusiveListings     FoodListing[]                   @relation("ExclusiveToOrg")
 
   @@index([region])
   @@index([organizationType])
@@ -540,21 +542,24 @@ model Site {
   /// Denormalised for the Sites table; only qualifying activity updates it
   lastActivityAt DateTime?
 
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  siteAccesses      siteAccess[]
-  foodListings      FoodListing[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  siteAccesses              siteAccess[]
+  foodListings              FoodListing[]
   /// Connections where this site is the food donor
-  donorConnections    Connection[] @relation("DonorSiteConnections")
+  donorConnections          Connection[]               @relation("DonorSiteConnections")
   /// Connections where this site is the collecting charity
-  receiverConnections Connection[] @relation("ReceiverSiteConnections")
-  foodClaims        FoodClaim[]        @relation("ClaimantSiteClaims")
-  siteNotifications SiteNotification[]
-  clusterSite       ClusterSite?
-  territorySite     TerritorySite?
-  groupSite         GroupSite?
-  alertStates       SiteAlertState[]
-  importRows        SiteImportRow[]
+  receiverConnections       Connection[]               @relation("ReceiverSiteConnections")
+  foodClaims                FoodClaim[]                @relation("ClaimantSiteClaims")
+  siteNotifications         SiteNotification[]
+  clusterSite               ClusterSite?
+  territorySite             TerritorySite?
+  consolidatedHostOf        ConsolidatedGroup[]        @relation("ConsolidatedHostSite")
+  consolidatedGroupSites    ConsolidatedGroupSite[]
+  consolidatedContributions ConsolidatedContribution[]
+  groupSite                 GroupSite?
+  alertStates               SiteAlertState[]
+  importRows                SiteImportRow[]
 
   @@unique([organisationId, siteCode])
   @@index([organisationId])
@@ -573,6 +578,9 @@ model OrgMemeberShip {
   /// Set only for organisations on the Enterprise plan
   enterpriseRole EnterpriseRole?
   joinedAt       DateTime        @default(now())
+
+  /// Grants Consolidated Collections management. See SPEC R1/A1.
+  canManageConsolidated Boolean @default(false)
 
   @@unique([userId, organisationId])
   @@index([userId])
@@ -652,20 +660,28 @@ model FoodListing {
 
   uniqueClaimantCount Int @default(0)
 
+  /// ─── Consolidated Collections ────────────────────────────────────────────
+  /// STANDARD is every listing that exists today. CONTRIBUTION is one site's
+  /// food inside a collection (hidden from charities). MASTER is the single
+  /// charity-facing listing built on publish.
+  consolidatedRole         ConsolidatedListingRole   @default(STANDARD)
+  consolidatedContribution ConsolidatedContribution? @relation("ContributionListing")
+  consolidatedMasterOf     ConsolidatedCollection?   @relation("MasterListing")
+
   /// ─── Preferred Charity exclusivity ───────────────────────────────────────
   /// A listing is exclusive while exclusiveToOrgId is set and releasedAt is
   /// null. Every discovery path and the claim guard test that, so nothing else
   /// in the network can see or take it until it is released.
-  connectionId     Int?
-  connection       Connection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
-  exclusiveToOrgId Int?
-  exclusiveToOrg   Organisation? @relation("ExclusiveToOrg", fields: [exclusiveToOrgId], references: [id], onDelete: SetNull)
+  connectionId      Int?
+  connection        Connection?           @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  exclusiveToOrgId  Int?
+  exclusiveToOrg    Organisation?         @relation("ExclusiveToOrg", fields: [exclusiveToOrgId], references: [id], onDelete: SetNull)
   exclusiveToSiteId Int?
   /// Advisory deadline shown to the charity; the cut-off sweep is what acts.
-  exclusiveUntil   DateTime?
+  exclusiveUntil    DateTime?
   /// Set the moment it becomes an ordinary public listing. Never unset.
-  releasedAt       DateTime?
-  releasedReason   ListingReleaseReason?
+  releasedAt        DateTime?
+  releasedReason    ListingReleaseReason?
 
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -692,22 +708,27 @@ model FoodListing {
   @@index([snapshotTerritoryId])
   @@index([pickupPostcode])
   @@index([connectionId])
+  @@index([consolidatedRole])
   @@index([exclusiveToOrgId, releasedAt])
   @@index([status], map: "food_listings_active_idx", where: raw("(status = ANY (ARRAY['ACTIVE'::\"ListingStatus\", 'PARTIAL'::\"ListingStatus\"]))"))
   @@map("food_listings")
 }
 
 model FoodItem {
-  id             Int         @id @default(autoincrement())
-  listingId      Int
-  listing        FoodListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  name           String
-  totalQtyKg     Float
-  remainingQtyKg Float
-  unit           String?
-  category       String?
+  id                  Int         @id @default(autoincrement())
+  listingId           Int
+  listing             FoodListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  name                String
+  totalQtyKg          Float
+  remainingQtyKg      Float
+  unit                String?
+  category            String?
+  /// Display-only, e.g. "12 trays". Never converted — kg stays authoritative (R15).
+  quantityDescription String?
 
-  claimItems ClaimItem[]
+  claimItems             ClaimItem[]
+  consolidatedSourceItem ConsolidatedItem? @relation("ConsolidatedSourceItem")
+  consolidatedMasterItem ConsolidatedItem? @relation("ConsolidatedMasterItem")
 
   @@index([listingId])
   @@map("food_items")
@@ -755,6 +776,15 @@ model FoodClaim {
   claimItems    ClaimItem[]
   driverPickups DriverPickup[]
 
+  /// ─── Consolidated Collections ────────────────────────────────────────────
+  /// STANDARD is every claim today. CONSOLIDATED_MASTER is the charity's claim
+  /// on a master listing — excluded from impact. CONSOLIDATED_ALLOCATION is the
+  /// per-site claim written at item check, which is what impact counts.
+  claimKind     ClaimKind   @default(STANDARD)
+  parentClaimId Int?
+  parentClaim   FoodClaim?  @relation("ClaimAllocations", fields: [parentClaimId], references: [id])
+  allocations   FoodClaim[] @relation("ClaimAllocations")
+
   /// Classification at claim time — see FoodListing for rationale.
   snapshotGroupId     Int?
   snapshotClusterId   Int?
@@ -765,6 +795,8 @@ model FoodClaim {
   @@index([claimantSiteId])
   @@index([status])
   @@index([collectedAt])
+  @@index([claimKind])
+  @@index([parentClaimId])
   @@index([snapshotGroupId])
   @@index([snapshotClusterId])
   @@index([snapshotTerritoryId])
@@ -837,13 +869,19 @@ model DriverPickup {
 
   photoUrl         String?
   completionNotes  String?
-  /** Driver's rating of the food business at completion. */
+  /**
+   * Driver's rating of the food business at completion.
+   */
   restaurantRating Int?
 
-  /** Charity/farmer rating of the driver after delivery. */
-  charityDriverRating     Int?
-  charityDriverRatingNote String?
-  /** Food business rating of the driver after delivery. */
+  /**
+   * Charity/farmer rating of the driver after delivery.
+   */
+  charityDriverRating        Int?
+  charityDriverRatingNote    String?
+  /**
+   * Food business rating of the driver after delivery.
+   */
   restaurantDriverRating     Int?
   restaurantDriverRatingNote String?
 
@@ -1212,6 +1250,7 @@ enum AuditArea {
   ENTERPRISE_SETTINGS
   NOTIFICATIONS
   AUTH
+  CONSOLIDATED_COLLECTIONS
 }
 
 enum ReportFormat {
@@ -1630,20 +1669,20 @@ model Connection {
 
   /// The food donor
   donorSiteId Int
-  donorSite   Site @relation("DonorSiteConnections", fields: [donorSiteId], references: [id], onDelete: Cascade)
+  donorSite   Site         @relation("DonorSiteConnections", fields: [donorSiteId], references: [id], onDelete: Cascade)
   donorOrgId  Int
   donorOrg    Organisation @relation("DonorOrgConnections", fields: [donorOrgId], references: [id], onDelete: Cascade)
 
   /// The collecting charity
   receiverSiteId Int
-  receiverSite   Site @relation("ReceiverSiteConnections", fields: [receiverSiteId], references: [id], onDelete: Cascade)
+  receiverSite   Site         @relation("ReceiverSiteConnections", fields: [receiverSiteId], references: [id], onDelete: Cascade)
   receiverOrgId  Int
   receiverOrg    Organisation @relation("ReceiverOrgConnections", fields: [receiverOrgId], references: [id], onDelete: Cascade)
 
   status      ConnectionStatus    @default(PENDING)
   initiatedBy ConnectionInitiator @default(BUSINESS)
 
-  frequency ConnectionFrequency @default(SELECT_DAYS)
+  frequency  ConnectionFrequency @default(SELECT_DAYS)
   /// ISO weekdays, 1 = Monday … 7 = Sunday. Always populated, whatever the
   /// frequency label says.
   daysOfWeek Int[]
@@ -1657,20 +1696,20 @@ model Connection {
   /// How long before the window opens the business is asked what is available.
   leadTimeMinutes Int @default(240)
   /// How long before the window the charity must confirm today's collection.
-  cutoffMinutes Int @default(90)
+  cutoffMinutes   Int @default(90)
 
   /// Free text shown on the invitation, e.g. "Prepared meals & bakery".
-  typicalSurplus String?
+  typicalSurplus  String?
   /// Guide-only quantity shown on the invitation, e.g. "Approximately 8 kg (20 meals)".
   typicalQuantity String?
-  notes          String?
+  notes           String?
 
-  invitedByUserId   Int?
-  respondedByUserId Int?
-  respondedAt       DateTime?
-  pausedAt          DateTime?
-  endedAt           DateTime?
-  endedByUserId     Int?
+  invitedByUserId     Int?
+  respondedByUserId   Int?
+  respondedAt         DateTime?
+  pausedAt            DateTime?
+  endedAt             DateTime?
+  endedByUserId       Int?
   /// Invitations that are never answered expire rather than sitting forever.
   invitationExpiresAt DateTime?
 
@@ -1712,7 +1751,7 @@ model ConnectionDay {
   respondedAt DateTime?
   releasedAt  DateTime?
 
-  listingId Int?
+  listingId   Int?
   /// Kilograms actually collected by the preferred charity on this day.
   collectedKg Float?
 
@@ -1723,4 +1762,501 @@ model ConnectionDay {
   @@index([outcome, cutoffAt])
   @@index([outcome, windowStartAt])
   @@map("connection_days")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Consolidated Collections
+//
+// Several sites in one venue bring surplus to a shared collection point; the
+// charity sees one listing and collects once, while every site keeps its own
+// traceable record. See docs/consolidated-collections/SPEC.md.
+//
+// Naming rule: everything here is prefixed `Consolidated`. The Enterprise
+// module already owns `Cluster` / `EnterpriseGroup` for *reporting*, which is a
+// different feature entirely.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ConsolidatedListingRole {
+  STANDARD
+  CONTRIBUTION
+  MASTER
+}
+
+enum ClaimKind {
+  STANDARD
+  CONSOLIDATED_MASTER
+  CONSOLIDATED_ALLOCATION
+}
+
+enum ConsolidatedMemberRole {
+  MANAGER
+  RECEIVER
+}
+
+enum ConsolidatedHandoverMethod {
+  SITE_DROP_OFF
+  INTERNAL_COLLECTION
+}
+
+enum ConsolidatedRecurrence {
+  ONE_OFF
+  DAILY
+  WEEKLY
+  SELECTED_WEEKDAYS
+  CUSTOM_DATES
+}
+
+enum ConsolidatedScheduleStatus {
+  ACTIVE
+  ENDED
+}
+
+enum ConsolidatedCollectionStatus {
+  SCHEDULED
+  OPEN
+  SUBMISSIONS_CLOSED
+  PUBLISHED
+  CLAIMED
+  AWAITING_ITEM_CHECK
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum ConsolidatedContributionStatus {
+  SUBMITTED
+  LATE_PENDING_APPROVAL
+  REJECTED_LATE
+  WITHDRAWN
+  HANDED_OVER
+  RECEIVED
+  NOT_RECEIVED
+  EXCLUDED
+  NO_CONTRIBUTION
+  COMPLETED
+  CANCELLED
+}
+
+enum ConsolidatedReceiptStatus {
+  PENDING
+  RECEIVED
+  NOT_RECEIVED
+}
+
+enum ConsolidatedItemOutcome {
+  PENDING
+  ACCEPTED
+  PARTIALLY_ACCEPTED
+  REJECTED
+  UNAVAILABLE
+  NOT_RECEIVED
+  EXCLUDED
+  CANCELLED
+}
+
+enum ConsolidatedDeclarationType {
+  SITE
+  MANAGER
+  CHARITY
+}
+
+enum ConsolidatedRejectionReason {
+  QUALITY
+  TEMPERATURE
+  PACKAGING_DAMAGED
+  PAST_DATE
+  NOT_AS_DESCRIBED
+  CANNOT_TRANSPORT
+  CANNOT_STORE
+  OTHER
+}
+
+enum ConsolidatedChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// A reusable set of sites that contribute to a shared collection point.
+model ConsolidatedGroup {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+
+  /// Owns the master listing. Must be one of the participating sites (A2).
+  hostSiteId Int
+  hostSite   Site @relation("ConsolidatedHostSite", fields: [hostSiteId], references: [id])
+
+  /// IANA zone; defaults to the host site's timezone.
+  timezone String
+
+  isActive        Boolean   @default(true)
+  archivedAt      DateTime?
+  createdByUserId Int
+
+  points      ConsolidatedCollectionPoint[]
+  sites       ConsolidatedGroupSite[]
+  members     ConsolidatedGroupMember[]
+  schedules   ConsolidatedSchedule[]
+  collections ConsolidatedCollection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organisationId, name])
+  @@index([organisationId, isActive])
+  @@map("consolidated_groups")
+}
+
+/// Where the food is brought together, e.g. "Loading Dock B".
+model ConsolidatedCollectionPoint {
+  id      Int               @id @default(autoincrement())
+  groupId Int
+  group   ConsolidatedGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  name       String
+  address    String
+  postcode   String?
+  lat        Float
+  lng        Float
+  directions String?
+
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([groupId])
+  @@map("consolidated_collection_points")
+}
+
+/// Site membership. Removal is soft so historical collections keep their links.
+model ConsolidatedGroupSite {
+  id      Int               @id @default(autoincrement())
+  groupId Int
+  group   ConsolidatedGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  siteId  Int
+  site    Site              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  addedAt   DateTime  @default(now())
+  addedBy   Int
+  removedAt DateTime?
+
+  @@unique([groupId, siteId])
+  @@index([siteId])
+  @@map("consolidated_group_sites")
+}
+
+/// Managers and receipt delegates. No new role types — see SPEC R1/R2.
+model ConsolidatedGroupMember {
+  id      Int               @id @default(autoincrement())
+  groupId Int
+  group   ConsolidatedGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId  Int
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role ConsolidatedMemberRole
+
+  addedAt DateTime @default(now())
+  addedBy Int
+
+  @@unique([groupId, userId, role])
+  @@index([userId])
+  @@map("consolidated_group_members")
+}
+
+/// The recurrence rule that materialises collections (R8).
+model ConsolidatedSchedule {
+  id      Int               @id @default(autoincrement())
+  groupId Int
+  group   ConsolidatedGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  collectionPointId Int
+  method            ConsolidatedHandoverMethod
+  recurrence        ConsolidatedRecurrence
+  status            ConsolidatedScheduleStatus @default(ACTIVE)
+
+  timezone  String
+  /// Local date normalised to UTC midnight.
+  startDate DateTime
+  endDate   DateTime?
+
+  /// ISO weekdays, 1 = Monday … 7 = Sunday.
+  daysOfWeek  Int[]      @default([])
+  customDates DateTime[] @default([])
+
+  opensDaysBefore Int @default(0)
+
+  /// Local minutes past midnight, so a 2pm window is 2pm in every timezone.
+  submissionsCloseMinutes Int
+  handoverStartMinutes    Int
+  handoverEndMinutes      Int
+  pickupStartMinutes      Int
+  pickupEndMinutes        Int
+
+  contactName      String
+  contactPhone     String
+  instructions     String?
+  suitabilityNotes String
+
+  /// Empty means every active site in the group.
+  participatingSiteIds Int[] @default([])
+
+  /// Last local date materialised by the sweep.
+  generatedUntil  DateTime?
+  createdByUserId Int
+
+  collections ConsolidatedCollection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([groupId, status])
+  @@map("consolidated_schedules")
+}
+
+/// One dated collection event.
+model ConsolidatedCollection {
+  id             Int               @id @default(autoincrement())
+  organisationId Int
+  groupId        Int
+  group          ConsolidatedGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  scheduleId Int?
+  schedule   ConsolidatedSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  collectionPointId Int
+  /// Snapshot of the point as it was. Editing a point must never rewrite history.
+  pointName         String
+  pointAddress      String
+  pointPostcode     String?
+  pointLat          Float
+  pointLng          Float
+  pointDirections   String?
+
+  method ConsolidatedHandoverMethod
+  status ConsolidatedCollectionStatus @default(SCHEDULED)
+
+  timezone      String
+  /// Local date at UTC midnight.
+  scheduledDate DateTime
+
+  opensAt            DateTime
+  submissionsCloseAt DateTime
+  /// Set when a manager reopens submissions after the deadline (R7).
+  reopenedUntil      DateTime?
+  handoverStartAt    DateTime
+  handoverEndAt      DateTime
+  pickupStartAt      DateTime
+  pickupEndAt        DateTime
+
+  contactName      String
+  contactPhone     String
+  instructions     String?
+  suitabilityNotes String
+
+  participatingSiteIds Int[] @default([])
+
+  /// Edited on its own, so series edits skip it.
+  isDetached Boolean @default(false)
+
+  /// Lifecycle stamps. The sweep uses these for idempotency.
+  openedAt            DateTime?
+  closingReminderAt   DateTime?
+  closedAt            DateTime?
+  overdueAlertAt      DateTime?
+  publishedAt         DateTime?
+  publishedByUserId   Int?
+  masterListingId     Int?         @unique
+  masterListing       FoodListing? @relation("MasterListing", fields: [masterListingId], references: [id])
+  claimedAt           DateTime?
+  pickupReminderAt    DateTime?
+  itemCheckReminderAt DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  cancelledByUserId   Int?
+  cancelReason        String?
+  expiredAt           DateTime?
+
+  /// Bumps on every charity-visible change, so changes can be diffed (R11).
+  version Int @default(1)
+
+  contributions ConsolidatedContribution[]
+  items         ConsolidatedItem[]
+  declarations  ConsolidatedDeclaration[]
+  changes       ConsolidatedChange[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([scheduleId, scheduledDate])
+  @@index([organisationId, status])
+  @@index([groupId, scheduledDate])
+  @@index([status, opensAt])
+  @@index([status, submissionsCloseAt])
+  @@index([status, pickupEndAt])
+  @@map("consolidated_collections")
+}
+
+/// One site's food for one collection. Exactly one per site per collection (A3).
+model ConsolidatedContribution {
+  id           Int                    @id @default(autoincrement())
+  collectionId Int
+  collection   ConsolidatedCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  siteId       Int
+  site         Site                   @relation(fields: [siteId], references: [id])
+
+  /// Null only for NO_CONTRIBUTION rows (R20).
+  listingId Int?         @unique
+  listing   FoodListing? @relation("ContributionListing", fields: [listingId], references: [id])
+
+  status ConsolidatedContributionStatus
+
+  isLate              Boolean   @default(false)
+  submittedAt         DateTime?
+  submittedByUserId   Int?
+  lateDecidedAt       DateTime?
+  lateDecidedByUserId Int?
+  lateDecisionReason  String?
+
+  withdrawnAt    DateTime?
+  withdrawReason String?
+
+  handoverAt       DateTime?
+  handoverByUserId Int?
+
+  receiptStatus   ConsolidatedReceiptStatus @default(PENDING)
+  receiptAt       DateTime?
+  receiptByUserId Int?
+  receiptNote     String?
+
+  excludedAt       DateTime?
+  excludedByUserId Int?
+  excludeReason    String?
+
+  /// The per-site claim written at item check — what impact actually counts.
+  allocationClaimId Int? @unique
+
+  changeRequests ConsolidatedChangeRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([collectionId, siteId])
+  @@index([siteId])
+  @@map("consolidated_contributions")
+}
+
+/// Traceability ledger: one row per source food item (R19).
+/// submitted → verified → accepted / rejected / unavailable → outcome.
+model ConsolidatedItem {
+  id             Int                    @id @default(autoincrement())
+  collectionId   Int
+  collection     ConsolidatedCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  contributionId Int
+  siteId         Int
+
+  sourceFoodItemId Int       @unique
+  sourceFoodItem   FoodItem  @relation("ConsolidatedSourceItem", fields: [sourceFoodItemId], references: [id])
+  masterFoodItemId Int?      @unique
+  masterFoodItem   FoodItem? @relation("ConsolidatedMasterItem", fields: [masterFoodItemId], references: [id])
+
+  name     String
+  category String?
+
+  submittedQtyKg   Float
+  verifiedQtyKg    Float?
+  acceptedQtyKg    Float?
+  rejectedQtyKg    Float?
+  unavailableQtyKg Float?
+
+  rejectionReason ConsolidatedRejectionReason?
+  rejectionNote   String?
+
+  outcome ConsolidatedItemOutcome @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([collectionId])
+  @@index([contributionId])
+  @@index([siteId])
+  @@map("consolidated_items")
+}
+
+/// A signed declaration. Stores the exact text shown, so wording can change
+/// later without rewriting what someone actually agreed to (R13).
+model ConsolidatedDeclaration {
+  id             Int                    @id @default(autoincrement())
+  collectionId   Int
+  collection     ConsolidatedCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  contributionId Int?
+  claimId        Int?
+
+  type         ConsolidatedDeclarationType
+  version      String
+  textSnapshot String
+
+  userId         Int
+  organisationId Int
+  acceptedAt     DateTime @default(now())
+  ipAddress      String?
+  userAgent      String?
+
+  @@index([collectionId, type])
+  @@map("consolidated_declarations")
+}
+
+/// A charity-visible change after claim, needing acknowledgement (R11).
+model ConsolidatedChange {
+  id           Int                    @id @default(autoincrement())
+  collectionId Int
+  collection   ConsolidatedCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  fromVersion Int
+  toVersion   Int
+  isMaterial  Boolean
+  /// e.g. ["PICKUP_TIME", "QTY_DROP_GT_20"]
+  reasons     String[]
+  /// Neutral text shown to the charity. Never contains site names.
+  summary     String
+  before      Json
+  after       Json
+
+  createdByUserId      Int
+  notifiedAt           DateTime?
+  acknowledgedAt       DateTime?
+  acknowledgedByUserId Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([collectionId])
+  @@map("consolidated_changes")
+}
+
+/// A site edit after publish, awaiting manager approval (R6/R7).
+model ConsolidatedChangeRequest {
+  id             Int                      @id @default(autoincrement())
+  contributionId Int
+  contribution   ConsolidatedContribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+  collectionId   Int
+
+  requestedByUserId Int
+  /// A validated UpdateContributionDto.
+  payload           Json
+
+  status          ConsolidatedChangeRequestStatus @default(PENDING)
+  decidedByUserId Int?
+  decidedAt       DateTime?
+  decisionReason  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([collectionId, status])
+  @@map("consolidated_change_requests")
 }

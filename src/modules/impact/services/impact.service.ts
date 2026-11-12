@@ -1,3 +1,7 @@
+import {
+  IMPACT_CLAIM,
+  SQL_IMPACT_CLAIM,
+} from '../../consolidated/consolidated.filters';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ClaimStatus, DriverPickupStatus, EnterpriseRole, OrgRole, OrgType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
@@ -429,7 +433,7 @@ export class ImpactService {
       }
 
       const claims = await this.prisma.foodClaim.findMany({
-        where: { ...collectedClaimWhere, listing: { siteId } },
+        where: { ...collectedClaimWhere, ...IMPACT_CLAIM, listing: { siteId } },
         include: {
           ...claimInclude,
           claimantOrg: { select: { id: true, organizationType: true } },
@@ -456,6 +460,7 @@ export class ImpactService {
     const claims = await this.prisma.foodClaim.findMany({
       where: {
         ...collectedClaimWhere,
+        ...IMPACT_CLAIM,
         claimantOrgId: organisation.id,
         // null siteId = All sites (org-wide). Otherwise only this charity/farmer site's claims.
         ...(siteId != null ? { claimantSiteId: siteId } : {}),
@@ -522,7 +527,7 @@ export class ImpactService {
         };
 
     const claims = await this.prisma.foodClaim.findMany({
-      where: { ...collectedClaimWhere, listing: { organisationId } },
+      where: { ...collectedClaimWhere, ...IMPACT_CLAIM, listing: { organisationId } },
       include: {
         claimItems: { select: { qtyKg: true } },
         driverPickups: {
@@ -686,6 +691,7 @@ export class ImpactService {
       WHERE
         ${scopeFilter}
         AND fc.status != 'CANCELLED'
+        AND ${SQL_IMPACT_CLAIM}
         ${collectedFilter}
       -- Quantities are all kg, so the same food listed with a different unit,
       -- case or spacing is still one food.

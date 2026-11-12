@@ -3,6 +3,7 @@ import { ListingReleaseReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { resolveCallerSiteId } from '../utils/resolve-caller-site';
+import { DISCOVERABLE_LISTING } from '../../consolidated/consolidated.filters';
 
 @Injectable()
 export class SiteNotificationService {
@@ -18,6 +19,9 @@ export class SiteNotificationService {
     const where: Prisma.SiteNotificationWhereInput = {
       siteId,
       expiresAt: { gt: now },
+      // A contribution is never announced on its own — only the published
+      // collection reaches a charity's inbox.
+      listing: DISCOVERABLE_LISTING,
       // Released after this charity said "Can't collect": offered to everyone else.
       ...(caller.orgId
         ? {

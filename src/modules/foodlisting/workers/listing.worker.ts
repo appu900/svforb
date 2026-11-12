@@ -1,7 +1,12 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { ConnectionDayOutcome, FoodListingType, ListingStatus } from '@prisma/client';
+import {
+  ConnectionDayOutcome,
+  ConsolidatedListingRole,
+  FoodListingType,
+  ListingStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { RedisGeoSearchService } from '../../redis-geo-search/redis.geosearch.service';
 import { NotificationService } from '../../notifications/services/notification.service';
@@ -176,6 +181,10 @@ export class ListingWorker extends WorkerHost {
       where: {
         status: { in: [ListingStatus.ACTIVE, ListingStatus.PARTIAL] },
         OR: [{ pickupByTime: { lte: now } }, { bestBefore: { lte: now } }],
+        // Consolidated Collections owns the lifecycle of its own listings: a
+        // contribution and its master expire with the collection, not on their
+        // own clock.
+        consolidatedRole: ConsolidatedListingRole.STANDARD,
         // Reserved connection listings stay live until auto-release at window end.
         AND: [
           {
@@ -222,11 +231,17 @@ export class ListingWorker extends WorkerHost {
         bestBefore: true,
         exclusiveToOrgId: true,
         releasedAt: true,
+        consolidatedRole: true,
       },
     });
 
     if (!listing) {
       this.logger.warn(`Expiry job: listing ${listingId} not found`);
+      return false;
+    }
+
+    // See handleSweepExpiredListings — the collection owns these.
+    if (listing.consolidatedRole !== ConsolidatedListingRole.STANDARD) {
       return false;
     }
 

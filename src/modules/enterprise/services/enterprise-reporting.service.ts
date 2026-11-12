@@ -9,6 +9,10 @@ import {
 } from '../../impact/impact.constants';
 import { ScopeType } from '../enterprise.constants';
 import { EnterpriseScopeService } from './enterprise-scope.service';
+import {
+  BUSINESS_LIST_LISTING,
+  IMPACT_CLAIM,
+} from '../../consolidated/consolidated.filters';
 
 /** A site counts as active when it listed something in the last 30 days. */
 const ACTIVITY_WINDOW_DAYS = 30;
@@ -49,6 +53,9 @@ export class EnterpriseReportingService {
         listing: { siteId: { in: resolved.siteIds } },
         status: ClaimStatus.COLLECTED,
         collectedAt: { gte: start, lte: end },
+        // Kilograms come from the per-site allocations; the master claim is a
+        // presentation layer and would double the weight if counted.
+        ...IMPACT_CLAIM,
       },
       select: {
         claimantOrgId: true,
@@ -179,12 +186,14 @@ export class EnterpriseReportingService {
           siteId: { in: resolved.siteIds },
           createdAt: { gte: start, lte: end },
           status: { not: ListingStatus.CANCELLED },
+          // A collection is not an extra listing on top of its contributions.
+          ...BUSINESS_LIST_LISTING,
         },
         _count: { _all: true },
       }),
       this.prisma.foodListing.groupBy({
         by: ['siteId'],
-        where: { siteId: { in: resolved.siteIds } },
+        where: { siteId: { in: resolved.siteIds }, ...BUSINESS_LIST_LISTING },
         _max: { createdAt: true },
       }),
       this.prisma.foodClaim.findMany({
@@ -192,6 +201,7 @@ export class EnterpriseReportingService {
           listing: { siteId: { in: resolved.siteIds } },
           status: ClaimStatus.COLLECTED,
           collectedAt: { gte: start, lte: end },
+          ...IMPACT_CLAIM,
         },
         select: { listing: { select: { siteId: true } }, claimItems: { select: { qtyKg: true } } },
       }),

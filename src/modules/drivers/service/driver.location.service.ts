@@ -6,7 +6,14 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ClaimStatus, ConnectionDayOutcome, DriverPickupStatus, SiteRole } from '@prisma/client';
+import {
+  ClaimKind,
+  ClaimStatus,
+  ConnectionDayOutcome,
+  ConsolidatedCollectionStatus,
+  DriverPickupStatus,
+  SiteRole,
+} from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { RedisService } from '../../../infra/redis/redis.service';
 import { S3Service } from '../../../uploads/s3/s3.service';
@@ -436,6 +443,16 @@ export class DriverLocationService {
             ...(rating !== undefined && { rating }),
           },
         });
+
+        // A consolidated collection is not finished when the van leaves: the
+        // charity still has to say what it accepted, per item, before any of
+        // it counts as redistributed (R19, A9).
+        if (pickup.claim.claimKind === ClaimKind.CONSOLIDATED_MASTER) {
+          await tx.consolidatedCollection.updateMany({
+            where: { masterListingId: pickup.claim.listingId },
+            data: { status: ConsolidatedCollectionStatus.AWAITING_ITEM_CHECK },
+          });
+        }
 
         if (rating !== undefined) {
           const org = await tx.organisation.findUnique({

@@ -469,6 +469,7 @@ Never include site names.
 
 | Method | Rule |
 |---|---|
+| `assertProductAccess(caller)` | **The single commercial gate for this feature (R4).** Today it is effectively a no-op: the global `SubscriptionInterceptor` already returns 402 for any billable org without a live plan, and R4 puts Consolidated Collections on every paid plan with no module condition. It exists so the commercial rule has **one** home. Every public entry point (controller method) calls it first, before any role or scope check. |
 | `canManageFlag(caller)` | `orgRole === SUPER_ADMIN` OR membership `canManageConsolidated = true` AND (`orgRole in [SUPER_ADMIN, ORG_ADMIN]` OR the user has ≥1 `siteAccess` with `SITE_ADMIN`). Also `assertNotViewOnly`. |
 | `callerSiteIds(caller)` | `null` = all org sites (SUPER_ADMIN/ORG_ADMIN); otherwise the siteIds from `siteAccess` for this org |
 | `assertCanCreateGroup(caller, siteIds)` | `canManageFlag`, and every site is in the caller's org, active, and (Site Admin) within `callerSiteIds` |
@@ -479,12 +480,15 @@ Never include site names.
 | `assertCharityOwnsClaim(caller, claimId)` | claim.claimantOrgId = caller.orgId AND claim.claimKind = CONSOLIDATED_MASTER |
 | `meSummary(caller)` | builds `/consolidated/me` |
 
+**Why `assertProductAccess` exists even though it does nothing today.** Commercial rules change far more often than permission rules. S4B is moving to module-based pricing, and R4 is a decision that could be revisited. Routing every entry point through one method means that change is a single edit with a single test, instead of an audit of every controller. Do not inline “no check needed” — call it.
+
 Permissions endpoints (`/consolidated/permissions`, `PATCH /permissions/:userId`): org owner only. The target must be
 an Org Admin or have a SITE_ADMIN site access, otherwise 400 "User must be an Org Admin or Site Admin". When the flag is
 removed, delete their MANAGER memberships (audit it).
 
 **Tests:** a site admin cannot add a site outside their access; another org's group gives 404; staff cannot
-publish; a receiver can only call receipt; a view-only enterprise role gets 403.
+publish; a receiver can only call receipt; a view-only enterprise role gets 403; every controller method
+calls `assertProductAccess` first (assert on the spy, so a new endpoint that forgets it fails the suite).
 
 ---
 

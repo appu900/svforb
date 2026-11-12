@@ -4,6 +4,7 @@ import { NearbyCharity, NearbyListing } from './ptypes';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { OrgType } from '@prisma/client';
+import { SQL_DISCOVERABLE } from '../consolidated/consolidated.filters';
 
 @Injectable()
 export class ProximityService {
@@ -233,6 +234,8 @@ export class ProximityService {
         -- collections are excluded outright rather than risk one charity's
         -- cached page showing another's exclusive listing.
         AND fl."exclusiveToOrgId" IS NULL
+        -- A site's contribution belongs to a collection, not to public search.
+        AND ${SQL_DISCOVERABLE}
         AND fl."bestBefore" > NOW()
         AND (fl."pickupByTime" IS NULL OR fl."pickupByTime" > NOW())
         AND fl."pickupLat" IS NOT NULL

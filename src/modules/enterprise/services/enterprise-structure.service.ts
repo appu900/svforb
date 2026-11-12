@@ -22,6 +22,10 @@ import { ENTERPRISE_ERROR } from '../enterprise.constants';
 import { PERMISSION } from '../enterprise.permissions';
 import { EnterpriseAuditService } from './enterprise-audit.service';
 import { EnterpriseScopeService } from './enterprise-scope.service';
+import {
+  BUSINESS_LIST_LISTING,
+  OPERATIONAL_CLAIM,
+} from '../../consolidated/consolidated.filters';
 
 /**
  * The three reporting dimensions. They are independent of one another — a site
@@ -943,8 +947,9 @@ export class EnterpriseStructureService {
           : { snapshotTerritoryId: id };
 
     const [listings, claims] = await Promise.all([
-      this.prisma.foodListing.count({ where }),
-      this.prisma.foodClaim.count({ where }),
+      this.prisma.foodListing.count({ where: { ...where, ...BUSINESS_LIST_LISTING } }),
+      // Activity counts collections, not the allocations inside one.
+      this.prisma.foodClaim.count({ where: { ...where, ...OPERATIONAL_CLAIM } }),
     ]);
     return { listings, claims, total: listings + claims };
   }

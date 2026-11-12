@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -9,6 +10,8 @@ import {
 import {
   ClaimStatus,
   ConnectionDayOutcome,
+  ConsolidatedListingRole,
+  RecoveryPathway,
   EnterpriseRole,
   FoodListingType,
   ListingStatus,
@@ -27,9 +30,36 @@ import { ListingQueueService, resolveListingExpiryAt } from '../queues/listing.q
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 import { resolveCallerSiteId } from '../utils/resolve-caller-site';
+import {
+  BUSINESS_LIST_LISTING,
+  SQL_DISCOVERABLE,
+} from '../../consolidated/consolidated.filters';
 import { canAccessListing, ExclusivityView } from '../../connections/connection.rules';
 import { assertNotViewOnly, isUnrestricted } from '../../enterprise/enterprise.permissions';
 import { viewOnlySiteIds } from '../../enterprise/enterprise-reach';
+
+/** Everything `createListingRecord` needs, already validated and resolved. */
+export interface CreateListingRecordInput
+  extends Omit<CreateFoodListingDto, 'bestBefore' | 'pickupByTime' | 'photoUrls' | 'foodItems'> {
+  bestBefore: Date;
+  pickupByTime: Date | null;
+  photoUrls: string[];
+  totalQtyKg: number;
+  /** Enterprise classification captured at creation. */
+  snapshot: Record<string, number | null>;
+  recoveryPathway?: RecoveryPathway | null;
+  foodItems: {
+    name: string;
+    totalQtyKg: number;
+    unit?: string;
+    category?: string;
+    quantityDescription?: string | null;
+  }[];
+}
+
+export interface CreateListingRecordOptions {
+  consolidatedRole?: ConsolidatedListingRole;
+}
 
 const PHOTO_FOLDER = 'food-listing-photos';
 const DEFAULT_LIMIT = 20;
@@ -94,6 +124,68 @@ export class FoodListingService {
     return this.s3.createPresignedPut(PHOTO_FOLDER, type, ext);
   }
 
+  /**
+   * Writes the listing row and its food items, and nothing else.
+   *
+   * Split out so Consolidated Collections can create a listing that must stay
+   * invisible: a site's contribution is not an offer in its own right, so it
+   * gets no discovery fan-out, no expiry job and no cache invalidation. Those
+   * side effects stay in `createListing`, which is the only path that should
+   * ever trigger them.
+   */
+  async createListingRecord(
+    tx: Prisma.TransactionClient,
+    caller: Jwtpayload,
+    input: CreateListingRecordInput,
+    opts: CreateListingRecordOptions = {},
+  ) {
+    const created = await tx.foodListing.create({
+      data: {
+        siteId: input.siteId,
+        organisationId: caller.orgId!,
+        ...input.snapshot,
+        listingType: input.listingType,
+        recoveryPathway: input.recoveryPathway ?? undefined,
+        consolidatedRole: opts.consolidatedRole ?? ConsolidatedListingRole.STANDARD,
+        totalQtyKg: input.totalQtyKg,
+        remainingQtyKg: input.totalQtyKg,
+        pickupAddress: input.pickupAddress,
+        pickupPostcode: input.pickupPostcode,
+        pickupLat: input.pickupLat,
+        pickupLng: input.pickupLng,
+        bestBefore: input.bestBefore,
+        pickupFromTime: input.pickupFromTime ? new Date(input.pickupFromTime) : null,
+        pickupByTime: input.pickupByTime,
+        needsRefrigeration: input.needsRefrigeration ?? false,
+        needsAmbient: input.needsAmbient ?? false,
+        needsFreezer: input.needsFreezer ?? false,
+        needsHot: input.needsHot ?? false,
+        needsReheating: input.needsReheating ?? false,
+        isSafeForDonation: input.isSafeForDonation ?? true,
+        allergens: input.allergens ?? [],
+        collectionNotes: input.collectionNotes?.trim() || null,
+        photoUrls: input.photoUrls,
+      },
+    });
+
+    await tx.foodItem.createMany({
+      data: input.foodItems.map((item) => ({
+        listingId: created.id,
+        name: item.name,
+        totalQtyKg: item.totalQtyKg,
+        remainingQtyKg: item.totalQtyKg,
+        unit: item.unit,
+        category: item.category,
+        quantityDescription: item.quantityDescription ?? null,
+      })),
+    });
+
+    return tx.foodListing.findUnique({
+      where: { id: created.id },
+      include: { foodItems: true },
+    });
+  }
+
   async createListing(
     caller: Jwtpayload,
     dto: CreateFoodListingDto,
@@ -132,52 +224,16 @@ export class FoodListingService {
     // rewrite what this listing reported at the time.
     const snapshot = await this.enterpriseScope.snapshotForSite(dto.siteId);
 
-    const listing = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.foodListing.create({
-        data: {
-          siteId: dto.siteId,
-          organisationId: caller.orgId!,
-          ...snapshot,
-          listingType: dto.listingType,
-          totalQtyKg,
-          remainingQtyKg: totalQtyKg,
-          pickupAddress: dto.pickupAddress,
-          pickupPostcode: dto.pickupPostcode,
-          pickupLat: dto.pickupLat,
-          pickupLng: dto.pickupLng,
-          bestBefore,
-          pickupFromTime: dto.pickupFromTime
-            ? new Date(dto.pickupFromTime)
-            : null,
-          pickupByTime,
-          needsRefrigeration: dto.needsRefrigeration ?? false,
-          needsAmbient: dto.needsAmbient ?? false,
-          needsFreezer: dto.needsFreezer ?? false,
-          needsHot: dto.needsHot ?? false,
-          needsReheating: dto.needsReheating ?? false,
-          isSafeForDonation: dto.isSafeForDonation ?? true,
-          allergens: dto.allergens ?? [],
-          collectionNotes: dto.collectionNotes?.trim() || null,
-          photoUrls: uploadedUrls,
-        },
-      });
-
-      await tx.foodItem.createMany({
-        data: dto.foodItems.map((item) => ({
-          listingId: created.id,
-          name: item.name,
-          totalQtyKg: item.totalQtyKg,
-          remainingQtyKg: item.totalQtyKg,
-          unit: item.unit,
-          category: item.category,
-        })),
-      });
-
-      return tx.foodListing.findUnique({
-        where: { id: created.id },
-        include: { foodItems: true },
-      });
-    });
+    const listing = await this.prisma.$transaction((tx) =>
+      this.createListingRecord(tx, caller, {
+        ...dto,
+        bestBefore,
+        pickupByTime,
+        photoUrls: uploadedUrls,
+        totalQtyKg,
+        snapshot,
+      }),
+    );
     const listingActivity = await this.prisma.listingActivity.create({
       data:{
         actorOrgId:site.organisationId,
@@ -223,7 +279,8 @@ export class FoodListingService {
     if (!hasSiteAccess) throw new UnauthorizedException("access denied")
     const allFoodListings = await this.prisma.foodListing.findMany({
       where: {
-        siteId:siteId
+        siteId:siteId,
+        ...BUSINESS_LIST_LISTING,
       },
       include:{
         foodItems:true,
@@ -308,6 +365,9 @@ export class FoodListingService {
       organisationId: orgId,
       ...(siteIds ? { siteId: { in: siteIds } } : {}),
       ...(status ? { status } : {}),
+      // A collection is one event, not N listings — the master would otherwise
+      // be counted alongside the contributions that make it up.
+      ...BUSINESS_LIST_LISTING,
     };
 
     const [listings, total] = await Promise.all([
@@ -491,8 +551,15 @@ export class FoodListingService {
     if (!listing) throw new NotFoundException('Listing not found');
     assertCanAccessListing(listing, viewerOrgId);
 
-    await this.cache.setListing(id, listing);
-    return listing;
+    // A neutral flag: the app shows an item check without being told why, so
+    // the charity never learns the food came from several outlets.
+    const payload = {
+      ...listing,
+      requiresItemCheck: listing.consolidatedRole === ConsolidatedListingRole.MASTER,
+    };
+
+    await this.cache.setListing(id, payload);
+    return payload;
   }
 
   async getRecentListings(siteId: number, page = 1, limit = DEFAULT_LIMIT) {
@@ -501,7 +568,7 @@ export class FoodListingService {
 
     const [listings, total] = await Promise.all([
       this.prisma.foodListing.findMany({
-        where: { siteId },
+        where: { siteId, ...BUSINESS_LIST_LISTING },
         include: {
           foodItems: {
             select: { id: true, name: true, remainingQtyKg: true, unit: true },
@@ -633,6 +700,7 @@ export class FoodListingService {
             false
           )
           AND fl."listingType" IN (${typeFilter})
+          AND ${SQL_DISCOVERABLE}
           AND fl."bestBefore" > NOW()
           AND (fl."pickupByTime" IS NULL OR fl."pickupByTime" > NOW())
           AND fl."pickupLat" IS NOT NULL
@@ -673,6 +741,7 @@ export class FoodListingService {
             false
           )
           AND fl."listingType" IN (${typeFilter})
+          AND ${SQL_DISCOVERABLE}
           AND fl."bestBefore" > NOW()
           AND (fl."pickupByTime" IS NULL OR fl."pickupByTime" > NOW())
           AND fl."pickupLat" IS NOT NULL
@@ -777,6 +846,11 @@ export class FoodListingService {
       where: { id, organisationId: caller.orgId },
     });
     if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.consolidatedRole !== ConsolidatedListingRole.STANDARD) {
+      throw new ConflictException(
+        'Manage this from the collection it belongs to.',
+      );
+    }
     if (listing.status === ListingStatus.CLAIMED) {
       throw new ForbiddenException('Cannot cancel a fully claimed listing');
     }
