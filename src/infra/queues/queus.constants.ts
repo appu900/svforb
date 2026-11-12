@@ -6,6 +6,7 @@ export const QUEUE_NAMES = {
   LISTINGS:           'queue.listings',           // listing expiry, proximity re-query
   REPORTS:            'queue.reports',            // impact CSV export, aggregation
   BILLING:            'queue.billing',            // trial expiry checks, stripe webhooks
+  CONSOLIDATED:       'queue.consolidated',       // consolidated collection lifecycle sweep
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

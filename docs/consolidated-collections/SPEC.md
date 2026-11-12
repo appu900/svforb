@@ -77,7 +77,7 @@ Scope rules:
 | R1 | Managers = existing Org Admin / Site Admin + `canManageConsolidated` permission. |
 | R2 | Receiver = existing user assigned by the manager; may be the manager. |
 | R3 | Managers work in **both** the mobile app and the Enterprise web portal. The API is shared (the web portal is a later, separate task). |
-| R4 | Available to any paid plan. No extra charge. |
+| R4 | Available on **any paid plan**, gated at **plan level — never tied to a module**. A customer holding any one module (Listing or Make Food Count) gets it at no extra charge. Orgs on a free trial are entitled too: the platform treats `TRIALING` and `ACTIVE` alike (`ENTITLING_STATUSES`). The global `SubscriptionInterceptor` already blocks writes for a billable org with no live plan, so **this feature adds no commercial check of its own**. If it ever becomes module-gated or tier-gated, change exactly one method — `ConsolidatedAccessService.assertProductAccess()` (BACKEND_GUIDE §B3) — never by adding checks to controllers or services. |
 | R5 | A site can be in **many groups and many collections**. Each contribution (listing) belongs to **exactly one** collection. |
 | R6 | Edits: **before publish**, the site edits or withdraws freely. **After publish, before claim**, the change needs manager approval, then the consolidated listing updates. **After claim**, it needs manager approval **and** the material-change rules (R11). Every change is audited. |
 | R7 | Submissions close automatically at the deadline. The manager can reopen or approve a late contribution. After claim, additions follow the post-claim change process. |

@@ -24,6 +24,8 @@ import { EnterpriseModule } from '../enterprise/enterprise.module';
     ListingWorker,
     SiteNotificationService,
   ],
-  exports: [FoodListingService],
+  // The consolidated module writes its listings through the same code path,
+  // so it needs the same queue and cache as an ordinary listing.
+  exports: [FoodListingService, ListingQueueService, FoodListingCacheManager],
 })
 export class FoodListingModule {}

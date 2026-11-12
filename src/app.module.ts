@@ -25,6 +25,7 @@ import { EnterpriseModule } from './modules/enterprise/enterprise.module';
 import { QueueDashboardModule } from './modules/admin/queue-dashboard.module';
 import { HealthModule } from './modules/health/health.module';
 import { ConnectionsModule } from './modules/connections/connections.module';
+import { ConsolidatedModule } from './modules/consolidated/consolidated.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { ConnectionsModule } from './modules/connections/connections.module';
     EnterpriseModule,
     QueueDashboardModule,
     ConnectionsModule,
+    ConsolidatedModule,
     HealthModule
   ],
   controllers: [AppController],

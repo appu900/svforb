@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { SQL_BUSINESS_LISTING_L } from '../../consolidated/consolidated.filters';
 
 const REPORT_TIME_ZONE = 'Australia/Sydney';
 
@@ -162,6 +163,7 @@ export class AdminConnectionsService {
         FROM food_listings l
         LEFT JOIN connections cn ON cn.id = l."connectionId"
         WHERE l.status::text <> 'CANCELLED'
+          AND ${SQL_BUSINESS_LISTING_L}
           AND ${inPeriod(LISTING_DAY_SQL)}
           ${orgId ? Prisma.sql`AND (l."organisationId" = ${orgId} OR cn."receiverOrgId" = ${orgId})` : Prisma.empty}
         GROUP BY via_connection
@@ -169,8 +171,12 @@ export class AdminConnectionsService {
       this.prisma.$queryRaw<Array<{ via_connection: boolean; pickups: number; kg: number }>>(Prisma.sql`
         SELECT
           (l."connectionId" IS NOT NULL) AS via_connection,
-          COUNT(*)::int AS pickups,
-          COALESCE(SUM(${CLAIM_KG_SQL}), 0)::float AS kg
+          COUNT(*) FILTER (
+            WHERE c."claimKind"::text <> 'CONSOLIDATED_ALLOCATION'
+          )::int AS pickups,
+          COALESCE(SUM(${CLAIM_KG_SQL}) FILTER (
+            WHERE c."claimKind"::text <> 'CONSOLIDATED_MASTER'
+          ), 0)::float AS kg
         FROM food_claims c
         JOIN food_listings l ON l.id = c."listingId"
         LEFT JOIN connections cn ON cn.id = l."connectionId"

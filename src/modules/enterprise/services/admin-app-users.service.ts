@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { OrgType, PlatformRole } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
+import {
+  BUSINESS_LIST_LISTING,
+  OPERATIONAL_CLAIM,
+} from '../../consolidated/consolidated.filters';
 
 const TYPE_LABEL: Record<OrgType, string> = {
   BUSINESS_SINGLE: 'Restaurant single',
@@ -240,7 +244,7 @@ export class AdminAppUsersService {
         },
       }),
       this.prisma.foodListing.findMany({
-        where: { organisationId },
+        where: { organisationId, ...BUSINESS_LIST_LISTING },
         orderBy: { createdAt: 'desc' },
         include: {
           foodItems: true,
@@ -262,7 +266,7 @@ export class AdminAppUsersService {
         },
       }),
       this.prisma.foodClaim.findMany({
-        where: { claimantOrgId: organisationId },
+        where: { claimantOrgId: organisationId, ...OPERATIONAL_CLAIM },
         orderBy: { createdAt: 'desc' },
         include: {
           claimantSite: { select: { id: true, name: true, organisationName: true } },
@@ -541,7 +545,7 @@ export class AdminAppUsersService {
     const orgById = new Map(orgs.map((row) => [row.id, row]));
     const [listings, claims, memberships, sites] = await Promise.all([
       this.prisma.foodListing.findMany({
-        where: { organisationId: { in: orgIds } },
+        where: { organisationId: { in: orgIds }, ...BUSINESS_LIST_LISTING },
         orderBy: { createdAt: 'desc' },
         take: 500,
         select: {
@@ -566,6 +570,7 @@ export class AdminAppUsersService {
       this.prisma.foodClaim.findMany({
         where: {
           OR: [{ claimantOrgId: { in: orgIds } }, { listing: { organisationId: { in: orgIds } } }],
+          ...OPERATIONAL_CLAIM,
         },
         orderBy: { createdAt: 'desc' },
         take: 500,

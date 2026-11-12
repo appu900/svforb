@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
+import {
+  SQL_BUSINESS_LISTING_L,
+  SQL_IMPACT_CLAIM_C,
+} from '../../consolidated/consolidated.filters';
 
 const REPORT_TIME_ZONE = 'Australia/Sydney';
 const TYPE_IDS = ['food_business', 'charity', 'farmer', 'circular'] as const;
@@ -256,6 +260,7 @@ export class AdminDashboardService {
             so.org_type,
             ${CLAIM_DAY_SQL} AS day,
             ${CLAIM_PATHWAY_SQL} AS pathway,
+            c."claimKind"::text AS claim_kind,
             COALESCE(NULLIF(items.kg, 0), l."totalQtyKg", 0) AS kg
           FROM food_claims c
           JOIN food_listings l ON l.id = c."listingId"
@@ -272,10 +277,18 @@ export class AdminDashboardService {
           day::text AS day,
           pathway,
           org_type,
-          COUNT(*) FILTER (WHERE status = 'COLLECTED')::int AS collections,
-          COALESCE(SUM(kg) FILTER (WHERE status = 'COLLECTED'), 0)::float AS kg,
-          COUNT(*) FILTER (WHERE status IN ('PENDING', 'CONFIRMED'))::int AS unresolved,
-          COUNT(DISTINCT site_id) FILTER (WHERE status = 'COLLECTED')::int AS sites
+          COUNT(*) FILTER (
+            WHERE status = 'COLLECTED' AND claim_kind <> 'CONSOLIDATED_ALLOCATION'
+          )::int AS collections,
+          COALESCE(SUM(kg) FILTER (
+            WHERE status = 'COLLECTED' AND claim_kind <> 'CONSOLIDATED_MASTER'
+          ), 0)::float AS kg,
+          COUNT(*) FILTER (
+            WHERE status IN ('PENDING', 'CONFIRMED') AND claim_kind <> 'CONSOLIDATED_ALLOCATION'
+          )::int AS unresolved,
+          COUNT(DISTINCT site_id) FILTER (
+            WHERE status = 'COLLECTED' AND claim_kind <> 'CONSOLIDATED_MASTER'
+          )::int AS sites
         FROM claim_rows
         WHERE (${pathway}::text IS NULL OR pathway = ${pathway})
         GROUP BY day, pathway, org_type
@@ -298,7 +311,8 @@ export class AdminDashboardService {
             ) AS recovered
           FROM food_listings l
           JOIN scoped_orgs so ON so.id = l."organisationId"
-          WHERE ${LISTING_DAY_SQL} <= ${currentTo}::date
+          WHERE ${SQL_BUSINESS_LISTING_L}
+            AND ${LISTING_DAY_SQL} <= ${currentTo}::date
             ${scanFrom ? Prisma.sql`AND ${LISTING_DAY_SQL} >= ${scanFrom}::date` : Prisma.empty}
         )
         SELECT
@@ -328,7 +342,8 @@ export class AdminDashboardService {
           FROM food_claims c
           JOIN food_listings l ON l.id = c."listingId"
           JOIN scoped_orgs so ON so.id = l."organisationId"
-          WHERE ${CLAIM_DAY_SQL} <= ${currentTo}::date
+          WHERE ${SQL_IMPACT_CLAIM_C}
+            AND ${CLAIM_DAY_SQL} <= ${currentTo}::date
             ${scanFrom ? Prisma.sql`AND ${CLAIM_DAY_SQL} >= ${scanFrom}::date` : Prisma.empty}
         )
         SELECT

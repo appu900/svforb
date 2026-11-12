@@ -6,6 +6,7 @@ import { BullModule } from '@nestjs/bullmq';
 
 import { BILLING_QUEUE } from '../billing/queues/billing.queue.service';
 import { CONNECTION_QUEUE } from '../connections/queues/connection.queue.service';
+import { CONSOLIDATED_QUEUE } from '../consolidated/queues/consolidated.queue.service';
 import { ENTERPRISE_QUEUE } from '../enterprise/queues/enterprise.queue.service';
 import { LISTINGS_QUEUE } from '../foodlisting/queues/listing.queue.service';
 import { NOTIFICATION_QUEUE_NAME } from '../notifications/constants';
@@ -16,6 +17,7 @@ const QUEUES = [
   EMAIL_QUEUE,
   NOTIFICATION_QUEUE_NAME,
   LISTINGS_QUEUE,
+  CONSOLIDATED_QUEUE,
   BILLING_QUEUE,
   ENTERPRISE_QUEUE,
   CONNECTION_QUEUE,

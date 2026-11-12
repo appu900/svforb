@@ -7,9 +7,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  ClaimKind,
   ClaimMode,
   ClaimStatus,
   ConnectionDayOutcome,
+  ConsolidatedCollectionStatus,
+  ConsolidatedListingRole,
   DriverPickupStatus,
   FoodListingType,
   ListingStatus,
@@ -72,6 +75,26 @@ export class ClaimsService {
       });
 
       if (!listing) throw new NotFoundException('Listing not found');
+
+      // A site's contribution is not an offer in its own right — only the
+      // master listing built at publish is. 404, not 403: a 403 would confirm
+      // the row exists and leak which outlets took part.
+      if (listing.consolidatedRole === ConsolidatedListingRole.CONTRIBUTION) {
+        throw new NotFoundException('Listing not found');
+      }
+
+      // One charity takes the whole collection. A partial claim would leave
+      // the rest stranded at a point nobody else is collecting from.
+      if (listing.consolidatedRole === ConsolidatedListingRole.MASTER) {
+        const collection = await tx.consolidatedCollection.findUnique({
+          where: { masterListingId: listing.id },
+          select: { id: true, status: true },
+        });
+        if (!collection || collection.status !== ConsolidatedCollectionStatus.PUBLISHED) {
+          throw new BadRequestException('This collection is not available to claim.');
+        }
+        dto.claimMode = ClaimMode.FULL;
+      }
 
       if (listing.status !== ListingStatus.ACTIVE && listing.status !== ListingStatus.PARTIAL) {
         throw new BadRequestException(`Listing is ${listing.status.toLowerCase()}, cannot claim`);
@@ -157,6 +180,8 @@ export class ClaimsService {
         ? await this.enterpriseScope.snapshotForSite(claimantSiteId)
         : { snapshotGroupId: null, snapshotClusterId: null, snapshotTerritoryId: null };
 
+      const isMaster = listing.consolidatedRole === ConsolidatedListingRole.MASTER;
+
       const claim = await tx.foodClaim.create({
         data: {
           listingId: dto.listingId,
@@ -165,10 +190,29 @@ export class ClaimsService {
           ...claimSnapshot,
           claimMode: dto.claimMode,
           status: ClaimStatus.PENDING,
+          // Master claims are excluded from impact — the per-site allocations
+          // written at item check are what actually count (R19).
+          claimKind: isMaster ? ClaimKind.CONSOLIDATED_MASTER : ClaimKind.STANDARD,
           claimItems: { create: claimItemsData },
         },
         include: { claimItems: true },
       });
+
+      if (isMaster) {
+        const collection = await tx.consolidatedCollection.update({
+          where: { masterListingId: listing.id },
+          data: { status: ConsolidatedCollectionStatus.CLAIMED, claimedAt: new Date() },
+          select: { id: true },
+        });
+        // So each site sees "Claimed" against the food it contributed.
+        await tx.foodListing.updateMany({
+          where: {
+            consolidatedContribution: { collectionId: collection.id },
+            status: { notIn: [ListingStatus.CANCELLED, ListingStatus.EXPIRED] },
+          },
+          data: { status: ListingStatus.CLAIMED },
+        });
+      }
 
       await Promise.all(
         claimItemsData.map((ci) =>
@@ -659,8 +703,15 @@ export class ClaimsService {
     if (claim.claimantOrgId !== caller.orgId) {
       throw new ForbiddenException('Only the claimant can mark as collected');
     }
+    // Kept first: the post-collection rating flow calls this again after the
+    // item check, and relies on the no-op rather than an error.
     if (claim.status === ClaimStatus.COLLECTED) {
       return { message: 'Already marked as collected' };
+    }
+    // A consolidated collection records what was accepted per item, so it
+    // cannot be closed with a single "collected" flag.
+    if (claim.claimKind === ClaimKind.CONSOLIDATED_MASTER) {
+      throw new BadRequestException('Use item check');
     }
     if (claim.status !== ClaimStatus.CONFIRMED && claim.status !== ClaimStatus.PENDING) {
       throw new BadRequestException('Claim cannot be marked collected in its current status');
