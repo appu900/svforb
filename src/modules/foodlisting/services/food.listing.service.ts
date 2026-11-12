@@ -304,7 +304,7 @@ export class FoodListingService {
         },
       }
     })
-    return allFoodListings;
+    return this.withContributionMeta(allFoodListings);
   }
   /**
    * Members only. Head office sees every site; site staff in a multi-site
@@ -357,8 +357,12 @@ export class FoodListingService {
     // The org page cache holds whole-organisation results only.
     const useCache = !siteIds && !status && !fresh;
 
-    const cacheKey = useCache ? await this.cache.getOrgPage(orgId, page) : null;
-    if (cacheKey) return cacheKey;
+    const cacheKey = useCache
+      ? await this.cache.getOrgPage<{ listings: { id: number; consolidatedRole: ConsolidatedListingRole }[] }>(orgId, page)
+      : null;
+    if (cacheKey) {
+      return { ...cacheKey, listings: await this.withContributionMeta(cacheKey.listings) };
+    }
 
     const skip = (page - 1) * limit;
     const where: Prisma.FoodListingWhereInput = {
@@ -502,7 +506,75 @@ export class FoodListingService {
 
     if (useCache) await this.cache.setOrgPage(orgId, page, result);
 
-    return result;
+    return { ...result, listings: await this.withContributionMeta(result.listings) };
+  }
+
+  /**
+   * A site's contribution to a shared collection is an ordinary listing, but
+   * the site's Listings screen needs to know which collection it belongs to and
+   * where its handover stands. Computed live — never cached — because the
+   * handover and receipt change minute to minute on collection day.
+   */
+  async withContributionMeta<T extends { id: number; consolidatedRole: ConsolidatedListingRole }>(
+    listings: T[],
+  ): Promise<(T & { consolidated?: Record<string, unknown> })[]> {
+    const ids = listings
+      .filter((l) => l.consolidatedRole === ConsolidatedListingRole.CONTRIBUTION)
+      .map((l) => l.id);
+    if (!ids.length) return listings;
+
+    const rows = await this.prisma.consolidatedContribution.findMany({
+      where: { listingId: { in: ids } },
+      select: {
+        id: true,
+        listingId: true,
+        status: true,
+        receiptStatus: true,
+        handoverAt: true,
+        collection: {
+          select: {
+            id: true,
+            status: true,
+            method: true,
+            timezone: true,
+            pointName: true,
+            pointAddress: true,
+            handoverStartAt: true,
+            handoverEndAt: true,
+            pickupStartAt: true,
+            pickupEndAt: true,
+            publishedAt: true,
+          },
+        },
+      },
+    });
+    const byListing = new Map(rows.map((r) => [r.listingId, r]));
+
+    return listings.map((listing) => {
+      const row = byListing.get(listing.id);
+      if (!row) return listing;
+      const c = row.collection;
+      return {
+        ...listing,
+        consolidated: {
+          contributionId: row.id,
+          collectionId: c.id,
+          status: row.status,
+          receiptStatus: row.receiptStatus,
+          handoverAt: row.handoverAt,
+          collectionStatus: c.status,
+          method: c.method,
+          timezone: c.timezone,
+          pointName: c.pointName,
+          pointAddress: c.pointAddress,
+          handoverStartAt: c.handoverStartAt,
+          handoverEndAt: c.handoverEndAt,
+          pickupStartAt: c.pickupStartAt,
+          pickupEndAt: c.pickupEndAt,
+          published: Boolean(c.publishedAt),
+        },
+      };
+    });
   }
 
   /**
@@ -803,6 +875,8 @@ export class FoodListingService {
       .map((listing) => ({
         ...listing,
         distanceKm: distanceById.get(listing.id) ?? null,
+        // Neutral: the charity is told to check items, never why (SPEC §2.4).
+        requiresItemCheck: listing.consolidatedRole === ConsolidatedListingRole.MASTER,
       }));
 
     const result = {

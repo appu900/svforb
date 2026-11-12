@@ -30,6 +30,7 @@ import { resolveCallerSiteId } from '../../foodlisting/utils/resolve-caller-site
 import { canMarkConnectionDayCollected } from '../../connections/connection.rules';
 import { assertCanClaim } from '../../connections/connection.rules';
 import { siteAudienceUserIds } from '../../../common/site-audience';
+import { OPERATIONAL_CLAIM } from '../../consolidated/consolidated.filters';
 
 const DEFAULT_LIMIT = 20;
 
@@ -1126,12 +1127,20 @@ export class ClaimsService {
   async getMyClaims(caller: Jwtpayload, page = 1, limit = DEFAULT_LIMIT, status?: ClaimStatus) {
     if (!caller.orgId) throw new ForbiddenException('Not part of an organisation');
 
-    const cached = status ? null : await this.cache.getMyClaims(caller.orgId, page);
-    if (cached) return cached;
+    const cached = status
+      ? null
+      : await this.cache.getMyClaims<{ claims: { id: number; listingId: number; claimKind: ClaimKind }[] }>(
+          caller.orgId,
+          page,
+        );
+    if (cached) return this.withItemCheckFlags(cached);
 
     const skip = (page - 1) * limit;
     const where = {
       claimantOrgId: caller.orgId,
+      // Per-site allocation claims are bookkeeping for impact. The charity made
+      // one pickup and must see exactly one (SPEC §4.2).
+      ...OPERATIONAL_CLAIM,
       ...(status ? { status } : {}),
     };
 
@@ -1267,7 +1276,49 @@ export class ClaimsService {
 
     if (!status) await this.cache.setMyClaims(caller.orgId, page, result);
 
-    return result;
+    return this.withItemCheckFlags(result);
+  }
+
+  /**
+   * Neutral flags the charity app needs for a consolidated pickup: confirm it
+   * with an item check rather than a single "collected" tap. Computed on every
+   * read (never cached) because the item check can finish at any moment.
+   * Nothing here says why — the charity never learns about the outlets.
+   */
+  private async withItemCheckFlags<
+    T extends { claims: { id: number; listingId: number; claimKind: ClaimKind }[] },
+  >(result: T): Promise<T> {
+    const masters = result.claims.filter((c) => c.claimKind === ClaimKind.CONSOLIDATED_MASTER);
+    if (!masters.length) return result;
+
+    const collections = await this.prisma.consolidatedCollection.findMany({
+      where: { masterListingId: { in: masters.map((c) => c.listingId) } },
+      select: {
+        masterListingId: true,
+        status: true,
+        changes: {
+          where: { isMaterial: true, acknowledgedAt: null },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+    const byListing = new Map(collections.map((c) => [c.masterListingId, c]));
+
+    return {
+      ...result,
+      claims: result.claims.map((claim) => {
+        if (claim.claimKind !== ClaimKind.CONSOLIDATED_MASTER) return claim;
+        const collection = byListing.get(claim.listingId);
+        return {
+          ...claim,
+          requiresItemCheck: true,
+          itemCheckDone: collection?.status === ConsolidatedCollectionStatus.COMPLETED,
+          pendingChangeId: collection?.changes[0]?.id ?? null,
+        };
+      }),
+    };
   }
 
   async getListingClaims(caller: Jwtpayload, listingId: number) {

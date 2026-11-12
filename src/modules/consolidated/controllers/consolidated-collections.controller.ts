@@ -17,6 +17,7 @@ import { ConsolidatedCollectionService } from '../services/consolidated-collecti
 import { ConsolidatedPublishService } from '../services/consolidated-publish.service';
 import { ConsolidatedReceiptService } from '../services/consolidated-receipt.service';
 import { ConsolidatedScheduleService } from '../services/consolidated-schedule.service';
+import { ConsolidatedViewService } from '../services/consolidated-view.service';
 
 type Req = Request & { user: Jwtpayload };
 
@@ -33,6 +34,7 @@ export class ConsolidatedCollectionsController {
     private readonly schedules: ConsolidatedScheduleService,
     private readonly receipts: ConsolidatedReceiptService,
     private readonly publishing: ConsolidatedPublishService,
+    private readonly views: ConsolidatedViewService,
   ) {}
 
   // ─── Collections ───────────────────────────────────────────────────────────
@@ -52,10 +54,10 @@ export class ConsolidatedCollectionsController {
     );
   }
 
-  /** The event dashboard: contributions, handovers, receipts, status. */
+  /** The event dashboard (SPEC §7.6). A site user sees only their own sites. */
   @Get('collections/:id')
   get(@Req() req: Req, @Param('id', ParseIntPipe) id: number) {
-    return this.collections.get(req.user, id);
+    return this.views.dashboard(req.user, id);
   }
 
   /** Edits this occurrence only, detaching it from its series. */

@@ -270,39 +270,40 @@ Errors use the existing Nest format `{ statusCode, message }`.
 ### 7.1 Access
 | Method | Path | Who | Purpose |
 |---|---|---|---|
-| GET | `/me` | any business user | `{ canManage, managedGroupIds[], receiverGroupIds[], siteIdsWithOpenCollections[] }` for UI gating |
+| GET | `/me` | any business user | `{ canManage, managedGroupIds[], receiverGroupIds[], siteIdsWithOpenCollections[], siteIds, groups[] }` for UI gating |
 | GET | `/declarations` | any | `{ SITE:{version,text}, MANAGER:{…}, CHARITY:{…} }` |
 | GET | `/permissions` | org owner | users of the org with `canManageConsolidated` |
-| PATCH | `/permissions/:userId` | org owner | body `{ canManage: boolean }` |
+| PATCH | `/permissions/:userId` | org owner | body `{ canManageConsolidated: boolean }` |
 
 ### 7.2 Groups (setup)
 | Method | Path | Body / query |
 |---|---|---|
 | GET | `/groups` | `?includeArchived=false` → list with site count and next collection |
-| POST | `/groups` | `{ name, description?, hostSiteId, timezone?, siteIds[], managerUserIds[], receiverUserIds[], collectionPoint:{ name, address, postcode?, lat, lng, directions? } }` |
+| POST | `/groups` | `{ name, description?, hostSiteId, timezone?, siteIds[], members?: [{ userId, role: MANAGER\|RECEIVER }], collectionPoint:{ name, address, postcode?, lat, lng, directions? } }` (the creator is always a manager) |
 | GET | `/groups/:id` | detail incl. points, sites, members |
 | PATCH | `/groups/:id` | `{ name?, description?, hostSiteId?, timezone? }` |
-| POST | `/groups/:id/archive` | – (blocked if open/published/claimed collections exist) |
-| PUT | `/groups/:id/sites` | `{ siteIds[] }` (removal is soft; history kept) |
-| PUT | `/groups/:id/members` | `{ managerUserIds[], receiverUserIds[] }` |
+| DELETE | `/groups/:id` | archives (blocked if open/published/claimed collections exist) |
+| PUT | `/groups/:id/sites` | `{ siteIds[], hostSiteId? }` (removal is soft; history kept; `hostSiteId` required when the host is removed) |
+| PUT | `/groups/:id/members` | `{ members: [{ userId, role: MANAGER\|RECEIVER }] }` (full list) |
 | POST | `/groups/:id/points` | point body as above |
-| PATCH | `/points/:pointId` | partial point body, `{ isActive? }` |
-| GET | `/groups/:id/eligible-sites` | sites the caller may add |
-| GET | `/groups/:id/eligible-users` | org users for manager/receiver pickers (`canManage` flag included) |
+| PATCH | `/groups/:id/points/:pointId` | partial point body, `{ isActive?, isDefault? }` |
+| GET | `/groups/eligible-sites` | sites the caller may add |
+| GET | `/groups/eligible-users` | org users for manager/receiver pickers (`canManage` flag included) |
 
 ### 7.3 Schedules and collections (operations)
 | Method | Path | Body / query |
 |---|---|---|
-| POST | `/schedules` | `{ groupId, collectionPointId, method, recurrence: ONE_OFF\|DAILY\|WEEKLY\|SELECTED_WEEKDAYS\|CUSTOM_DATES, startDate, endDate?, daysOfWeek?: number[] (1=Mon..7=Sun), customDates?: string[], opensDaysBefore?: 0-7 (default 0), times:{ submissionsClose, handoverStart, handoverEnd, pickupStart, pickupEnd } ("HH:mm"), contactName, contactPhone, instructions?, suitabilityNotes, participatingSiteIds?: number[] (default all group sites) }` → schedule + generated collections |
+| POST | `/groups/:id/schedules` | `{ collectionPointId, method, recurrence: ONE_OFF\|DAILY\|WEEKLY\|SELECTED_WEEKDAYS\|CUSTOM_DATES, startDate, endDate?, daysOfWeek?: number[] (1=Mon..7=Sun), customDates?: string[], opensDaysBefore?: 0-30 (default 0), submissionsCloseTime, handoverStartTime, handoverEndTime, pickupStartTime, pickupEndTime ("HH:mm"), contactName, contactPhone, instructions?, suitabilityNotes, participatingSiteIds?: number[] (default all group sites) }` → `{ schedule, collectionsCreated }` |
+| GET | `/groups/:id/schedules` | active schedules of the group |
 | GET | `/schedules/:id` | – |
 | PATCH | `/schedules/:id` | same fields; applies to **future** collections that are still SCHEDULED/OPEN; returns affected ids |
 | POST | `/schedules/:id/end` | `{ fromDate }` cancels future collections of the series (notifies) |
 | GET | `/collections` | `?tab=upcoming\|active\|past&groupId=&page=&limit=` (manager/receiver view) |
 | GET | `/collections/:id` | **dashboard** payload (§7.6) |
-| PATCH | `/collections/:id` | edit this occurrence only: times, point, contact, instructions, suitability. After claim → material-change rules apply. |
+| PATCH | `/collections/:id` | edit this occurrence only: `collectionPointId?`, `…Time` fields ("HH:mm"), contact, instructions, suitability. After claim → material-change rules apply. |
 | POST | `/collections/:id/cancel` | `{ reason }` |
-| POST | `/collections/:id/close-submissions` | – (creates NO_CONTRIBUTION rows) |
-| POST | `/collections/:id/reopen-submissions` | `{ until: ISO }` |
+| POST | `/collections/:id/close` | – (creates NO_CONTRIBUTION rows) |
+| POST | `/collections/:id/reopen` | `{ until: ISO }` (not past the end of handover) |
 | POST | `/collections/:id/remind` | `{ siteIds?: number[] }` (default: sites with no contribution) |
 | GET | `/collections/:id/publish-preview` | items to publish, totals, warnings (e.g. best-before before pickup end) |
 | POST | `/collections/:id/publish` | `{ declaration:{ version, accepted:true } }` → master listing id |
@@ -322,11 +323,11 @@ Errors use the existing Nest format `{ statusCode, message }`.
 ### 7.5 Manager / receiver actions
 | Method | Path | Body |
 |---|---|---|
-| POST | `/contributions/:id/receipt` | `{ status: 'RECEIVED'\|'NOT_RECEIVED', items?: [{ foodItemId, verifiedQtyKg }], note? }` (items omitted = all as submitted; any lower qty = "Adjust Quantity") |
+| POST | `/contributions/:id/receipt` | `{ received: boolean, items?: [{ itemId, verifiedQtyKg }], note? }` — `itemId` is the ledger id from the dashboard item (items omitted = all as submitted; any lower qty = "Adjust Quantity") |
 | POST | `/contributions/:id/exclude` | `{ reason }` (before publish; after publish → treated as a change) |
 | POST | `/contributions/:id/approve-late` | – |
 | POST | `/contributions/:id/reject-late` | `{ reason }` |
-| GET | `/change-requests?collectionId=` | pending site change requests |
+| GET | `/collections/:id/change-requests` (alias `/change-requests?collectionId=`) | pending site change requests |
 | POST | `/change-requests/:id/approve` | – (applies; may create a material change) |
 | POST | `/change-requests/:id/reject` | `{ reason }` |
 
@@ -381,7 +382,7 @@ Rejection reasons (enum `ConsolidatedRejectionReason`): `QUALITY`, `TEMPERATURE`
 | Method | Path | Query | Returns |
 |---|---|---|---|
 | GET | `/reports/summary` | `groupId?, siteId?, from, to, category?` | combined totals + per-site rows: listed, verified, accepted, rejected, unavailable kg, collections count, rejection reasons breakdown |
-| GET | `/reports/collections` | same + paging | per-collection rows with status and totals |
+| GET | `/reports/collections` | same + `page`, `pageSize` | per-collection rows (`date`, status, totals) |
 
 Existing `/impact/*` endpoints keep working. Site impact automatically includes accepted consolidated food.
 

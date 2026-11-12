@@ -9,6 +9,7 @@ import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { DECLARATIONS } from '../consolidated.constants';
 import { SetManagePermissionDto } from '../dto/permission.dto';
 import { ConsolidatedAccessService } from '../services/consolidated-access.service';
+import { ConsolidatedViewService } from '../services/consolidated-view.service';
 
 type Req = Request & { user: Jwtpayload };
 
@@ -20,12 +21,15 @@ type Req = Request & { user: Jwtpayload };
 @UseGuards(ConsolidatedEnabledGuard, JwtAuthGuard)
 @ApiBearerAuth('bearer')
 export class ConsolidatedAccessController {
-  constructor(private readonly access: ConsolidatedAccessService) {}
+  constructor(
+    private readonly access: ConsolidatedAccessService,
+    private readonly views: ConsolidatedViewService,
+  ) {}
 
   /** What this user can do, so the client need not infer it from roles. */
   @Get('me')
   me(@Req() req: Req) {
-    return this.access.meSummary(req.user);
+    return this.views.me(req.user);
   }
 
   /**

@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsDateString, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength,
+  IsArray, IsDateString, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min,
 } from 'class-validator';
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -41,4 +41,12 @@ export class UpdateCollectionDto {
 
   @IsArray() @IsOptional() @Type(() => Number) @IsInt({ each: true })
   participatingSiteIds?: number[];
+}
+
+/** `GET /consolidated/collections` — the manager/receiver list (SPEC §7.3). */
+export class CollectionListQueryDto {
+  @IsIn(['upcoming', 'active', 'past']) @IsOptional() tab?: 'upcoming' | 'active' | 'past';
+  @Type(() => Number) @IsInt() @IsOptional() groupId?: number;
+  @Type(() => Number) @IsInt() @Min(1) @IsOptional() page?: number;
+  @Type(() => Number) @IsInt() @Min(1) @Max(100) @IsOptional() limit?: number;
 }

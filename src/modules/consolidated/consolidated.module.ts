@@ -11,6 +11,7 @@ import { ConsolidatedCollectionsController } from './controllers/consolidated-co
 import { ConsolidatedContributionsController } from './controllers/consolidated-contributions.controller';
 import { ConsolidatedGroupsController } from './controllers/consolidated-groups.controller';
 import { ConsolidatedReportsController } from './controllers/consolidated-reports.controller';
+import { ConsolidatedViewsController } from './controllers/consolidated-views.controller';
 import { CONSOLIDATED_QUEUE, ConsolidatedQueueService } from './queues/consolidated.queue.service';
 import { ConsolidatedAccessService } from './services/consolidated-access.service';
 import { ConsolidatedAuditService } from './services/consolidated-audit.service';
@@ -23,6 +24,7 @@ import { ConsolidatedPublishService } from './services/consolidated-publish.serv
 import { ConsolidatedReceiptService } from './services/consolidated-receipt.service';
 import { ConsolidatedReportService } from './services/consolidated-report.service';
 import { ConsolidatedScheduleService } from './services/consolidated-schedule.service';
+import { ConsolidatedViewService } from './services/consolidated-view.service';
 import { ConsolidatedWorker } from './workers/consolidated.worker';
 
 /**
@@ -48,6 +50,7 @@ import { ConsolidatedWorker } from './workers/consolidated.worker';
     ConsolidatedContributionsController,
     ConsolidatedCharityController,
     ConsolidatedReportsController,
+    ConsolidatedViewsController,
   ],
   providers: [
     ConsolidatedEnabledGuard,
@@ -62,6 +65,7 @@ import { ConsolidatedWorker } from './workers/consolidated.worker';
     ConsolidatedCompletionService,
     ConsolidatedNotifierService,
     ConsolidatedReportService,
+    ConsolidatedViewService,
     ConsolidatedQueueService,
     ConsolidatedWorker,
   ],
