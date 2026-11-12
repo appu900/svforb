@@ -878,6 +878,10 @@ per-site rows reconcile.
 7. **Rollout:** deploy the migration first (additive), then the code. A feature flag env `CONSOLIDATED_ENABLED=true` gates the
    controllers (return 404 when off) and the sweep worker.
 
+> **Already deployed.** The migration was applied to production on 12 November 2026 and the code is on `main`.
+> The flag is unset, so the feature is invisible. See `DEPLOYMENT.md` for what that means for anyone pulling this,
+> and for what is verified and what is not.
+
 ---
 
 ## Build order summary (checklist)
