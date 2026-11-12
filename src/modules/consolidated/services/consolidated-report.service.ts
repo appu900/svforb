@@ -67,6 +67,10 @@ export class ConsolidatedReportService {
     if (query.siteId) {
       // A site user may look at their own site; a manager at any site they run.
       await this.access.assertSiteUser(caller, query.siteId);
+      // Someone who manages no groups is still entitled to their own site's
+      // numbers. Leaving an empty group list in place would filter to nothing
+      // and silently report zero rather than refusing.
+      if ((groupIds?.length ?? 0) === 0) groupIds = null;
     } else if (!isOwner && (groupIds?.length ?? 0) === 0) {
       throw new ForbiddenException(
         'You can only report on a site you have access to.',
