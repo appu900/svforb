@@ -539,7 +539,8 @@ model Site {
   /// Site Status is Active/Deactivated only — never derived from activity
   activatedAt    DateTime?
   deactivatedAt  DateTime?
-  /// Denormalised for the Sites table; only qualifying activity updates it
+  /// Denormalised for the Sites table. Kept current by database triggers on
+  /// food_listings / food_claims (migration 20261114000000_site_last_activity).
   lastActivityAt DateTime?
 
   createdAt                 DateTime                   @default(now())
