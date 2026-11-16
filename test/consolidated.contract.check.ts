@@ -5,7 +5,7 @@
  */
 import 'reflect-metadata';
 import { ValidationPipe, type ArgumentMetadata } from '@nestjs/common';
-import { CreateGroupDto, DeclineInvitationDto, SetGroupMembersDto, SetGroupSitesDto, UpdateCollectionPointDto } from '../src/modules/consolidated/dto/group.dto';
+import { ConsolidatedCreateGroupDto, DeclineInvitationDto, SetGroupMembersDto, SetGroupSitesDto, UpdateCollectionPointDto } from '../src/modules/consolidated/dto/group.dto';
 import { CreateScheduleDto, UpdateScheduleDto } from '../src/modules/consolidated/dto/schedule.dto';
 import { CollectionListQueryDto, ReopenSubmissionsDto, UpdateCollectionDto } from '../src/modules/consolidated/dto/collection.dto';
 import { CreateContributionDto, UpdateContributionDto } from '../src/modules/consolidated/dto/contribution.dto';
@@ -30,7 +30,7 @@ async function check(name: string, metatype: new () => object, value: unknown, t
 (async () => {
   const declaration = { version: 'v1', accepted: true };
   await check('PATCH permissions', SetManagePermissionDto, { canManageConsolidated: true });
-  await check('POST groups', CreateGroupDto, {
+  await check('POST groups', ConsolidatedCreateGroupDto, {
     name: 'Melbourne Park Precinct', description: 'Venue', hostSiteId: 1, siteIds: [1, 2],
     collectionPoint: { name: 'Loading Dock B', address: '1 Olympic Blvd', postcode: '3000', lat: -37.82, lng: 144.98, directions: 'Gate 4' },
     members: [{ userId: 7, role: 'MANAGER' }, { userId: 9, role: 'RECEIVER' }],

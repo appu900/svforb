@@ -11,7 +11,7 @@ import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { EnterpriseScopeService } from '../../enterprise/services/enterprise-scope.service';
 import { FoodListingService } from '../../foodlisting/services/food.listing.service';
-import { DECLARATIONS } from '../consolidated.constants';
+import { DECLARATIONS, isClosedForChanges } from '../consolidated.constants';
 import { CONSOLIDATED_ERROR } from '../consolidated.errors';
 import {
   ChangeRequestDecisionDto, ContributionItemDto, CreateContributionDto,
@@ -263,6 +263,9 @@ export class ConsolidatedContributionService {
     if (!EDITABLE.includes(contribution.status)) {
       throw new ConflictException(`This contribution is ${contribution.status.toLowerCase()}.`);
     }
+    if (isClosedForChanges(collection.status)) {
+      throw new ConflictException('This collection has finished, so its food can no longer be changed.');
+    }
 
     // Once a charity can see it, a site edit becomes a request rather than a change.
     const isManager = await this.access.canManageFlag(caller);
@@ -398,6 +401,10 @@ export class ConsolidatedContributionService {
     if (contribution.status !== ConsolidatedContributionStatus.LATE_PENDING_APPROVAL) {
       throw new ConflictException('This contribution is not waiting for a late decision.');
     }
+    // Too late to add food once it has left the collection point; rejecting still records the outcome.
+    if (approve && isClosedForChanges(contribution.collection.status)) {
+      throw new ConflictException('This collection has finished, so late food can no longer be added. Reject it instead.');
+    }
 
     const actor = await this.audit.actorFrom(caller, req);
     const now = new Date();
@@ -445,10 +452,15 @@ export class ConsolidatedContributionService {
   async listChangeRequests(caller: Jwtpayload, collectionId: number) {
     const collection = await this.prisma.consolidatedCollection.findFirst({
       where: { id: collectionId, organisationId: caller.orgId },
-      select: { groupId: true },
+      select: { groupId: true, status: true },
     });
     if (!collection) throw new NotFoundException('Collection not found.');
     await this.access.assertManager(caller, collection.groupId);
+
+    if (isClosedForChanges(collection.status)) {
+      await this.closeStaleChangeRequests(collectionId);
+      return [];
+    }
 
     return this.prisma.consolidatedChangeRequest.findMany({
       where: { collectionId, status: ConsolidatedChangeRequestStatus.PENDING },
@@ -477,7 +489,7 @@ export class ConsolidatedContributionService {
       include: {
         contribution: {
           include: {
-            collection: { select: { id: true, groupId: true, organisationId: true } },
+            collection: { select: { id: true, groupId: true, organisationId: true, status: true } },
             site: { select: { name: true, organisationName: true } },
           },
         },
@@ -491,6 +503,16 @@ export class ConsolidatedContributionService {
     await this.access.assertManager(caller, request.contribution.collection.groupId);
     const actor = await this.audit.actorFrom(caller, req);
     const siteName = request.contribution.site.name ?? request.contribution.site.organisationName;
+
+    // A finished collection's food is with the charity or already counted:
+    // close the request instead of applying it.
+    if (isClosedForChanges(request.contribution.collection.status)) {
+      await this.closeStaleChangeRequests(request.contribution.collection.id);
+      throw new ConflictException({
+        error: CONSOLIDATED_ERROR.MANAGED_BY_COLLECTION,
+        message: 'This collection has finished, so the change can no longer be applied. The request has been closed.',
+      });
+    }
 
     if (!approve) {
       await this.prisma.$transaction(async (tx) => {
@@ -546,6 +568,22 @@ export class ConsolidatedContributionService {
   }
 
   // ─── Internals ─────────────────────────────────────────────────────────────
+
+  /**
+   * Requests still pending when a collection finished can never be applied.
+   * Close them so nobody is asked to decide something that no longer matters.
+   */
+  private async closeStaleChangeRequests(collectionId: number): Promise<number> {
+    const result = await this.prisma.consolidatedChangeRequest.updateMany({
+      where: { collectionId, status: ConsolidatedChangeRequestStatus.PENDING },
+      data: {
+        status: ConsolidatedChangeRequestStatus.CANCELLED,
+        decidedAt: new Date(),
+        decisionReason: 'Collection finished before a decision was made.',
+      },
+    });
+    return result.count;
+  }
 
   private assertDeclaration(declaration: DeclarationAcceptanceDto, expected: string) {
     if (!declaration?.accepted || declaration.version !== expected) {

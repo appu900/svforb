@@ -49,3 +49,18 @@ export function consolidatedEnabled(): boolean {
   // emergency off switch: endpoints return 404 and the sweep stops; no data is lost.
   return process.env.CONSOLIDATED_ENABLED !== 'false';
 }
+
+/**
+ * Once food has left the collection point (or the collection is over), a site's
+ * food can no longer change: the charity has it, or impact is already counted.
+ */
+export const CLOSED_FOR_CHANGES = [
+  'AWAITING_ITEM_CHECK',
+  'COMPLETED',
+  'CANCELLED',
+  'EXPIRED',
+] as const;
+
+export function isClosedForChanges(status: string): boolean {
+  return (CLOSED_FOR_CHANGES as readonly string[]).includes(status);
+}

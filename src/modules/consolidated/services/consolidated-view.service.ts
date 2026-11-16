@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
+import { isClosedForChanges } from '../consolidated.constants';
 import { ConsolidatedAccessService } from './consolidated-access.service';
 import { ConsolidatedGroupService } from './consolidated-group.service';
 import { ConsolidatedPublishService } from './consolidated-publish.service';
@@ -191,7 +192,7 @@ export class ConsolidatedViewService {
     if (row.handoverAt && row.handoverAt > collection.handoverEndAt) out.push('LATE_HANDOVER');
     if (AWAITING_HANDOVER.includes(row.status) && now > collection.handoverEndAt) out.push('OVERDUE');
     if (row.receiptStatus === ConsolidatedReceiptStatus.NOT_RECEIVED) out.push('NOT_RECEIVED');
-    if (row.changeRequests.length) out.push('CHANGE_REQUESTED');
+    if (row.changeRequests.length && !isClosedForChanges(collection.status)) out.push('CHANGE_REQUESTED');
     return out;
   }
 
@@ -274,7 +275,7 @@ export class ConsolidatedViewService {
       photoUrls: listing?.photoUrls ?? [],
       collectionNotes: listing?.collectionNotes ?? null,
       bestBefore: listing?.bestBefore ?? null,
-      pendingChangeRequestId: row.changeRequests[0]?.id ?? null,
+      pendingChangeRequestId: isClosedForChanges(collection.status) ? null : row.changeRequests[0]?.id ?? null,
       exceptions: this.exceptions(row, collection, now),
     };
   }
@@ -616,7 +617,7 @@ export class ConsolidatedViewService {
         publishedAt: collection.publishedAt,
       },
       permissions: { canManage, canReceive },
-      pendingChangeStatus: row.changeRequests.length ? 'PENDING_APPROVAL' : null,
+      pendingChangeStatus: row.changeRequests.length && !isClosedForChanges(collection.status) ? 'PENDING_APPROVAL' : null,
     };
   }
 

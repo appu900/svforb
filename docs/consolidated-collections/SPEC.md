@@ -293,6 +293,7 @@ Errors use the existing Nest format `{ statusCode, message }`.
 | GET | `/groups/:id` | detail incl. points, sites, members |
 | PATCH | `/groups/:id` | `{ name?, description?, hostSiteId?, timezone? }` |
 | DELETE | `/groups/:id` | archives (blocked if open/published/claimed collections exist) |
+| POST | `/groups/:id/restore` | un-archives: sites, points and members return as they were; schedules ended and collections cancelled by archiving stay as history |
 | PUT | `/groups/:id/sites` | `{ siteIds[], hostSiteId? }` (removal is soft; history kept; `hostSiteId` required when the host is removed) |
 | PUT | `/groups/:id/members` | `{ members: [{ userId, role: MANAGER\|RECEIVER }] }` (full list) |
 | POST | `/groups/:id/points` | point body as above |

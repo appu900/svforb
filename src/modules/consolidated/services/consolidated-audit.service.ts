@@ -11,6 +11,7 @@ export const CONSOLIDATED_ACTION = {
   GROUP_CREATED: 'group.created',
   GROUP_UPDATED: 'group.updated',
   GROUP_ARCHIVED: 'group.archived',
+  GROUP_RESTORED: 'group.restored',
   GROUP_SITES_CHANGED: 'group.sites_changed',
   GROUP_MEMBERS_CHANGED: 'group.members_changed',
   POINT_CREATED: 'point.created',

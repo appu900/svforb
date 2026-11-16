@@ -7,8 +7,8 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { ConsolidatedEnabledGuard } from '../consolidated-enabled.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import {
-  CollectionPointDto, CreateGroupDto, GroupListQueryDto, SetGroupMembersDto,
-  SetGroupSitesDto, UpdateCollectionPointDto, UpdateGroupDto,
+  CollectionPointDto, ConsolidatedCreateGroupDto, GroupListQueryDto, SetGroupMembersDto,
+  SetGroupSitesDto, UpdateCollectionPointDto, ConsolidatedUpdateGroupDto,
 } from '../dto/group.dto';
 import { CreateScheduleDto } from '../dto/schedule.dto';
 import { ConsolidatedGroupService } from '../services/consolidated-group.service';
@@ -31,7 +31,7 @@ export class ConsolidatedGroupsController {
   ) {}
 
   @Post()
-  create(@Req() req: Req, @Body() dto: CreateGroupDto) {
+  create(@Req() req: Req, @Body() dto: ConsolidatedCreateGroupDto) {
     return this.groups.create(req.user, dto, req);
   }
 
@@ -58,7 +58,7 @@ export class ConsolidatedGroupsController {
   }
 
   @Patch(':id')
-  update(@Req() req: Req, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateGroupDto) {
+  update(@Req() req: Req, @Param('id', ParseIntPipe) id: number, @Body() dto: ConsolidatedUpdateGroupDto) {
     return this.groups.update(req.user, id, dto, req);
   }
 
@@ -100,6 +100,12 @@ export class ConsolidatedGroupsController {
     @Body() dto: CreateScheduleDto,
   ) {
     return this.schedules.create(req.user, id, dto, req);
+  }
+
+  /** Undo an archive: the group is active again with its sites, points and people. */
+  @Post(':id/restore')
+  restore(@Req() req: Req, @Param('id', ParseIntPipe) id: number) {
+    return this.groups.restore(req.user, id, req);
   }
 
   /** Archives rather than deletes — collections already run are history. */

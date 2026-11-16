@@ -10,8 +10,8 @@ import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { assertValidTimezone, resolveDonorTimezone } from '../../connections/connection.schedule';
 import { CONSOLIDATED_ERROR } from '../consolidated.errors';
 import {
-  CreateGroupDto, GroupListQueryDto, SetGroupMembersDto, SetGroupSitesDto,
-  UpdateCollectionPointDto, UpdateGroupDto, CollectionPointDto,
+  ConsolidatedCreateGroupDto, GroupListQueryDto, SetGroupMembersDto, SetGroupSitesDto,
+  UpdateCollectionPointDto, ConsolidatedUpdateGroupDto, CollectionPointDto,
 } from '../dto/group.dto';
 import { CONSOLIDATED_ACTION, ConsolidatedAuditService, RequestContext } from './consolidated-audit.service';
 import { ConsolidatedAccessService } from './consolidated-access.service';
@@ -242,7 +242,7 @@ export class ConsolidatedGroupService {
 
   // ─── Create ────────────────────────────────────────────────────────────────
 
-  async create(caller: Jwtpayload, dto: CreateGroupDto, req?: RequestContext) {
+  async create(caller: Jwtpayload, dto: ConsolidatedCreateGroupDto, req?: RequestContext) {
     const siteIds = [...new Set(dto.siteIds)];
     await this.access.assertCanCreateGroup(caller, siteIds);
 
@@ -316,7 +316,19 @@ export class ConsolidatedGroupService {
       include: {
         hostSite: { select: { id: true, name: true, organisationName: true } },
         _count: { select: { sites: { where: { removedAt: null } }, points: true } },
-        sites: { where: { removedAt: null }, select: { invitationStatus: true } },
+        sites: {
+          where: { removedAt: null },
+          select: {
+            siteId: true,
+            invitationStatus: true,
+            site: { select: { id: true, name: true, organisationName: true } },
+          },
+        },
+        points: {
+          where: { isActive: true },
+          orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+          select: { id: true, name: true, address: true, postcode: true, lat: true, lng: true, directions: true, isDefault: true, isActive: true },
+        },
         collections: {
           where: { status: { in: [ConsolidatedCollectionStatus.SCHEDULED, ConsolidatedCollectionStatus.OPEN] } },
           orderBy: { scheduledDate: 'asc' },
@@ -336,6 +348,14 @@ export class ConsolidatedGroupService {
       pointCount: g._count.points,
       nextCollection: g.collections[0] ?? null,
       isActive: g.isActive,
+      timezone: g.timezone,
+      // Enough for pickers and summaries without a second request per group.
+      points: g.points,
+      sites: g.sites.map((row) => ({
+        siteId: row.siteId,
+        invitationStatus: row.invitationStatus,
+        site: { id: row.site.id, name: row.site.name ?? row.site.organisationName },
+      })),
     }));
   }
 
@@ -408,7 +428,7 @@ export class ConsolidatedGroupService {
 
   // ─── Update ────────────────────────────────────────────────────────────────
 
-  async update(caller: Jwtpayload, groupId: number, dto: UpdateGroupDto, req?: RequestContext) {
+  async update(caller: Jwtpayload, groupId: number, dto: ConsolidatedUpdateGroupDto, req?: RequestContext) {
     const group = await this.access.assertManager(caller, groupId);
     const actor = await this.audit.actorFrom(caller, req);
 
@@ -633,6 +653,35 @@ export class ConsolidatedGroupService {
    * refuses while a collection is live, because sites and charities are
    * already acting on it.
    */
+  /**
+   * Brings an archived group back. Sites, collection points and people are kept
+   * exactly as they were. Schedules ended and collections cancelled by archiving
+   * stay as history — their dates may have passed — so the manager schedules again.
+   */
+  async restore(caller: Jwtpayload, groupId: number, req?: RequestContext) {
+    const group = await this.access.assertManager(caller, groupId);
+    if (group.isActive) {
+      throw new ConflictException('This group is not archived.');
+    }
+    const actor = await this.audit.actorFrom(caller, req);
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.consolidatedGroup.update({
+        where: { id: groupId },
+        data: { isActive: true, archivedAt: null },
+      });
+      await this.audit.log(tx, actor, {
+        organisationId: group.organisationId,
+        action: CONSOLIDATED_ACTION.GROUP_RESTORED,
+        entityType: 'ConsolidatedGroup',
+        entityId: groupId,
+        entityLabel: group.name,
+        summary: `Restored "${group.name}" from the archive.`,
+      });
+      return { restored: true };
+    });
+  }
+
   async archive(caller: Jwtpayload, groupId: number, req?: RequestContext) {
     const group = await this.access.assertManager(caller, groupId);
 

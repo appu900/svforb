@@ -21,7 +21,7 @@ export class GroupMemberDto {
   @IsEnum(ConsolidatedMemberRole) role!: ConsolidatedMemberRole;
 }
 
-export class CreateGroupDto {
+export class ConsolidatedCreateGroupDto {
   @IsString() @IsNotEmpty() @MaxLength(120) name!: string;
   @IsString() @IsOptional() @MaxLength(500) description?: string;
 
@@ -40,7 +40,7 @@ export class CreateGroupDto {
   members?: GroupMemberDto[];
 }
 
-export class UpdateGroupDto {
+export class ConsolidatedUpdateGroupDto {
   @IsString() @IsOptional() @MaxLength(120) name?: string;
   @IsString() @IsOptional() @MaxLength(500) description?: string;
   @Type(() => Number) @IsInt() @IsOptional() hostSiteId?: number;
