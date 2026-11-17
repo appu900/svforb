@@ -241,6 +241,9 @@ model User {
   auditLogs               AuditLog[]
   notificationPrefs       UserNotificationPreference[]
   consolidatedMemberships ConsolidatedGroupMember[]
+  foodRecordsCreated      FoodRecord[]                 @relation("FoodRecordCreatedBy")
+  foodRecordsUpdated      FoodRecord[]                 @relation("FoodRecordUpdatedBy")
+  foodRecordEvents        FoodRecordEvent[]
   enterpriseReports       EnterpriseReport[]
   siteImportJobs          SiteImportJob[]
 
@@ -386,6 +389,7 @@ model Organisation {
   donorConnections      Connection[]                    @relation("DonorOrgConnections")
   receiverConnections   Connection[]                    @relation("ReceiverOrgConnections")
   consolidatedGroups    ConsolidatedGroup[]
+  foodRecords           FoodRecord[]
   exclusiveListings     FoodListing[]                   @relation("ExclusiveToOrg")
 
   @@index([region])
@@ -555,6 +559,7 @@ model Site {
   siteNotifications         SiteNotification[]
   clusterSite               ClusterSite?
   territorySite             TerritorySite?
+  foodRecords               FoodRecord[]
   consolidatedHostOf        ConsolidatedGroup[]        @relation("ConsolidatedHostSite")
   consolidatedGroupSites    ConsolidatedGroupSite[]
   consolidatedContributions ConsolidatedContribution[]
@@ -667,6 +672,7 @@ model FoodListing {
   /// charity-facing listing built on publish.
   consolidatedRole         ConsolidatedListingRole   @default(STANDARD)
   consolidatedContribution ConsolidatedContribution? @relation("ContributionListing")
+  foodRecordLinks          FoodRecordListingLink[]
   consolidatedMasterOf     ConsolidatedCollection?   @relation("MasterListing")
 
   /// ─── Preferred Charity exclusivity ───────────────────────────────────────
@@ -728,8 +734,9 @@ model FoodItem {
   quantityDescription String?
 
   claimItems             ClaimItem[]
-  consolidatedSourceItem ConsolidatedItem? @relation("ConsolidatedSourceItem")
-  consolidatedMasterItem ConsolidatedItem? @relation("ConsolidatedMasterItem")
+  foodRecordLink         FoodRecordListingLink?
+  consolidatedSourceItem ConsolidatedItem?      @relation("ConsolidatedSourceItem")
+  consolidatedMasterItem ConsolidatedItem?      @relation("ConsolidatedMasterItem")
 
   @@index([listingId])
   @@map("food_items")
@@ -1252,6 +1259,7 @@ enum AuditArea {
   NOTIFICATIONS
   AUTH
   CONSOLIDATED_COLLECTIONS
+  MAKE_FOOD_COUNT
 }
 
 enum ReportFormat {
@@ -2276,4 +2284,186 @@ model ConsolidatedChangeRequest {
 
   @@index([collectionId, status])
   @@map("consolidated_change_requests")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Make Food Count
+//
+// Kitchens record everything they did not serve, not only what they offer to a
+// charity. One food record holds many lines; a line may later be listed,
+// claimed and collected, and those are four separate numbers that never
+// overwrite each other. See docs/make-food-count/SPEC.md.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum FoodSource {
+  OVERPRODUCTION
+  SPOILAGE
+  PREPARATION
+  PLATE_SCRAPS
+}
+
+enum FoodRecordStatus {
+  DRAFT
+  SAVED
+}
+
+enum FoodListingKind {
+  EDIBLE
+  NON_EDIBLE
+}
+
+enum FoodRecordEventType {
+  RECORD_CREATED
+  RECORD_SAVED
+  SOURCES_CHANGED
+  LINE_CREATED
+  QTY_CHANGED
+  FIT_CHANGED
+  LINE_DELETED
+  LISTED
+  LISTING_CANCELLED
+  CLAIM_COLLECTED
+  CLAIM_CANCELLED
+}
+
+/// One kitchen's record of food that was not served, for one service.
+model FoodRecord {
+  id             Int          @id @default(autoincrement())
+  organisationId Int
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  siteId         Int
+  site           Site         @relation(fields: [siteId], references: [id])
+
+  createdById Int
+  createdBy   User @relation("FoodRecordCreatedBy", fields: [createdById], references: [id])
+  updatedById Int
+  updatedBy   User @relation("FoodRecordUpdatedBy", fields: [updatedById], references: [id])
+
+  /// The date this food belongs to for reporting — not when the row was written.
+  recordedAt DateTime         @default(now())
+  status     FoodRecordStatus @default(DRAFT)
+  /// Which source tabs the kitchen chose; lines may only use these.
+  sources    FoodSource[]
+
+  /// Optimistic lock. Every write carries the version it read.
+  version         Int    @default(1)
+  /// Makes create idempotent — a retried submit must not make a second record.
+  clientRequestId String @unique
+
+  /// Classification stamped at creation, as listings and claims do, so moving a
+  /// site later never rewrites what it already reported.
+  snapshotGroupId     Int?
+  snapshotClusterId   Int?
+  snapshotTerritoryId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines  FoodRecordLine[]
+  events FoodRecordEvent[]
+  links  FoodRecordListingLink[]
+
+  @@index([organisationId, recordedAt])
+  @@index([siteId, recordedAt])
+  @@index([snapshotGroupId])
+  @@index([snapshotClusterId])
+  @@index([snapshotTerritoryId])
+  @@map("food_records")
+}
+
+/// One food line: a category, a weight, and whether it is fit for people.
+model FoodRecordLine {
+  id       Int        @id @default(autoincrement())
+  recordId Int
+  record   FoodRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  /// The app's own stable key for this row, so a full PUT can be diffed.
+  clientKey String
+  source    FoodSource
+  /// Taxonomy key, e.g. "meat_poultry". Validated against the served config.
+  category  String
+  /// e.g. "chicken".
+  subtype   String?
+
+  qtyKg Decimal @db.Decimal(10, 2)
+  unit  String  @default("kg")
+
+  /// Only Overproduction may be fit; the server forces false everywhere else.
+  fitForHumans Boolean @default(false)
+
+  /// Soft delete, so a line that was already listed keeps its history.
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events FoodRecordEvent[]
+  links  FoodRecordListingLink[]
+
+  @@unique([recordId, clientKey])
+  @@index([recordId, source])
+  @@map("food_record_lines")
+}
+
+/// Append-only history, so any metric can be replayed and explained.
+model FoodRecordEvent {
+  id       Int             @id @default(autoincrement())
+  recordId Int
+  record   FoodRecord      @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  lineId   Int?
+  line     FoodRecordLine? @relation(fields: [lineId], references: [id], onDelete: SetNull)
+
+  /// Null means the system acted — the claim hooks have no user.
+  actorUserId Int?
+  actor       User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  type   FoodRecordEventType
+  before Json?
+  after  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([recordId, createdAt])
+  @@map("food_record_events")
+}
+
+/// Ties one food line to the single FoodItem it became on a listing.
+///
+/// One item per line, never merged, so a ClaimItem's kilograms map back to
+/// exactly one line and nothing has to be apportioned.
+model FoodRecordListingLink {
+  id       Int            @id @default(autoincrement())
+  recordId Int
+  record   FoodRecord     @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  lineId   Int
+  line     FoodRecordLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  listingId  Int
+  listing    FoodListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  foodItemId Int         @unique
+  foodItem   FoodItem    @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
+
+  kind        FoodListingKind
+  listedQtyKg Decimal         @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([lineId])
+  @@index([listingId])
+  @@index([recordId])
+  @@map("food_record_listing_links")
+}
+
+/// Generic replay guard, keyed by the client's Idempotency-Key header.
+model IdempotencyKey {
+  key      String @id
+  userId   Int
+  /// What the key is for, e.g. "mfc-listing" — keys are only unique per scope.
+  scope    String
+  resultId Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("idempotency_keys")
 }

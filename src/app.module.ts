@@ -26,6 +26,7 @@ import { QueueDashboardModule } from './modules/admin/queue-dashboard.module';
 import { HealthModule } from './modules/health/health.module';
 import { ConnectionsModule } from './modules/connections/connections.module';
 import { ConsolidatedModule } from './modules/consolidated/consolidated.module';
+import { MfcModule } from './modules/make-food-count/mfc.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { ConsolidatedModule } from './modules/consolidated/consolidated.module';
     QueueDashboardModule,
     ConnectionsModule,
     ConsolidatedModule,
+    MfcModule,
     HealthModule
   ],
   controllers: [AppController],
