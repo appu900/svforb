@@ -255,9 +255,14 @@ async function main() {
 
       // ─── 3. Schedule ──────────────────────────────────────────────────────
       section('3. Schedule and occurrence generation');
-      const today = new Date();
-      const localToday = new Date(Date.UTC(
-        today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+      // "Today" has to be today *in the group's timezone*, not in UTC. Melbourne
+      // is up to 11 hours ahead, so building this from UTC components asks to
+      // schedule for yesterday whenever the run happens after ~13:00 UTC — and
+      // the validator rightly refuses a start date in the past.
+      const [y, m, d] = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Australia/Melbourne', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date()).split('-').map(Number);
+      const localToday = new Date(Date.UTC(y, m - 1, d));
 
       const { schedule, collectionsCreated } = await schedules.create(managerJwt, group.id, {
         collectionPointId: group.points[0].id,
@@ -284,13 +289,17 @@ async function main() {
       // Put it into the state the sweep would have left it in.
       collection = await tx.consolidatedCollection.update({
         where: { id: collection.id },
+        // Pin every window relative to now, so the run does not depend on what
+        // time of day it happens to be. Leaving handoverStartAt at the
+        // schedule's own 13:00 made the test pass only in the morning.
         data: {
           status: ConsolidatedCollectionStatus.OPEN,
           openedAt: new Date(),
-          pickupEndAt: new Date(Date.now() + 6 * 3600_000),
-          pickupStartAt: new Date(Date.now() + 3600_000),
-          handoverEndAt: new Date(Date.now() + 1800_000),
           submissionsCloseAt: new Date(Date.now() + 900_000),
+          handoverStartAt: new Date(Date.now() - 600_000),
+          handoverEndAt: new Date(Date.now() + 1800_000),
+          pickupStartAt: new Date(Date.now() + 3600_000),
+          pickupEndAt: new Date(Date.now() + 6 * 3600_000),
         },
       });
 
