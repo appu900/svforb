@@ -140,8 +140,22 @@ async function main() {
         forced.lines.find((l: any) => l.clientKey === 'd')!.fitForHumans === false
         && forced.totals.fitKg === 7);
 
+      // Actually move a quantity and a fit flag, so the events below are real.
+      const edited = await records.putLines(chefJwt, r1.id, { version: forced.version, lines: [
+        { clientKey: 'a', source: FoodSource.OVERPRODUCTION, category: 'meat_poultry', subtype: 'chicken', qtyKg: 4.5, fitForHumans: true },
+        { clientKey: 'b', source: FoodSource.OVERPRODUCTION, category: 'meat_poultry', subtype: 'beef', qtyKg: 3, fitForHumans: true },
+        { clientKey: 'c', source: FoodSource.OVERPRODUCTION, category: 'seafood', subtype: 'fish', qtyKg: 2, fitForHumans: true },
+        { clientKey: 'd', source: FoodSource.PREPARATION, category: 'peels_trimmings', qtyKg: 4 },
+        { clientKey: 'e', source: FoodSource.PLATE_SCRAPS, category: 'plate_scraps', qtyKg: 2 },
+      ] } as any);
+      check('A changed quantity is reflected', edited.totals.recordedKg === 15.5,
+        `${edited.totals.recordedKg} kg`);
+      check('Ticking fit on beef moves 3 kg across',
+        edited.totals.fitKg === 9.5 && edited.totals.notFitKg === 6,
+        `${edited.totals.fitKg} / ${edited.totals.notFitKg}`);
+
       const bad = async (lines: any[]) => {
-        try { await records.putLines(chefJwt, r1.id, { version: forced.version, lines } as any); return false; }
+        try { await records.putLines(chefJwt, r1.id, { version: edited.version, lines } as any); return false; }
         catch { return true; }
       };
       check('Unknown category rejected', await bad([
@@ -162,7 +176,7 @@ async function main() {
       catch (e: any) { stale = e.status === 409 && e.response?.code === 'STALE_VERSION'; }
       check('A stale version returns 409 with the current one', stale);
 
-      const trimmed = await records.putLines(chefJwt, r1.id, { version: forced.version, lines: [
+      const trimmed = await records.putLines(chefJwt, r1.id, { version: edited.version, lines: [
         { clientKey: 'a', source: FoodSource.OVERPRODUCTION, category: 'meat_poultry', subtype: 'chicken', qtyKg: 5, fitForHumans: true },
       ] } as any);
       check('Dropped lines disappear from totals', trimmed.totals.recordedKg === 5 && trimmed.lines.length === 1);
