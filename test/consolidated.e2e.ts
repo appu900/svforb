@@ -33,6 +33,9 @@ import { createPgPool } from '../src/infra/prisma/create-pg-pool';
 import { EnterpriseScopeService } from '../src/modules/enterprise/services/enterprise-scope.service';
 import { FoodListingService } from '../src/modules/foodlisting/services/food.listing.service';
 import { ClaimsService } from '../src/modules/claims/services/claims.service';
+import { MfcClaimHookService } from '../src/modules/make-food-count/services/mfc-claim-hook.service';
+import { MfcAccessService } from '../src/modules/make-food-count/services/mfc-access.service';
+import { MfcListingLinkService } from '../src/modules/make-food-count/services/mfc-listing-link.service';
 import { ConsolidatedAccessService } from '../src/modules/consolidated/services/consolidated-access.service';
 import { ConsolidatedAuditService } from '../src/modules/consolidated/services/consolidated-audit.service';
 import { ConsolidatedGroupService } from '../src/modules/consolidated/services/consolidated-group.service';
@@ -107,7 +110,9 @@ async function main() {
         'invalidateOrgPage1', 'getListing', 'setListing', 'getOrgPage']);
       const queueStub: any = stub(['enqueueNewListing', 'enqueueListingExpiry']);
 
-      const listings = new FoodListingService(px, cacheStub, stub(['uploadFile']), queueStub, scope);
+      const listings = new FoodListingService(
+        px, cacheStub, stub(), queueStub, scope,
+        new MfcListingLinkService(px, new MfcAccessService(px, scope)));
       const groups = new ConsolidatedGroupService(px, access, audit, notifier);
       const schedules = new ConsolidatedScheduleService(px, access, audit);
       const collections = new ConsolidatedCollectionService(px, access, audit, notifier);
@@ -120,7 +125,8 @@ async function main() {
       const reports = new ConsolidatedReportService(px, access);
       const claims = new ClaimsService(
         px, stub(), stub(), scope, stub(),
-        { getLiveDriversForSite: async () => [] } as any);
+        { getLiveDriversForSite: async () => [] } as any,
+        new MfcClaimHookService());
 
       // ─── Fixtures ─────────────────────────────────────────────────────────
       section('Fixtures');

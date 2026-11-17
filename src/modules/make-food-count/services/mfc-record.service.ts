@@ -15,6 +15,7 @@ import {
   MfcRecordListQueryDto, MfcSaveRecordDto,
 } from '../dto/mfc.dto';
 import { MfcAccessService } from './mfc-access.service';
+import { deriveLineStatus, type LineOutcome } from './mfc-outcomes';
 import { eligibleKg, sumKg, totalsFor, type TotalsLine } from './mfc-totals';
 
 const DEFAULT_PAGE = 25;
@@ -177,6 +178,7 @@ export class MfcRecordService {
         unit: line.unit,
         fitForHumans: line.fitForHumans,
         ...o,
+        status: deriveLineStatus({ qtyKg: qty, ...o } as LineOutcome),
         // What is still free to offer: the rest is held by a live listing.
         availableKg: Math.max(0, Number((qty - o.activeListedKg).toFixed(2))),
       };
@@ -440,7 +442,8 @@ export class MfcRecordService {
   }
 
   private emptyOutcome() {
-    return { listedKg: 0, activeListedKg: 0, claimedKg: 0, collectedKg: 0 };
+    return { listedKg: 0, activeListedKg: 0, claimedKg: 0, collectedKg: 0,
+             listingStatuses: [] as ListingStatus[] };
   }
 
   /**
@@ -476,6 +479,7 @@ export class MfcRecordService {
 
       if (link.listing.status !== ListingStatus.CANCELLED) o.listedKg += listed;
       if (ACTIVE_LISTING.includes(link.listing.status)) o.activeListedKg += listed;
+      o.listingStatuses.push(link.listing.status);
 
       for (const item of link.foodItem.claimItems) {
         // A consolidated master claim is a presentation layer over the
@@ -496,6 +500,7 @@ export class MfcRecordService {
         activeListedKg: Number(o.activeListedKg.toFixed(2)),
         claimedKg: Number(o.claimedKg.toFixed(2)),
         collectedKg: Number(o.collectedKg.toFixed(2)),
+        listingStatuses: [...new Set(o.listingStatuses)],
       });
     }
     return out;

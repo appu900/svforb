@@ -75,3 +75,22 @@ export class MfcRecordListQueryDto {
 export class MfcListingPrefillQueryDto {
   @IsEnum(FoodListingKind) kind!: FoodListingKind;
 }
+
+/** One recorded line becoming one item on the listing being created. */
+export class MfcListingItemLinkDto {
+  @Type(() => Number) @IsInt() lineId!: number;
+  /** Index into the request's own `foodItems` array. */
+  @Type(() => Number) @IsInt() @Min(0) itemIndex!: number;
+}
+
+/**
+ * The optional block an existing create-listing request may carry to tie the
+ * listing back to a food record. Absent, the endpoint behaves exactly as before.
+ */
+export class MfcFoodRecordLinkDto {
+  @Type(() => Number) @IsInt() recordId!: number;
+  @IsEnum(FoodListingKind) kind!: FoodListingKind;
+
+  @IsArray() @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => MfcListingItemLinkDto)
+  items!: MfcListingItemLinkDto[];
+}

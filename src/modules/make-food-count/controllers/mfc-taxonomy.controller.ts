@@ -1,5 +1,5 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
@@ -18,6 +18,7 @@ type Req = Request & { user: Jwtpayload };
 @Controller('mfc')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('bearer')
+@ApiTags('Make Food Count — Taxonomy')
 export class MfcTaxonomyController {
   constructor(private readonly access: MfcAccessService) {}
 

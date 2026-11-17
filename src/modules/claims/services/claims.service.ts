@@ -19,6 +19,7 @@ import {
   OrgType,
 } from '@prisma/client';
 import { EnterpriseScopeService } from '../../enterprise/services/enterprise-scope.service';
+import { MfcClaimHookService } from '../../make-food-count/services/mfc-claim-hook.service';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import { NotificationService } from '../../notifications/services/notification.service';
@@ -51,6 +52,7 @@ export class ClaimsService {
     private readonly enterpriseScope: EnterpriseScopeService,
     private readonly gateway: ListingGateway,
     private readonly driverService: DriverLocationService,
+    private readonly mfcClaimHook: MfcClaimHookService,
   ) {}
 
   async claimListing(caller: Jwtpayload, dto: CreateClaimDto) {
@@ -685,6 +687,8 @@ export class ClaimsService {
       );
     }
 
+    await this.mfcClaimHook.onClaimResolved(this.prisma, claimId, ClaimStatus.CANCELLED);
+
     return { message: 'Claim cancelled', restoredQtyKg: result.restoredQty };
   }
 
@@ -835,6 +839,10 @@ export class ClaimsService {
         .map((ci) => `${ci.foodItem?.name ?? `item ${ci.foodItemId}`} (${ci.qtyKg}kg)`)
         .join(', '),
     });
+
+    // Observed after the fact — Make Food Count records what happened to the
+    // food a kitchen logged, and must never be able to fail a collection.
+    await this.mfcClaimHook.onClaimResolved(this.prisma, claimId, ClaimStatus.COLLECTED);
 
     return { message: 'Marked as collected' };
   }

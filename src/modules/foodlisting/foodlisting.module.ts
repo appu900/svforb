@@ -9,9 +9,13 @@ import { ListingQueueService, LISTINGS_QUEUE } from './queues/listing.queue.serv
 import { ListingWorker } from './workers/listing.worker';
 import { SiteNotificationService } from './services/site.notification.service';
 import { EnterpriseModule } from '../enterprise/enterprise.module';
+import { MfcModule } from '../make-food-count/mfc.module';
 
 @Module({
-  imports: [EnterpriseModule, 
+  imports: [EnterpriseModule,
+    // Make Food Count links a listing back to the record it came from.
+    MfcModule,
+    
     S3Module,
     RedisGeoSearchModule,
     BullModule.registerQueue({ name: LISTINGS_QUEUE }),

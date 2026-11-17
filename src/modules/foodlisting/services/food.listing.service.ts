@@ -30,6 +30,7 @@ import { ListingQueueService, resolveListingExpiryAt } from '../queues/listing.q
 import { FoodListingCacheManager } from '../cache/food.listing.cache';
 import { CreateFoodListingDto } from '../dto/food.listing.dto';
 import { resolveCallerSiteId } from '../utils/resolve-caller-site';
+import { MfcListingLinkService } from '../../make-food-count/services/mfc-listing-link.service';
 import {
   BUSINESS_LIST_LISTING,
   SQL_DISCOVERABLE,
@@ -103,6 +104,7 @@ export class FoodListingService {
     private readonly s3: S3Service,
     private readonly listingQueue: ListingQueueService,
     private readonly enterpriseScope: EnterpriseScopeService,
+    private readonly mfcLinks: MfcListingLinkService,
   ) {}
 
   async presignListingPhoto(contentType: string) {
@@ -190,8 +192,20 @@ export class FoodListingService {
     caller: Jwtpayload,
     dto: CreateFoodListingDto,
     photos?: Express.Multer.File[],
+    idempotencyKey?: string,
   ) {
     assertNotViewOnly(caller);
+
+    // A retried submit must not offer a charity food that does not exist, so
+    // the key is checked before anything is written.
+    const replayed = await this.mfcLinks.replayedListingId(caller, idempotencyKey);
+    if (replayed) {
+      return this.prisma.foodListing.findUnique({
+        where: { id: replayed },
+        include: { foodItems: true },
+      });
+    }
+
     if (!dto.foodItems?.length) {
       throw new BadRequestException('At least one food item is required');
     }
@@ -224,16 +238,25 @@ export class FoodListingService {
     // rewrite what this listing reported at the time.
     const snapshot = await this.enterpriseScope.snapshotForSite(dto.siteId);
 
-    const listing = await this.prisma.$transaction((tx) =>
-      this.createListingRecord(tx, caller, {
+    const listing = await this.prisma.$transaction(async (tx) => {
+      const created = await this.createListingRecord(tx, caller, {
         ...dto,
         bestBefore,
         pickupByTime,
         photoUrls: uploadedUrls,
         totalQtyKg,
         snapshot,
-      }),
-    );
+      });
+
+      // Linking runs in the listing's own transaction: a listing that offers
+      // more than was recorded should not exist at all.
+      if (dto.foodRecord) {
+        await this.mfcLinks.link(tx, caller, dto.foodRecord, created!, created!.foodItems);
+      }
+      await this.mfcLinks.rememberKey(tx, caller, idempotencyKey, created!.id);
+
+      return created;
+    });
     const listingActivity = await this.prisma.listingActivity.create({
       data:{
         actorOrgId:site.organisationId,

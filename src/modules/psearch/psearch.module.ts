@@ -4,8 +4,6 @@ import { RedisModule } from '../../infra/redis/redis.module';
 import { ProximityController } from './p.controller';
 import { ProximityService } from './psearch.service';
 
-
-
 @Module({
   imports:     [PrismaModule, RedisModule],
   controllers: [ProximityController],

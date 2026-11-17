@@ -1,14 +1,15 @@
 import {
   Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import {
   MfcCreateRecordDto, MfcPatchRecordDto, MfcPutLinesDto, MfcRecordListQueryDto,
-  MfcSaveRecordDto,
+  MfcListingPrefillQueryDto, MfcSaveRecordDto,
 } from '../dto/mfc.dto';
+import { MfcListingLinkService } from '../services/mfc-listing-link.service';
 import { MfcRecordService } from '../services/mfc-record.service';
 
 type Req = Request & { user: Jwtpayload };
@@ -22,8 +23,12 @@ type Req = Request & { user: Jwtpayload };
 @Controller('mfc/records')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('bearer')
+@ApiTags('Make Food Count — Records')
 export class MfcRecordsController {
-  constructor(private readonly records: MfcRecordService) {}
+  constructor(
+    private readonly records: MfcRecordService,
+    private readonly links: MfcListingLinkService,
+  ) {}
 
   /** Idempotent on `clientRequestId` — a retried submit returns the first record. */
   @Post()
@@ -45,6 +50,16 @@ export class MfcRecordsController {
   @Get(':id/events')
   events(@Req() req: Req, @Param('id', ParseIntPipe) id: number) {
     return this.records.events(req.user, id);
+  }
+
+  /** What the listing screen opens with, by kind, net of anything already listed. */
+  @Get(':id/listing-prefill')
+  prefill(
+    @Req() req: Req,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: MfcListingPrefillQueryDto,
+  ) {
+    return this.links.prefill(req.user, id, query.kind);
   }
 
   @Patch(':id')

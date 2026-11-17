@@ -1,5 +1,6 @@
 import {
   Controller,
+  Headers,
   Delete,
   Get,
   Param,
@@ -44,8 +45,9 @@ export class FoodListingController {
     @Req() req: Request & { user: Jwtpayload },
     @Body() dto: CreateFoodListingDto,
     @UploadedFiles() photos?: Express.Multer.File[],
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.service.createListing(req.user, dto, photos);
+    return this.service.createListing(req.user, dto, photos, idempotencyKey);
   }
 
   @Get('org/:orgId')

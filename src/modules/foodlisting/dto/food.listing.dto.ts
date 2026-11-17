@@ -14,6 +14,7 @@ import {
 } from 'class-validator';
 import { plainToInstance, Transform, Type } from 'class-transformer';
 import { FoodListingType } from '@prisma/client';
+import { MfcFoodRecordLinkDto } from '../../make-food-count/dto/mfc.dto';
 
 function parseJson(value: unknown) {
   if (typeof value !== 'string') return value;
@@ -64,6 +65,16 @@ export class CreateFoodItemDto {
 }
 
 export class CreateFoodListingDto {
+  /**
+   * Ties this listing back to a Make Food Count record. Absent, the endpoint
+   * behaves exactly as it always has.
+   */
+  @ParseJsonIfString()
+  @ValidateNested()
+  @IsOptional()
+  @Type(() => MfcFoodRecordLinkDto)
+  foodRecord?: MfcFoodRecordLinkDto;
+
   @IsInt()
   @Type(() => Number)
   siteId!: number;
