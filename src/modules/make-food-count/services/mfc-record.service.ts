@@ -376,6 +376,35 @@ export class MfcRecordService {
     return this.get(caller, recordId);
   }
 
+  /**
+   * Discard a draft the kitchen no longer wants.
+   *
+   * Only drafts, and only while nothing from them has been listed: a listing
+   * (live or past) is part of what the record reports, so that record stays.
+   * Lines and events go with the record (cascade).
+   */
+  async discardDraft(caller: Jwtpayload, recordId: number) {
+    const record = await this.access.assertRecordInReach(caller, recordId);
+    await this.access.assertCanEditSite(caller, record.siteId);
+
+    if (record.status !== FoodRecordStatus.DRAFT) {
+      throw new ConflictException({
+        code: 'RECORD_SAVED',
+        message: 'Saved records cannot be deleted.',
+      });
+    }
+    const listed = await this.prisma.foodRecordListingLink.count({ where: { recordId } });
+    if (listed > 0) {
+      throw new ConflictException({
+        code: 'RECORD_LISTED',
+        message: 'Part of this draft is listed, so it cannot be deleted. Cancel the listing first.',
+      });
+    }
+
+    await this.prisma.foodRecord.delete({ where: { id: recordId } });
+    return { id: recordId, deleted: true };
+  }
+
   /** The audit trail for one record, for the site administrator view. */
   async events(caller: Jwtpayload, recordId: number) {
     await this.access.assertRecordInReach(caller, recordId);

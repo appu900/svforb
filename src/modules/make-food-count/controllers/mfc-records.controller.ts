@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards,
+  Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -79,6 +79,12 @@ export class MfcRecordsController {
     @Body() dto: MfcPutLinesDto,
   ) {
     return this.records.putLines(req.user, id, dto);
+  }
+
+  /** Discard a draft. Refused for saved records and for drafts with any listing. */
+  @Delete(':id')
+  discard(@Req() req: Req, @Param('id', ParseIntPipe) id: number) {
+    return this.records.discardDraft(req.user, id);
   }
 
   @Post(':id/save')
