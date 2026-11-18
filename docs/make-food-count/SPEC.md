@@ -154,7 +154,9 @@ Validation is done with class-validator DTOs under the global `ValidationPipe` (
 | Kitchen staff / site user | `siteAccess` STAFF or SITE_ADMIN; enterprise SITE_USER | create, edit, save, list for their sites | their sites |
 | Site administrator | `siteAccess` SITE_ADMIN; enterprise SITE_ADMIN | above + events (audit) | their sites |
 | Group / Territory / Cluster manager | enterprise GROUP_ADMIN / CLUSTER_ADMIN + `UserScope` | read only | their scope |
-| Enterprise admin / org owner / ORG_ADMIN | enterprise ENTERPRISE_ADMIN / SUPER_ADMIN, orgRole SUPER_ADMIN / ORG_ADMIN | read (edit only where they also hold site access) | whole org |
+| Enterprise Super Admin / org owner | enterprise SUPER_ADMIN, or orgRole SUPER_ADMIN | create, edit, save, list for every site in the organisation | whole org |
+| Enterprise admin (view only) | enterprise ENTERPRISE_ADMIN | read only | whole org |
+| ORG_ADMIN | orgRole ORG_ADMIN | read (edit where they hold site access; in a non-Enterprise business, every site) | whole org |
 | Charity / farmer / driver | receiver org types | **none** (404 on all `/mfc`) | none |
 
 "Edit own site food records" means any record of a site the user can access, not only records they created. This is

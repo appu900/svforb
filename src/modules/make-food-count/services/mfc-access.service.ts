@@ -73,12 +73,17 @@ export class MfcAccessService {
    * Writing needs hands-on access to the site: a site access row, or being the
    * owner of a business that does not use the Enterprise hierarchy at all —
    * otherwise a single-site owner could not record their own kitchen's food.
-   * A view-only enterprise role never writes, however senior.
+   * The Enterprise Super Admin runs the whole enterprise and may change any
+   * site's records. A view-only enterprise role never writes, however senior.
    */
   async canEditSite(caller: Jwtpayload, siteId: number): Promise<boolean> {
     if (!(await this.isSiteInReach(caller, siteId))) return false;
-    if (isViewOnlyRole(caller.enterpriseRole)) return false;
-    if (caller.enterpriseRole === EnterpriseRole.ENTERPRISE_ADMIN) return false;
+    // The role as stored now (same source as reach), so a stale token never decides.
+    // An organisation owner counts as Enterprise Super Admin, exactly as reach does.
+    const role = (await this.scope.getEnterpriseRole(caller)) ?? caller.enterpriseRole ?? null;
+    if (isViewOnlyRole(role)) return false;
+    if (role === EnterpriseRole.ENTERPRISE_ADMIN) return false;
+    if (role === EnterpriseRole.SUPER_ADMIN) return true;
 
     const access = await this.prisma.siteAccess.findUnique({
       where: { userId_siteId: { userId: caller.sub, siteId } },
