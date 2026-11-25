@@ -17,7 +17,9 @@ Product requirements and the client work live in the app repo: `saveful-for-busi
 ## API
 - `GET /subscriptions/available`: each plan adds `module`, `scope`, `trialDays`, `trialAvailable` (the org's trial is
   unused, `trialDays > 0` and the plan is not contact-sales), `tagline`, `closingLine`, `badge`.
-- `GET /subscriptions/me` adds `planModule`, `planScope` and `modules: ('MFC'|'CONNECT')[]`. `modules` is empty
+- `GET /subscriptions/me` adds `planModule`, `planScope`, `modules: ('MFC'|'CONNECT')[]` and `hasBillingAccount`
+  (true when the org has a Stripe customer; false for plans Saveful set up directly, so clients hide the billing
+  portal and self-serve cancel). `modules` is empty
   unless entitled (TRIALING/ACTIVE). Non-billable orgs (charities, farmer consumers) get both.
 - Profile `subscription.plan` adds `module` and `scope`.
 

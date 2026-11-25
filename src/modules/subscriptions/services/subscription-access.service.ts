@@ -45,6 +45,12 @@ export interface Entitlements {
   cancelAtPeriodEnd: boolean;
   /** false once the org has consumed its one trial */
   freeTrialAvailable: boolean;
+  /**
+   * The org has a Stripe customer, so the billing portal can open. false for
+   * plans set up by Saveful directly (test accounts, manual or enterprise
+   * provisioning) — clients hide "Manage billing" and self-serve cancel then.
+   */
+  hasBillingAccount: boolean;
   /** Set while a downgrade is waiting for the period to close */
   pendingPlanId: number | null;
   pendingPlanDisplayName: string | null;
@@ -69,6 +75,7 @@ const UNLIMITED_FREE: Omit<Entitlements, 'billingRequired' | 'entitled'> = {
   currentPeriodEnd: null,
   cancelAtPeriodEnd: false,
   freeTrialAvailable: false,
+  hasBillingAccount: false,
   pendingPlanId: null,
   pendingPlanDisplayName: null,
   pendingBillingCycle: null,
@@ -156,6 +163,7 @@ export class SubscriptionAccessService {
       currentPeriodEnd: sub.currentPeriodEnd,
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
       freeTrialAvailable,
+      hasBillingAccount: Boolean(sub.stripeCustomerId),
       pendingPlanId: sub.pendingPlanId,
       pendingPlanDisplayName: sub.pendingPlan?.displayName ?? null,
       pendingBillingCycle: sub.pendingBillingCycle,

@@ -89,6 +89,23 @@ describe('SubscriptionAccessService modules', () => {
     expect(ent.planModule).toBe(BillingModule.COMPLETE);
   });
 
+  it('reports a billing account only when the org has a Stripe customer', async () => {
+    const manual = build({ sub: { status: SubscriptionStatus.ACTIVE, plan: plan(BillingModule.CONNECT) } });
+    await expect(manual.getEntitlements(business)).resolves.toMatchObject({ hasBillingAccount: false });
+
+    const prisma = {
+      orgSubscription: {
+        findUnique: jest.fn().mockResolvedValue({
+          status: SubscriptionStatus.ACTIVE, plan: plan(BillingModule.CONNECT), stripeCustomerId: 'cus_1',
+          billingCycle: 'MONTHLY', quantity: 1, pendingPlan: null,
+        }),
+      },
+      organisation: { findUnique: jest.fn().mockResolvedValue({ freeTrialUsedAt: null }) },
+    };
+    const stripeBilled = new SubscriptionAccessService(prisma as never);
+    await expect(stripeBilled.getEntitlements(business)).resolves.toMatchObject({ hasBillingAccount: true });
+  });
+
   it('grants no module to a billable org without a plan', async () => {
     const service = build({ sub: null });
     await expect(service.getEntitlements(business)).resolves.toMatchObject({
