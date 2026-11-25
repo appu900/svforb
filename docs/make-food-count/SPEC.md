@@ -162,6 +162,18 @@ Validation is done with class-validator DTOs under the global `ValidationPipe` (
 "Edit own site food records" means any record of a site the user can access, not only records they created. This is
 assumed and confirmed with the client.
 
+### 6.1 Commercial access (modular billing)
+
+Make Food Count is a paid module (see `docs/billing/MODULAR_BILLING.md`). On top of the roles above:
+
+- **Writes** to `/mfc/records` (POST, PATCH, PUT lines, DELETE, save) need the **MFC** module in the org's plan
+  (`MFC_*` or `COMPLETE_*`, entitled). Otherwise: `402 { error: 'MODULE_REQUIRED', module: 'MFC' }`.
+  Enforced by `@RequiresModule('MFC')` on `MfcRecordsController` through the global `SubscriptionInterceptor`.
+- **Reads** (records, insights, taxonomy) are not gated by module, so an org that drops MFC still sees its history.
+- **Listing from a record** posts to `/food-listings`, which needs the **CONNECT** module. An MFC-only org can save a
+  record without a listing.
+- Make Food Count is never sold with a free trial (`trialDays = 0`).
+
 ## 7. Metric definitions
 
 All metrics are limited to reach and to the filters. Dimensions use the record's snapshot ids, and dates use `record.recordedAt` (question 13).

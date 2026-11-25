@@ -11,6 +11,7 @@ import {
 } from '../dto/mfc.dto';
 import { MfcListingLinkService } from '../services/mfc-listing-link.service';
 import { MfcRecordService } from '../services/mfc-record.service';
+import { RequiresModule } from '../../subscriptions/decorators/requires-module.decorator';
 
 type Req = Request & { user: Jwtpayload };
 
@@ -22,6 +23,7 @@ type Req = Request & { user: Jwtpayload };
  */
 @Controller('mfc/records')
 @UseGuards(JwtAuthGuard)
+@RequiresModule('MFC')
 @ApiBearerAuth('bearer')
 @ApiTags('Make Food Count — Records')
 export class MfcRecordsController {

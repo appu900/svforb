@@ -25,9 +25,11 @@ import {
 } from '../dto/claims.dto';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { NoCache } from '../../../infra/http-cache/http-cache.decorators';
+import { RequiresModule } from '../../subscriptions/decorators/requires-module.decorator';
 
 @Controller('claims')
 @UseGuards(JwtAuthGuard)
+@RequiresModule('CONNECT')
 @ApiBearerAuth('bearer')
 export class ClaimsController {
   constructor(private readonly service: ClaimsService) {}

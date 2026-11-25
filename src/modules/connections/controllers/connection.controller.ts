@@ -11,6 +11,7 @@ import {
   AddDailySurplusDto, CreateConnectionDto, ReassignDayDto, ReleaseDayDto, SetSiteTimezoneDto,
   UpdateConnectionDto,
 } from '../dto/connection.dto';
+import { RequiresModule } from '../../subscriptions/decorators/requires-module.decorator';
 
 type Req = Request & { user: Jwtpayload };
 
@@ -23,6 +24,7 @@ type Req = Request & { user: Jwtpayload };
  */
 @Controller('connections')
 @UseGuards(JwtAuthGuard)
+@RequiresModule('CONNECT')
 @ApiBearerAuth('bearer')
 export class ConnectionController {
   constructor(

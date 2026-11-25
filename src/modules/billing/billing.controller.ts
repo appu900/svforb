@@ -25,8 +25,9 @@ export class BillingController {
   constructor(private readonly billing: BillingService) {}
 
   /**
-   * Starts the 30-day trial. Returns a Checkout URL — no card is required up
-   * front. Collect payment details after the trial ends.
+   * Starts the plan's free trial (400 TRIAL_NOT_OFFERED for Make Food Count).
+   * Returns a Checkout URL — no card is required up front. Collect payment
+   * details after the trial ends. One trial per organisation.
    */
   @Post('trial')
   startTrial(
@@ -46,8 +47,10 @@ export class BillingController {
   }
 
   /**
-   * Switches an already-subscribed org between plans. Upgrades bill the
-   * difference today; downgrades take effect at the period end.
+   * Switches plans: gaining a module bills now, losing or switching one waits.
+   * Upgrades bill the prorated difference today (a trial to a trialled plan
+   * keeps the trial); downgrades and MFC ↔ Connect switches take effect at the
+   * period end. See docs/billing/MODULAR_BILLING.md.
    */
   @Post('change-plan')
   changePlan(

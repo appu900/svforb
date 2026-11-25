@@ -131,7 +131,7 @@ async function main() {
       // ─── Fixtures ─────────────────────────────────────────────────────────
       section('Fixtures');
       const stamp = Date.now();
-      const plan = await tx.subscriptionPlan.findFirstOrThrow({ where: { name: 'MULTI_SITE' } });
+      const plan = await tx.subscriptionPlan.findFirstOrThrow({ where: { name: 'CONNECT_MULTI' } });
 
       const org = await tx.organisation.create({
         data: {

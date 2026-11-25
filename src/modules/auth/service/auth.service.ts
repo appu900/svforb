@@ -962,6 +962,8 @@ export class AuthService {
             plan: {
               name: subscription.plan.name,
               displayName: subscription.plan.displayName,
+              module: subscription.plan.module,
+              scope: subscription.plan.scope,
               priceMonthly: subscription.plan.priceMonthly,
               priceAnnual: subscription.plan.priceAnnual,
               features: subscription.plan.features,

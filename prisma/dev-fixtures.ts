@@ -83,7 +83,7 @@ async function syncPostgis(orgId: number, siteId: number, lat: number, lng: numb
   `;
 }
 
-async function grantSingleSiteAccess(orgId: number, planName = 'SINGLE_SITE_PLUS') {
+async function grantSingleSiteAccess(orgId: number, planName = 'COMPLETE_SINGLE') {
   const plan = await prisma.subscriptionPlan.findUnique({
     where: { name: planName },
   });
@@ -155,7 +155,7 @@ async function createOrg(email: string, orgType: OrgType, region: Region, name: 
     }
 
     if (orgType === OrgType.BUSINESS_SINGLE) {
-      await grantSingleSiteAccess(orgId, 'SINGLE_SITE_PLUS');
+      await grantSingleSiteAccess(orgId);
     }
 
     console.log(
@@ -206,7 +206,7 @@ async function createOrg(email: string, orgType: OrgType, region: Region, name: 
   await syncPostgis(org.id, site.id, loc.latitude, loc.longitude);
 
   if (orgType === OrgType.BUSINESS_SINGLE) {
-    await grantSingleSiteAccess(org.id, 'SINGLE_SITE_PLUS');
+    await grantSingleSiteAccess(org.id);
   }
 
   console.log(

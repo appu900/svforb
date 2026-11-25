@@ -258,11 +258,36 @@ model TeamMember {
   userId Int
 }
 
+/// Product module a plan sells. COMPLETE grants both MFC and CONNECT.
+enum BillingModule {
+  MFC
+  CONNECT
+  COMPLETE
+}
+
+/// Which plans screen a plan belongs to.
+enum PlanScope {
+  SINGLE
+  MULTI
+  ENTERPRISE
+}
+
 model SubscriptionPlan {
   id          Int     @id @default(autoincrement())
   name        String  @unique
   displayName String
   description String?
+
+  /// Module this plan sells. Legacy tiers (Single Site, Multi Site) are CONNECT.
+  module      BillingModule @default(CONNECT)
+  scope       PlanScope     @default(SINGLE)
+  /// 0 means the plan is never offered as a free trial (Make Food Count)
+  trialDays   Int           @default(0)
+  /// Card copy: headline under the name, and the closing line under the bullets
+  tagline     String?
+  closingLine String?
+  /// Pill shown on the card, e.g. "Best value"
+  badge       String?
 
   /// null means unlimited (Enterprise)
   maxSites       Int?

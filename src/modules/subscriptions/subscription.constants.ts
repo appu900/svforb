@@ -1,4 +1,4 @@
-import { OrgType, SubscriptionStatus } from '@prisma/client';
+import { BillingModule, OrgType, SubscriptionStatus } from '@prisma/client';
 
 /**
  * Org types that receive food. The platform is free for them for life —
@@ -56,6 +56,8 @@ export const FEATURE = {
   COST_SAVING_INSIGHTS: 'cost_saving_insights',
   ESG_REPORTS: 'esg_reports',
   PRIORITY_SUPPORT: 'priority_support',
+  MODULE_MFC: 'module_mfc',
+  MODULE_CONNECT: 'module_connect',
 } as const;
 
 export type FeatureKey = (typeof FEATURE)[keyof typeof FEATURE];
@@ -74,4 +76,32 @@ export const BILLING_ERROR = {
   SITE_LIMIT_REACHED: 'SITE_LIMIT_REACHED',
   USER_LIMIT_REACHED: 'USER_LIMIT_REACHED',
   FEATURE_NOT_IN_PLAN: 'FEATURE_NOT_IN_PLAN',
+  /// The plan does not include the module this route belongs to
+  MODULE_REQUIRED: 'MODULE_REQUIRED',
+  /// /billing/trial was called for a plan sold without a free trial (Make Food Count)
+  TRIAL_NOT_OFFERED: 'TRIAL_NOT_OFFERED',
 } as const;
+
+/** A module an org can hold. COMPLETE is a plan, not a module: it grants both. */
+export type ProductModule = 'MFC' | 'CONNECT';
+
+export const ALL_MODULES: readonly ProductModule[] = ['MFC', 'CONNECT'];
+
+/** The modules a plan's `module` grants. */
+export function expandModules(module: BillingModule | null | undefined): ProductModule[] {
+  switch (module) {
+    case BillingModule.MFC:
+      return ['MFC'];
+    case BillingModule.CONNECT:
+      return ['CONNECT'];
+    case BillingModule.COMPLETE:
+      return ['MFC', 'CONNECT'];
+    default:
+      return [];
+  }
+}
+
+export const MODULE_DISPLAY_NAME: Record<ProductModule, string> = {
+  MFC: 'Make Food Count',
+  CONNECT: 'Saveful Connect',
+};

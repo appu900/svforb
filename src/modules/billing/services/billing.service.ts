@@ -29,12 +29,8 @@ import {
   EnterpriseEnquiryDto,
   StartTrialDto,
 } from '../dto/billing.dto';
+import { ChangeKind, PlanChange, resolvePlanChange } from '../plan-change.rules';
 import { currencyForRegion, STRIPE_CURRENCY_INR, StripeService } from './stripe.service';
-
-const TRIAL_DAYS = 30;
-
-/** Immediate and prorated, or deferred to the period end. */
-type ChangeDirection = 'UPGRADE' | 'DOWNGRADE';
 
 /**
  * Billing period moved off Subscription and onto its items in recent Stripe API
@@ -62,7 +58,7 @@ export class BillingService {
   // ─── Free trial (no card required up front) ────────────────────────────────
 
   /**
-   * Starts the 30-day trial through Stripe Checkout without collecting a card.
+   * Starts the plan's free trial through Stripe Checkout without collecting a card.
    * Card details are collected later when the trial ends / when they subscribe.
    *
    * `freeTrialUsedAt` is stamped by the webhook rather than here, so abandoning
@@ -78,6 +74,16 @@ export class BillingService {
     }
 
     const plan = await this.assertPurchasablePlan(dto.planId, caller);
+
+    // Make Food Count is sold without a trial; the client falls back to checkout.
+    if (plan.trialDays <= 0) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: BILLING_ERROR.TRIAL_NOT_OFFERED,
+        message: `${plan.displayName} is not offered as a free trial. Start a subscription instead.`,
+      });
+    }
+
     await this.assertNoLiveSubscription(org.id);
 
     const session = await this.buildCheckoutSession({
@@ -85,14 +91,14 @@ export class BillingService {
       org,
       plan,
       billingCycle: dto.billingCycle ?? BillingCycle.MONTHLY,
-      trialDays: TRIAL_DAYS,
+      trialDays: plan.trialDays,
     });
 
     return {
       ...session,
-      trialDays: TRIAL_DAYS,
+      trialDays: plan.trialDays,
       message:
-        `Your free trial lasts ${TRIAL_DAYS} days — no card needed to start. ` +
+        `Your free trial lasts ${plan.trialDays} days — no card needed to start. ` +
         'Add a payment method before the trial ends to keep your plan active.',
     };
   }
@@ -195,7 +201,7 @@ export class BillingService {
     const newPlan = await this.assertPurchasablePlan(dto.planId, caller);
 
     const targetCycle = dto.billingCycle ?? sub.billingCycle;
-    const direction = this.resolveDirection(
+    const change = this.resolveDirection(
       sub.plan,
       newPlan,
       sub.billingCycle,
@@ -203,7 +209,7 @@ export class BillingService {
       org.region,
     );
 
-    if (!direction) {
+    if (!change) {
       throw new ConflictException({
         statusCode: HttpStatus.CONFLICT,
         error: BILLING_ERROR.ALREADY_ON_PLAN,
@@ -217,9 +223,18 @@ export class BillingService {
     // Any decision supersedes a downgrade the org scheduled earlier.
     await this.releaseSchedule(sub.organisationId, sub.stripeScheduleId);
 
-    return direction === 'UPGRADE'
-      ? this.applyImmediateChange(sub, newPlan, targetCycle, priceData, quantity)
-      : this.scheduleChangeAtPeriodEnd(sub, newPlan, targetCycle, priceData, quantity);
+    const result =
+      change.direction === 'UPGRADE'
+        ? await this.applyImmediateChange(sub, newPlan, targetCycle, priceData, quantity)
+        : await this.scheduleChangeAtPeriodEnd(
+            sub,
+            newPlan,
+            targetCycle,
+            priceData,
+            quantity,
+            change.kind,
+          );
+    return { ...result, changeType: change.kind };
   }
 
   /** What the org would be charged today if it confirmed the change. */
@@ -229,7 +244,7 @@ export class BillingService {
     const newPlan = await this.assertPurchasablePlan(dto.planId, caller);
 
     const targetCycle = dto.billingCycle ?? sub.billingCycle;
-    const direction = this.resolveDirection(
+    const change = this.resolveDirection(
       sub.plan,
       newPlan,
       sub.billingCycle,
@@ -237,7 +252,7 @@ export class BillingService {
       org.region,
     );
 
-    if (!direction) {
+    if (!change) {
       throw new ConflictException({
         statusCode: HttpStatus.CONFLICT,
         error: BILLING_ERROR.ALREADY_ON_PLAN,
@@ -250,10 +265,11 @@ export class BillingService {
     const recurringAmount = ((priceData.unit_amount ?? 0) * quantity) / 100;
     const currency = priceData.currency.toUpperCase();
 
-    // A downgrade bills nothing now — the whole point is that it waits.
-    if (direction === 'DOWNGRADE') {
+    // A downgrade or switch bills nothing now — the whole point is that it waits.
+    if (change.direction === 'DOWNGRADE') {
       return {
-        direction,
+        direction: change.direction,
+        changeType: change.kind,
         currency,
         amountDueToday: 0,
         recurringAmount,
@@ -276,6 +292,25 @@ export class BillingService {
     // anchors the first paid period to today, so billing_cycle_anchor would
     // conflict with the still-open trial_end.
     const isTrialing = stripeSub.status === 'trialing';
+
+    // Moving to another plan that has a trial (Saveful Connect → Complete)
+    // keeps the trial running, so nothing is billed and no card is needed.
+    if (isTrialing && newPlan.trialDays > 0) {
+      const trialEnd = stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null;
+      return {
+        direction: change.direction,
+        changeType: change.kind,
+        currency,
+        amountDueToday: 0,
+        recurringAmount,
+        effectiveAt: new Date(),
+        nextBillingDate: trialEnd,
+        planDisplayName: newPlan.displayName,
+        billingCycle: targetCycle,
+        requiresPaymentMethod: false,
+        endsTrialEarly: false,
+      };
+    }
 
     // Ending a trial bills immediately, and the trial was started without a
     // card. Say so here rather than quoting a price the customer cannot pay —
@@ -307,7 +342,8 @@ export class BillingService {
     }
 
     return {
-      direction,
+      direction: change.direction,
+      changeType: change.kind,
       currency: (preview.currency ?? priceData.currency).toUpperCase(),
       amountDueToday: (preview.amount_due ?? 0) / 100,
       recurringAmount,
@@ -405,17 +441,23 @@ export class BillingService {
       throw new BadRequestException('Your subscription has no billable item to change.');
     }
 
+    const isTrialing = stripeSub.status === 'trialing';
+    // Upgrading to a plan that is itself trialled (Saveful Connect → Complete)
+    // swaps the plan and leaves the trial running: nothing to bill, no card.
+    const keepsTrial = isTrialing && newPlan.trialDays > 0;
+
     // Refuse before the trial is ended rather than after. Stripe would reject
     // the update anyway, but its message reads as a declined card, which is
     // misleading for someone who never had one.
-    if (stripeSub.status === 'trialing' && !(await this.hasPaymentMethod(stripeSub))) {
+    if (isTrialing && !keepsTrial && !(await this.hasPaymentMethod(stripeSub))) {
       this.paymentMethodRequired();
     }
 
     // Ending a trial anchors the first paid period to today on its own, so
     // setting billing_cycle_anchor as well would conflict.
-    const timing: Stripe.SubscriptionUpdateParams =
-      stripeSub.status === 'trialing'
+    const timing: Stripe.SubscriptionUpdateParams = keepsTrial
+      ? { proration_behavior: 'none' }
+      : isTrialing
         ? { trial_end: 'now', proration_behavior: 'none' }
         : { billing_cycle_anchor: 'now', proration_behavior: 'always_invoice' };
 
@@ -457,14 +499,19 @@ export class BillingService {
         `cycle=${billingCycle} qty=${quantity}`,
     );
 
+    const trialEnd = keepsTrial && updated.trial_end ? new Date(updated.trial_end * 1000) : null;
+
     return {
       type: 'UPGRADED' as const,
       planId: newPlan.id,
       planDisplayName: newPlan.displayName,
       billingCycle,
       effectiveAt: new Date(),
-      nextBillingDate: periodEnd,
-      message: `You're now on ${newPlan.displayName}. Your new billing cycle starts today.`,
+      nextBillingDate: trialEnd ?? periodEnd,
+      message: keepsTrial
+        ? `You're now on ${newPlan.displayName}. Your free trial continues` +
+          (trialEnd ? ` until ${trialEnd.toDateString()}.` : '.')
+        : `You're now on ${newPlan.displayName}. Your new billing cycle starts today.`,
     };
   }
 
@@ -474,6 +521,7 @@ export class BillingService {
     billingCycle: BillingCycle,
     priceData: Stripe.SubscriptionUpdateParams.Item.PriceData,
     quantity: number,
+    kind: ChangeKind = 'DOWNGRADE',
   ) {
     const stripe = this.stripeService.stripe;
 
@@ -541,7 +589,7 @@ export class BillingService {
     });
 
     this.logger.log(
-      `Plan downgrade scheduled: org=${sub.organisationId} plan=${newPlan.name} ` +
+      `Plan ${kind.toLowerCase()} scheduled: org=${sub.organisationId} plan=${newPlan.name} ` +
         `effective=${effectiveAt.toISOString()} schedule=${updated.id}`,
     );
 
@@ -553,7 +601,7 @@ export class BillingService {
       effectiveAt,
       nextBillingDate: effectiveAt,
       message:
-        `You'll move to ${newPlan.displayName} on ` +
+        `You'll ${kind === 'SWITCH' ? 'switch' : 'move'} to ${newPlan.displayName} on ` +
         `${effectiveAt.toDateString()}. Nothing is charged today.`,
     };
   }
@@ -733,22 +781,16 @@ export class BillingService {
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
   /**
-   * Multi Site is a flat fee for up to 10 locations. A site cap is not a
-   * Stripe quantity multiplier.
+   * Whether Stripe quantity tracks site count. The module multi-site plans bill
+   * per site; the legacy flat-fee Multi Site is seeded with isPerSite false.
    */
-  private chargesPerSite(plan: {
-    isPerSite: boolean;
-    name?: string;
-    maxSites?: number | null;
-  }) {
-    if (plan.name === 'MULTI_SITE') return false;
-    if (plan.maxSites != null && plan.maxSites > 1) return false;
+  private chargesPerSite(plan: { isPerSite: boolean }) {
     return plan.isPerSite;
   }
 
   private async resolveQuantity(
     orgId: number,
-    plan: { isPerSite: boolean; name?: string; maxSites?: number | null },
+    plan: { isPerSite: boolean },
   ): Promise<number> {
     if (!this.chargesPerSite(plan)) return 1;
     const siteCount = await this.prisma.site.count({ where: { organisationId: orgId } });
@@ -756,14 +798,14 @@ export class BillingService {
   }
 
   /**
-   * Keeps Stripe quantity aligned with the plan. Multi Site stays at quantity
-   * 1 (A$89 for up to 10 locations). Failures are logged, not thrown.
+   * Keeps Stripe quantity aligned with the plan: site count on per-site plans,
+   * 1 otherwise (legacy Multi Site is a flat fee). Failures are logged, not thrown.
    */
   async syncSiteQuantity(orgId: number): Promise<void> {
     try {
       const sub = await this.prisma.orgSubscription.findUnique({
         where: { organisationId: orgId },
-        include: { plan: { select: { isPerSite: true, name: true, maxSites: true } } },
+        include: { plan: { select: { isPerSite: true, name: true } } },
       });
 
       if (!sub?.stripeSubscriptionId) return;
@@ -853,27 +895,27 @@ export class BillingService {
     return product.id;
   }
 
-  /**
-   * Tier is compared on the monthly list price so the answer does not depend on
-   * which cycle either side is billed at. When the tier is unchanged, moving to
-   * annual is a prepayment (immediate) and moving to monthly is a step down.
-   */
+  /** Module first, then monthly list price, then cycle — see plan-change.rules.ts. */
   private resolveDirection(
     currentPlan: SubscriptionPlan,
     newPlan: SubscriptionPlan,
     currentCycle: BillingCycle,
     newCycle: BillingCycle,
     region: Region | null,
-  ): ChangeDirection | null {
-    const tierDelta = this.tierAmount(newPlan, region) - this.tierAmount(currentPlan, region);
-    if (tierDelta > 0) return 'UPGRADE';
-    if (tierDelta < 0) return 'DOWNGRADE';
-
-    if (currentCycle === newCycle) return null;
-    return newCycle === BillingCycle.ANNUAL ? 'UPGRADE' : 'DOWNGRADE';
+  ): PlanChange | null {
+    return resolvePlanChange({
+      currentPlan,
+      newPlan,
+      currentCycle,
+      newCycle,
+      tierAmount: (plan) => this.tierAmount(plan as SubscriptionPlan, region),
+    });
   }
 
-  private tierAmount(plan: SubscriptionPlan, region: Region | null): number {
+  private tierAmount(
+    plan: Pick<SubscriptionPlan, 'priceMonthly' | 'priceMonthlyInr'>,
+    region: Region | null,
+  ): number {
     const isInr = currencyForRegion(region) === STRIPE_CURRENCY_INR;
     return (isInr ? plan.priceMonthlyInr : plan.priceMonthly) ?? 0;
   }

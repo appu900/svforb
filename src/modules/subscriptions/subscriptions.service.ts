@@ -55,7 +55,7 @@ export class SubscriptionsService {
       caller.orgId
         ? this.prisma.organisation.findUnique({
             where: { id: caller.orgId },
-            select: { region: true },
+            select: { region: true, freeTrialUsedAt: true },
           })
         : null,
       this.prisma.subscriptionPlan.findMany({
@@ -74,6 +74,8 @@ export class SubscriptionsService {
     // India sees INR pricing; every other region sees the base AUD pricing.
     const isIndia = org?.region === Region.IN;
     const currency = isIndia ? 'INR' : 'AUD';
+    // One free trial per organisation, and only on plans that offer one.
+    const trialUnused = !org?.freeTrialUsedAt;
 
     return {
       billingRequired: true,
@@ -83,6 +85,13 @@ export class SubscriptionsService {
         name: p.name,
         displayName: p.displayName,
         description: p.description,
+        module: p.module,
+        scope: p.scope,
+        trialDays: p.trialDays,
+        trialAvailable: trialUnused && p.trialDays > 0 && !p.contactSalesOnly,
+        tagline: p.tagline,
+        closingLine: p.closingLine,
+        badge: p.badge,
         priceMonthly: isIndia ? p.priceMonthlyInr : p.priceMonthly,
         priceAnnual: isIndia ? p.priceAnnualInr : p.priceAnnual,
         currency,

@@ -604,7 +604,7 @@ Verify email
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/v1/billing/cancel` | Bearer | Ends the plan at the close of the paid period — access continues until then. |
-| `POST` | `/api/v1/billing/change-plan` | Bearer | Switches an already-subscribed org between plans. Upgrades bill the |
+| `POST` | `/api/v1/billing/change-plan` | Bearer | Switches plans: gaining a module bills now, losing or switching one waits. |
 | `DELETE` | `/api/v1/billing/change-plan/pending` | Bearer | Cancel pending change |
 | `POST` | `/api/v1/billing/change-plan/preview` | Bearer | Dry run of `change-plan` — backs the confirmation dialog. |
 | `POST` | `/api/v1/billing/checkout` | Bearer | Returns a Stripe-hosted Checkout URL for the client to redirect to. |
@@ -612,7 +612,7 @@ Verify email
 | `GET` | `/api/v1/billing/payments` | Bearer | List payments |
 | `POST` | `/api/v1/billing/portal` | Bearer | Stripe billing portal — card updates, invoices, self-serve cancellation. |
 | `POST` | `/api/v1/billing/resume` | Bearer | Undoes a scheduled cancellation before the period closes. |
-| `POST` | `/api/v1/billing/trial` | Bearer | Starts the 30-day trial. Returns a Checkout URL — no card is required up |
+| `POST` | `/api/v1/billing/trial` | Bearer | Starts the plan's free trial (400 TRIAL_NOT_OFFERED for Make Food Count). |
 
 
 ### `POST` /api/v1/billing/cancel
@@ -624,7 +624,7 @@ Ends the plan at the close of the paid period — access continues until then.
 
 ### `POST` /api/v1/billing/change-plan
 
-Switches an already-subscribed org between plans. Upgrades bill the
+Switches plans: gaining a module bills now, losing or switching one waits.
 
 **Auth:** Bearer token required
 
@@ -714,7 +714,7 @@ Undoes a scheduled cancellation before the period closes.
 
 ### `POST` /api/v1/billing/trial
 
-Starts the 30-day trial. Returns a Checkout URL — no card is required up
+Starts the plan's free trial (400 TRIAL_NOT_OFFERED for Make Food Count).
 
 **Auth:** Bearer token required
 
@@ -4001,8 +4001,8 @@ Handle stripe
 |---|---|---|---|
 | `GET` | `/api/v1/subscriptions` | Public | Find all |
 | `POST` | `/api/v1/subscriptions` | Bearer | Create |
-| `GET` | `/api/v1/subscriptions/available` | Bearer | Plans offered to the caller's organisation type. |
-| `GET` | `/api/v1/subscriptions/me` | Bearer | What the caller's organisation is currently allowed to do. |
+| `GET` | `/api/v1/subscriptions/available` | Bearer | Plans offered to the caller's organisation type, with module, scope and trial availability. |
+| `GET` | `/api/v1/subscriptions/me` | Bearer | What the caller's organisation may do, including which modules (MFC, CONNECT) it holds. |
 | `GET` | `/api/v1/subscriptions/{id}` | Public | Find one |
 | `PATCH` | `/api/v1/subscriptions/{id}` | Bearer | Update |
 | `DELETE` | `/api/v1/subscriptions/{id}` | Bearer | Remove |
@@ -4044,14 +4044,14 @@ Create
 
 ### `GET` /api/v1/subscriptions/available
 
-Plans offered to the caller's organisation type.
+Plans offered to the caller's organisation type, with module, scope and trial availability.
 
 **Auth:** Bearer token required
 
 
 ### `GET` /api/v1/subscriptions/me
 
-What the caller's organisation is currently allowed to do.
+What the caller's organisation may do, including which modules (MFC, CONNECT) it holds.
 
 **Auth:** Bearer token required
 

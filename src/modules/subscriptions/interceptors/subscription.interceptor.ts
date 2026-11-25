@@ -8,9 +8,10 @@ import { Reflector } from '@nestjs/core';
 import { PlatformRole } from '@prisma/client';
 import { Observable } from 'rxjs';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
+import { REQUIRES_MODULE } from '../decorators/requires-module.decorator';
 import { SKIP_SUBSCRIPTION_CHECK } from '../decorators/skip-subscription-check.decorator';
 import { SubscriptionAccessService } from '../services/subscription-access.service';
-import { requiresBilling } from '../subscription.constants';
+import { ProductModule, requiresBilling } from '../subscription.constants';
 
 /** Reads never require a plan — an unsubscribed org keeps view-only access. */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -24,7 +25,9 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * `request.user`. Interceptors run after all guards, so the JWT is available.
  *
  * Applied as an APP_INTERCEPTOR, so new controllers are covered by default —
- * opt out explicitly with @SkipSubscriptionCheck().
+ * opt out explicitly with @SkipSubscriptionCheck(). Routes marked
+ * @RequiresModule() additionally need that module in the plan (402
+ * MODULE_REQUIRED), e.g. Make Food Count records or Saveful Connect listings.
  */
 @Injectable()
 export class SubscriptionInterceptor implements NestInterceptor {
@@ -57,7 +60,14 @@ export class SubscriptionInterceptor implements NestInterceptor {
     // Charities and farmer consumers are free for life.
     if (!requiresBilling(user.orgType)) return next.handle();
 
-    await this.access.assertEntitled(user);
+    const module = this.reflector.getAllAndOverride<ProductModule | undefined>(REQUIRES_MODULE, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    // assertModule runs the entitlement check first, so its codes are unchanged.
+    if (module) await this.access.assertModule(user, module);
+    else await this.access.assertEntitled(user);
     return next.handle();
   }
 }

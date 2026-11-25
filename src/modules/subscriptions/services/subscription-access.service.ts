@@ -1,12 +1,16 @@
 import { ForbiddenException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { BillingCycle, SubscriptionStatus } from '@prisma/client';
+import { BillingCycle, BillingModule, PlanScope, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { Jwtpayload } from '../../auth/interface/jwt.interface';
 import {
+  ALL_MODULES,
   BILLING_ERROR,
   ENTITLING_STATUSES,
+  expandModules,
   FeatureKey,
   isFreeForever,
+  MODULE_DISPLAY_NAME,
+  ProductModule,
   requiresBilling,
 } from '../subscription.constants';
 
@@ -19,6 +23,14 @@ export interface Entitlements {
   planId: number | null;
   planName: string | null;
   planDisplayName: string | null;
+  /** Module the plan sells (COMPLETE = both). null without a plan */
+  planModule: BillingModule | null;
+  planScope: PlanScope | null;
+  /**
+   * Modules the org may use right now. Empty unless entitled. Orgs that are
+   * never billed get every module; their own access rules still apply.
+   */
+  modules: ProductModule[];
   billingCycle: BillingCycle | null;
   /** Billed site count for per-site plans */
   quantity: number | null;
@@ -45,6 +57,9 @@ const UNLIMITED_FREE: Omit<Entitlements, 'billingRequired' | 'entitled'> = {
   planId: null,
   planName: null,
   planDisplayName: null,
+  planModule: null,
+  planScope: null,
+  modules: [...ALL_MODULES],
   billingCycle: null,
   quantity: null,
   maxSites: null,
@@ -90,6 +105,8 @@ export class SubscriptionAccessService {
               id: true,
               name: true,
               displayName: true,
+              module: true,
+              scope: true,
               maxSites: true,
               maxUserPerSite: true,
               planFeatures: { where: { included: true }, select: { key: true } },
@@ -111,19 +128,25 @@ export class SubscriptionAccessService {
         billingRequired: true,
         entitled: false,
         ...UNLIMITED_FREE,
+        modules: [],
         maxSites: 0,
         maxUserPerSite: 0,
         freeTrialAvailable,
       };
     }
 
+    const entitled = ENTITLING_STATUSES.includes(sub.status);
+
     return {
       billingRequired: true,
-      entitled: ENTITLING_STATUSES.includes(sub.status),
+      entitled,
       status: sub.status,
       planId: sub.plan.id,
       planName: sub.plan.name,
       planDisplayName: sub.plan.displayName,
+      planModule: sub.plan.module,
+      planScope: sub.plan.scope,
+      modules: entitled ? expandModules(sub.plan.module) : [],
       billingCycle: sub.billingCycle,
       quantity: sub.quantity,
       maxSites: sub.plan.maxSites,
@@ -216,6 +239,33 @@ export class SubscriptionAccessService {
         current,
       });
     }
+  }
+
+  /**
+   * Throws 402 MODULE_REQUIRED when the org's plan does not include `module`.
+   * Lapsed or missing plans fail `assertEntitled` first, with its own codes.
+   */
+  async assertModule(caller: Jwtpayload, module: ProductModule): Promise<Entitlements> {
+    const ent = await this.assertEntitled(caller);
+    if (!ent.billingRequired || ent.modules.includes(module)) return ent;
+
+    throw new HttpException(
+      {
+        statusCode: HttpStatus.PAYMENT_REQUIRED,
+        error: BILLING_ERROR.MODULE_REQUIRED,
+        message:
+          `Your ${ent.planDisplayName ?? 'current'} plan does not include ${MODULE_DISPLAY_NAME[module]}. ` +
+          `Add it to your plan to continue.`,
+        module,
+      },
+      HttpStatus.PAYMENT_REQUIRED,
+    );
+  }
+
+  /** Non-throwing variant of `assertModule`. */
+  async hasModule(caller: Jwtpayload, module: ProductModule): Promise<boolean> {
+    const ent = await this.getEntitlements(caller);
+    return ent.modules.includes(module);
   }
 
   /** Throws when the plan does not include `feature`. */

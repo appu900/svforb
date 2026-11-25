@@ -24,6 +24,7 @@ import { SiteNotificationService } from '../services/site.notification.service';
 import { ListingStatus } from '@prisma/client';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { InvalidatesCache, NoCache } from '../../../infra/http-cache/http-cache.decorators';
+import { RequiresModule } from '../../subscriptions/decorators/requires-module.decorator';
 
 @Controller('food-listings')
 @UseGuards(JwtAuthGuard)
@@ -35,11 +36,13 @@ export class FoodListingController {
   ) {}
 
   @Post('photos')
+  @RequiresModule('CONNECT')
   presignPhoto(@Body() dto: PresignListingPhotoDto) {
     return this.service.presignListingPhoto(dto.contentType);
   }
 
   @Post()
+  @RequiresModule('CONNECT')
   @UseInterceptors(FilesInterceptor('photos', 5))
   create(
     @Req() req: Request & { user: Jwtpayload },
@@ -131,6 +134,7 @@ export class FoodListingController {
   }
 
   @Delete(':id')
+  @RequiresModule('CONNECT')
   cancel(
     @Req() req: Request & { user: Jwtpayload },
     @Param('id', ParseIntPipe) id: number,

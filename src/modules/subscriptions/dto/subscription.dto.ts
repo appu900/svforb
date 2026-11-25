@@ -1,4 +1,4 @@
-import { OrgType } from '@prisma/client';
+import { BillingModule, OrgType, PlanScope } from '@prisma/client';
 import {
   IsArray,
   IsBoolean,
@@ -16,6 +16,14 @@ export class CreateSubscriptionPlanDto {
   @IsString() @IsNotEmpty() displayName!: string;
   @IsString() @IsOptional() description?: string;
 
+  @IsEnum(BillingModule) @IsOptional() module?: BillingModule;
+  @IsEnum(PlanScope) @IsOptional() scope?: PlanScope;
+  /** 0 = sold without a free trial. */
+  @IsInt() @Min(0) @IsOptional() trialDays?: number;
+  @IsString() @IsOptional() tagline?: string;
+  @IsString() @IsOptional() closingLine?: string;
+  @IsString() @IsOptional() badge?: string;
+
   /** Omit for unlimited (Enterprise). */
   @IsInt() @Min(1) @IsOptional() maxSites?: number;
   /** Omit for unlimited (Multi Site, Enterprise). */
@@ -29,7 +37,7 @@ export class CreateSubscriptionPlanDto {
   @IsNumber() @Min(0) @IsOptional() priceMonthlyInr?: number;
   @IsNumber() @Min(0) @IsOptional() priceAnnualInr?: number;
 
-  /** When true, Stripe quantity tracks site count. Multi Site is a flat fee (false). */
+  /** When true, Stripe quantity tracks site count. Legacy Multi Site is a flat fee (false). */
   @IsBoolean() @IsOptional() isPerSite?: boolean;
 
   /** Excluded from Checkout; the client routes to an enquiry form. */
@@ -47,6 +55,14 @@ export class CreateSubscriptionPlanDto {
 export class UpdateSubscriptionPlanDto {
   @IsString() @IsNotEmpty() @IsOptional() displayName?: string;
   @IsString() @IsOptional() description?: string;
+
+  @IsEnum(BillingModule) @IsOptional() module?: BillingModule;
+  @IsEnum(PlanScope) @IsOptional() scope?: PlanScope;
+  /** 0 = sold without a free trial. */
+  @IsInt() @Min(0) @IsOptional() trialDays?: number;
+  @IsString() @IsOptional() tagline?: string;
+  @IsString() @IsOptional() closingLine?: string;
+  @IsString() @IsOptional() badge?: string;
 
   @IsInt() @Min(1) @IsOptional() maxSites?: number;
   @IsInt() @Min(1) @IsOptional() maxUserPerSite?: number;

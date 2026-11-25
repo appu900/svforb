@@ -35,7 +35,7 @@ export class SubscriptionsController {
     private readonly access: SubscriptionAccessService,
   ) {}
 
-  /** Plans offered to the caller's organisation type. */
+  /** Plans offered to the caller's organisation type, with module, scope and trial availability. */
   @Get('available')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('bearer')
@@ -43,7 +43,7 @@ export class SubscriptionsController {
     return this.subscriptionsService.findAvailableForCaller(req.user);
   }
 
-  /** What the caller's organisation is currently allowed to do. */
+  /** What the caller's organisation may do, including which modules (MFC, CONNECT) it holds. */
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('bearer')
